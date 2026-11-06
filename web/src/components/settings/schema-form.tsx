@@ -122,7 +122,7 @@ function Row({
   return (
     <div
       className={cn(
-        "grid gap-x-8 gap-y-2 py-3.5",
+        "grid grid-cols-1 gap-x-8 gap-y-2 py-3.5",
         block ? "grid-cols-1" : "sm:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]",
         inline && "grid-cols-[minmax(0,1fr)_auto] sm:grid-cols-[minmax(0,1fr)_auto]",
       )}

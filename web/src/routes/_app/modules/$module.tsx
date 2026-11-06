@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
-import { createFileRoute, notFound } from "@tanstack/react-router";
+import { createFileRoute, Link, notFound } from "@tanstack/react-router";
 import { format } from "date-fns";
-import { CircleAlert } from "lucide-react";
+import { ArrowLeft, CircleAlert } from "lucide-react";
 import { Suspense } from "react";
 import { api, data, type Schemas } from "@/api/client";
 import { AllowlistCard } from "@/components/allowlist-card";
@@ -12,6 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { listMeta, moduleMeta } from "@/lib/meta";
 import { modulesQuery, recordsQuery, settingsQuery } from "@/queries/modules";
+import { useChatNames } from "@/queries/names";
 
 export const Route = createFileRoute("/_app/modules/$module")({
   loader: async ({ context, params }) => {
@@ -28,11 +29,14 @@ function ModulePage() {
   const m = modules.find((x) => x.id === id) as Schemas["Module"];
   const meta = moduleMeta(id);
   return (
-    <main className="min-w-0 px-5 py-7 sm:px-10">
-      <div className="flex flex-wrap items-center gap-4">
+    <main className="min-w-0 px-5 py-6 sm:px-10 sm:py-7">
+      <Link to="/modules" className="mb-4 inline-flex items-center gap-1 text-muted-foreground text-sm md:hidden">
+        <ArrowLeft className="size-4" /> Modules
+      </Link>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
         <Tile tone={meta.tone} icon={meta.icon} size="lg" />
-        <div className="min-w-0 flex-1">
-          <h1 className="font-bold text-[1.875rem] leading-tight tracking-[-0.035em]">{meta.title}</h1>
+        <div className="min-w-0 flex-1 basis-56">
+          <h1 className="font-bold text-2xl leading-tight tracking-[-0.035em] sm:text-[1.875rem]">{meta.title}</h1>
           <p className="text-muted-foreground text-sm">{meta.about}</p>
         </div>
         <Power module={m} />
@@ -46,7 +50,7 @@ function ModulePage() {
           </div>
         </div>
       )}
-      <div className="mt-6 grid items-start gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
+      <div className="mt-6 grid grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
         <Suspense fallback={<Skeleton className="h-96 w-full rounded-2xl" />}>
           <SettingsCard module={id} />
         </Suspense>
@@ -91,6 +95,7 @@ function Power({ module: m }: { module: Schemas["Module"] }) {
 
 function Activity({ module: m }: { module: Schemas["Module"] }) {
   const { data: records } = useQuery(recordsQuery(m.id));
+  const chatName = useChatNames();
   const stats = [
     { label: "Completed", value: m.counts.completed },
     { label: "Slow", value: m.counts.slow },
@@ -116,7 +121,9 @@ function Activity({ module: m }: { module: Schemas["Module"] }) {
             <StatusDot tone={outcomeTone(r.outcome)} />
             <span className="min-w-0 flex-1 truncate font-mono text-xs">
               {r.kind}
-              {r.conversation && <span className="text-muted-foreground"> · {r.conversation}</span>}
+              {r.conversation && (
+                <span className="font-sans text-muted-foreground"> · {chatName(r.platform, r.conversation)}</span>
+              )}
             </span>
             <time className="font-mono text-[11.5px] text-muted-foreground" dateTime={r.at}>
               {format(new Date(r.at), "MMM d HH:mm:ss")}

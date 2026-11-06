@@ -61,7 +61,7 @@ telegram-smoke:
 quality: generated lint web-lint web-typecheck web test-race test-fuzz-smoke smoke
 
 # Deploy the current checkout to the test host, or restore its previous binary.
-deploy:
+deploy: web
 	$(DEPLOY_ENV) ./scripts/deploy.sh
 
 deploy-rollback:

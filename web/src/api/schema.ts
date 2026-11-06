@@ -555,6 +555,34 @@ export interface components {
             address?: string;
             display_name?: string;
         };
+        DriverStatus: {
+            account: string;
+            /** @description Everything the driver reports, as it reports it. */
+            details: unknown;
+            error?: string;
+            /**
+             * Format: int64
+             * @description Updates that could not be handled.
+             */
+            failed_inbox: number;
+            /**
+             * Format: int64
+             * @description Times the platform said updates were missed.
+             */
+            gaps: number;
+            /**
+             * Format: date-time
+             * @description When the event log last received an event from it.
+             */
+            last_event?: string;
+            /**
+             * Format: int64
+             * @description Updates stored and not yet handled.
+             */
+            pending_inbox: number;
+            platform: string;
+            ready: boolean;
+        };
         EmbeddedMessage: {
             reference?: string;
             summary?: string;
@@ -616,6 +644,16 @@ export interface components {
              */
             type: string;
         };
+        EventLogStatus: {
+            last_error?: string;
+            /** Format: date-time */
+            last_error_at?: string;
+            ok: boolean;
+            /** Format: int64 */
+            oldest_retained: number;
+            /** Format: int64 */
+            retention_ms: number;
+        };
         EventRef: {
             account?: string;
             conversation?: string;
@@ -635,12 +673,24 @@ export interface components {
             chats: components["schemas"]["ListedChat"][];
         };
         "Get-traceResponse": {
-            records: components["schemas"]["Entry"][] | null;
+            records: components["schemas"]["Entry"][];
         };
         Interactive: {
             action_id?: string;
             label?: string;
             layout?: string;
+        };
+        KernelStatus: {
+            /**
+             * Format: int64
+             * @description Events admitted and not yet finished.
+             */
+            in_flight: number;
+            /** Format: int64 */
+            max_in_flight: number;
+            state: string;
+            /** Format: int64 */
+            workers: number;
         };
         "List-chat-messagesResponse": {
             messages: components["schemas"]["ChatMessage"][] | null;
@@ -743,7 +793,7 @@ export interface components {
             more: boolean;
             /** Format: int64 */
             oldest_retained: number;
-            records: components["schemas"]["Entry"][] | null;
+            records: components["schemas"]["Entry"][];
         };
         Part: {
             annotations?: components["schemas"]["Annotation"][] | null;
@@ -839,6 +889,16 @@ export interface components {
         };
         SignedInOutputBody: {
             passkey: string;
+        };
+        Status: {
+            drivers: components["schemas"]["DriverStatus"][];
+            event_log: components["schemas"]["EventLogStatus"];
+            kernel: components["schemas"]["KernelStatus"];
+            /** @description Whether every driver is ready. */
+            ready: boolean;
+            /** Format: date-time */
+            started_at: string;
+            version: string;
         };
         "Switch-moduleRequest": {
             enabled: boolean;
@@ -1807,7 +1867,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["Status"];
                 };
             };
             /** @description Error */

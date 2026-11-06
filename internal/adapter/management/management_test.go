@@ -118,7 +118,7 @@ func TestHandler(t *testing.T) {
 	ready := false
 	handler, err := newHandler(ServerConfig{
 		Events: l, Token: "secret",
-		Status:   func(context.Context) any { return map[string]string{"version": "test"} },
+		Status:   func(context.Context) Status { return Status{Version: "test"} },
 		Ready:    func() bool { return ready },
 		Shutdown: func() { shutdown <- struct{}{} },
 	})

@@ -30,7 +30,7 @@ The API is built with [huma](https://huma.rocks): `GET /api/openapi.json` (or `.
 | --- | --- |
 | `GET /healthz` | Liveness |
 | `GET /readyz` | 200 when every driver is ready, else 503 |
-| `GET /api/status` | Version, uptime, kernel stats with each module's runs since start (completed, slow, failed, panicked), driver states with pending/failed inbox rows and gaps, event log health |
+| `GET /api/status` | Version and start time; each driver's readiness, error, last received event, waiting and failed inbox rows, gaps, and full report; the kernel's state and load; the event log's health and retention. Each module's runs since start are in `GET /api/modules`. |
 | `GET /api/events` | Records, newest first. Filters: `kind`, `component`, `event`, `platform`, `account`, `conversation`, `outcome`, `q` (text in payload), `since`, `until` (RFC 3339). `before=<id>` pages older; `after=<id>` polls newer. `limit` is at most 500 (default 100). The response has `records`, `more`, and `oldest_retained`. |
 | `GET /api/events/{id}/trace` | All records of one event, in order |
 | `POST /api/shutdown` | Graceful shutdown |

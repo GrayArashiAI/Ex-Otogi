@@ -2,13 +2,14 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient, useSuspenseQue
 import { createFileRoute, Link, notFound } from "@tanstack/react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { format, isToday, isYesterday } from "date-fns";
-import { ArrowLeft, Pencil } from "lucide-react";
+import { ArrowLeft, Pencil, ScrollText } from "lucide-react";
 import { useLayoutEffect, useRef, useState } from "react";
 import { ApiError, api, data, type Schemas } from "@/api/client";
 import { outcomeTone, StatusDot } from "@/components/status-dot";
 import { Tile } from "@/components/tile";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Sheet, SheetHeader, SheetPanel, SheetPopup, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { chatKind, chatName } from "@/lib/chats";
@@ -34,7 +35,7 @@ function ChatPage() {
   const { data: chat } = useSuspenseQuery(chatQuery(id));
   const p = platformMeta(chat.platform);
   return (
-    <div className="grid min-h-0 flex-1 lg:grid-cols-[minmax(0,1fr)_19rem]">
+    <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_19rem]">
       <section className="flex min-h-0 flex-col md:h-[calc(100svh-3.5rem)]">
         <header className="flex items-center gap-3 border-b px-4 py-3.5 sm:px-6">
           <Link
@@ -45,14 +46,35 @@ function ChatPage() {
             <ArrowLeft className="size-5" />
           </Link>
           <Tile tone={p.tone} icon={p.icon} />
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <h1 className="truncate font-semibold text-[17px] leading-tight tracking-[-0.01em]">{chatName(chat)}</h1>
             <span className="block truncate font-mono text-[11.5px] text-muted-foreground">{chat.id}</span>
           </div>
+          <Button
+            variant="outline"
+            size="sm"
+            render={<Link to="/events" search={{ conversation: chat.conversation }} />}
+          >
+            <ScrollText /> <span className="max-sm:sr-only">Open in event log</span>
+          </Button>
+          <Sheet>
+            <SheetTrigger render={<Button variant="outline" size="sm" className="lg:hidden" />}>About</SheetTrigger>
+            <SheetPopup>
+              <SheetHeader>
+                <SheetTitle>{chatName(chat)}</SheetTitle>
+              </SheetHeader>
+              <SheetPanel>
+                <About chat={chat} />
+              </SheetPanel>
+            </SheetPopup>
+          </Sheet>
         </header>
+        <div className="border-b px-4 py-2 lg:hidden">
+          <ModuleSwitches chat={chat} compact />
+        </div>
         <Conversation chat={id} />
       </section>
-      <aside className="flex flex-col gap-5 border-t px-4 py-5 lg:h-[calc(100svh-3.5rem)] lg:overflow-y-auto lg:border-t-0 lg:border-l">
+      <aside className="hidden flex-col gap-5 border-l px-4 py-5 lg:flex lg:h-[calc(100svh-3.5rem)] lg:overflow-y-auto">
         <ModuleSwitches chat={chat} />
         <About chat={chat} />
       </aside>
@@ -194,7 +216,7 @@ function MessageRow({
         {text && (
           <div
             className={cn(
-              "mt-1 w-fit whitespace-pre-wrap break-words rounded-[4px_14px_14px_14px] px-3 py-2 text-sm leading-relaxed",
+              "mt-1 w-fit whitespace-pre-wrap wrap-anywhere rounded-[4px_14px_14px_14px] px-3 py-2 text-sm leading-relaxed",
               m.bot ? "border bg-background shadow-xs/5" : "bg-neutral-100",
             )}
           >
@@ -249,7 +271,7 @@ function MediaPart({ chat, message, part }: { chat: string; message: number; par
   );
 }
 
-function ModuleSwitches({ chat }: { chat: Schemas["ChatOutputBody"] }) {
+function ModuleSwitches({ chat, compact }: { chat: Schemas["ChatOutputBody"]; compact?: boolean }) {
   const { data: modules } = useQuery(modulesQuery);
   const queryClient = useQueryClient();
   const toggle = useMutation({
@@ -269,13 +291,35 @@ function ModuleSwitches({ chat }: { chat: Schemas["ChatOutputBody"] }) {
   const lists = (modules ?? []).flatMap((m) =>
     m.allowlists.map((l, i) => ({ m, l, meta: listMeta(m.id, l.title, i) })),
   );
+  const on = (module: string, list: string) => chat.lists.some((x) => x.module === module && x.list === list);
+  if (compact) {
+    return (
+      <ul className="-mx-1 flex gap-2 overflow-x-auto px-1 py-0.5">
+        {lists.map(({ m, l, meta }) => (
+          <li
+            key={`${m.id}/${l.name}`}
+            className="flex flex-none items-center gap-2 rounded-full border bg-background py-1 ps-1 pe-1.5 shadow-xs/5"
+          >
+            <Tile tone={meta.tone} icon={meta.icon} size="sm" className="size-6 rounded-full" />
+            <span className="font-medium text-[13px]">{meta.title}</span>
+            <Switch
+              checked={on(m.id, l.name)}
+              disabled={toggle.isPending}
+              onCheckedChange={(v) => toggle.mutate({ module: m.id, list: l.name, on: v })}
+              aria-label={`${meta.title} answers in this chat`}
+            />
+          </li>
+        ))}
+      </ul>
+    );
+  }
   return (
     <section>
       <h2 className="mb-2 px-0.5 font-semibold text-[13px]">Modules in this chat</h2>
       <div className="surface-raised rounded-2xl px-3">
         <ul className="divide-y divide-border/80">
           {lists.map(({ m, l, meta }) => {
-            const on = chat.lists.some((x) => x.module === m.id && x.list === l.name);
+            const checked = on(m.id, l.name);
             const pending = toggle.isPending && toggle.variables.module === m.id && toggle.variables.list === l.name;
             return (
               <li key={`${m.id}/${l.name}`} className="flex items-center gap-2.5 py-2.5">
@@ -290,7 +334,7 @@ function ModuleSwitches({ chat }: { chat: Schemas["ChatOutputBody"] }) {
                   {!m.enabled && <span className="block text-muted-foreground text-xs">Module is off</span>}
                 </span>
                 <Switch
-                  checked={pending ? toggle.variables.on : on}
+                  checked={pending ? toggle.variables.on : checked}
                   disabled={pending}
                   onCheckedChange={(v) => toggle.mutate({ module: m.id, list: l.name, on: v })}
                   aria-label={`${meta.title} answers in this chat`}
@@ -334,16 +378,12 @@ function About({ chat }: { chat: Schemas["ChatOutputBody"] }) {
           ))}
         </dl>
         <div className="border-t border-border/80 py-3">
-          <div
-            className="flex h-12 items-end gap-1.5"
-            role="img"
-            aria-label="New messages per day over the last 7 days"
-          >
-            {week.map((d) => (
+          <div className="flex h-9 items-end gap-1.5" role="img" aria-label="New messages per day over the last 7 days">
+            {week.map((d, i) => (
               <div key={d.day} className="flex flex-1 flex-col items-center gap-1">
                 <div
-                  className="w-full rounded-[3px] bg-linear-to-b from-neutral-700 to-neutral-900"
-                  style={{ height: `${Math.max(2, (d.messages / peak) * 36)}px`, opacity: d.messages ? 1 : 0.15 }}
+                  className={cn("w-full rounded-[3px]", i === week.length - 1 ? "bg-neutral-800" : "bg-neutral-300")}
+                  style={{ height: `${Math.max(2, (d.messages / peak) * 32)}px` }}
                   title={`${d.day}: ${d.messages}`}
                 />
               </div>

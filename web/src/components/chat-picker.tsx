@@ -70,7 +70,7 @@ export function ChatPicker({
   });
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogPopup className="sm:max-w-lg">
+      <DialogPopup className="max-sm:h-[calc(100svh-3rem)] max-sm:max-h-none max-sm:max-w-none max-sm:rounded-none sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Add chats to {title}</DialogTitle>
           <DialogDescription>Chats the bot has seen, most recent first.</DialogDescription>
@@ -95,7 +95,7 @@ export function ChatPicker({
               { value: "qq", label: "QQ" },
             ]}
           />
-          <ul className="-mx-1 flex max-h-[min(24rem,50vh)] flex-col overflow-y-auto">
+          <ul className="-mx-1 flex flex-col overflow-y-auto sm:max-h-[min(24rem,50vh)]">
             {shown.map((c) => {
               const p = platformMeta(c.platform);
               const checked = picked.includes(c.id);
@@ -123,7 +123,9 @@ export function ChatPicker({
                     <span
                       className={cn(
                         "grid size-5 place-items-center rounded-md border transition-colors",
-                        checked ? "border-primary bg-primary text-primary-foreground" : "bg-background",
+                        checked
+                          ? "border-primary bg-primary text-primary-foreground"
+                          : "border-neutral-300 bg-background",
                       )}
                     >
                       {checked && <Check className="size-3.5" />}
@@ -140,8 +142,13 @@ export function ChatPicker({
           </ul>
         </DialogPanel>
         <DialogFooter>
-          <Button disabled={picked.length === 0} loading={add.isPending} onClick={() => add.mutate()}>
-            {picked.length > 1 ? `Add ${picked.length} chats` : "Add chat"}
+          <Button
+            variant={picked.length ? "default" : "outline"}
+            disabled={picked.length === 0}
+            loading={add.isPending}
+            onClick={() => add.mutate()}
+          >
+            {picked.length === 0 ? "Pick chats to add" : `Add ${picked.length} chat${picked.length === 1 ? "" : "s"}`}
           </Button>
         </DialogFooter>
       </DialogPopup>

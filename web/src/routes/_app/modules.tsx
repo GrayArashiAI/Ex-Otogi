@@ -1,5 +1,5 @@
 import { useSuspenseQuery } from "@tanstack/react-query";
-import { createFileRoute, Link, Outlet } from "@tanstack/react-router";
+import { createFileRoute, Link, Outlet, useMatch } from "@tanstack/react-router";
 import type { Schemas } from "@/api/client";
 import { Tile } from "@/components/tile";
 import { listMeta, moduleMeta } from "@/lib/meta";
@@ -24,9 +24,10 @@ export function byUse(modules: Schemas["Module"][]) {
 
 function Modules() {
   const { data: modules } = useSuspenseQuery(modulesQuery);
+  const open = useMatch({ from: "/_app/modules/$module", shouldThrow: false });
   return (
-    <div className="grid flex-1 md:grid-cols-[17.5rem_minmax(0,1fr)]">
-      <aside className="border-b px-3 py-5 md:border-r md:border-b-0">
+    <div className="grid flex-1 grid-cols-1 md:grid-cols-[17.5rem_minmax(0,1fr)]">
+      <aside className={cn("px-3 py-5 md:block md:border-r", open && "hidden")}>
         <h2 className="mx-2 mb-2 font-medium text-muted-foreground text-xs">Modules</h2>
         <ul className="flex flex-col gap-0.5">
           {byUse(modules).map((m) => {

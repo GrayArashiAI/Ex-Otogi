@@ -49,7 +49,7 @@ func TestManagementAPI(t *testing.T) {
 	settings.kernel = k
 	server, err := management.StartServer(management.ServerConfig{
 		Addr: "127.0.0.1:0", Token: "secret", Events: events, Logger: quiet, Ready: func() bool { return true }, Shutdown: func() {},
-		Status: func(context.Context) any { return nil }, Modules: moduleAPI{settings},
+		Status: func(context.Context) management.Status { return management.Status{} }, Modules: moduleAPI{settings},
 		Media: func(context.Context, otogi.Destination, otogi.MediaSource) ([]byte, error) {
 			return []byte("JPEG"), nil
 		},

@@ -14,8 +14,10 @@ import { Route as EnrollRouteImport } from './routes/enroll'
 import { Route as SignInRouteImport } from './routes/sign-in'
 import { Route as AppIndexRouteImport } from './routes/_app/index'
 import { Route as AppChatsRouteImport } from './routes/_app/chats'
+import { Route as AppEventsRouteImport } from './routes/_app/events'
 import { Route as AppModulesRouteImport } from './routes/_app/modules'
 import { Route as AppPasskeysRouteImport } from './routes/_app/passkeys'
+import { Route as AppStatusRouteImport } from './routes/_app/status'
 import { Route as AppChatsIndexRouteImport } from './routes/_app/chats/index'
 import { Route as AppChatsChatRouteImport } from './routes/_app/chats/$chat'
 import { Route as AppModulesIndexRouteImport } from './routes/_app/modules/index'
@@ -45,6 +47,11 @@ const AppChatsRoute = AppChatsRouteImport.update({
   path: '/chats',
   getParentRoute: () => AppRoute,
 } as any)
+const AppEventsRoute = AppEventsRouteImport.update({
+  id: '/events',
+  path: '/events',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppModulesRoute = AppModulesRouteImport.update({
   id: '/modules',
   path: '/modules',
@@ -53,6 +60,11 @@ const AppModulesRoute = AppModulesRouteImport.update({
 const AppPasskeysRoute = AppPasskeysRouteImport.update({
   id: '/passkeys',
   path: '/passkeys',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppStatusRoute = AppStatusRouteImport.update({
+  id: '/status',
+  path: '/status',
   getParentRoute: () => AppRoute,
 } as any)
 const AppChatsIndexRoute = AppChatsIndexRouteImport.update({
@@ -81,8 +93,10 @@ export interface FileRoutesByFullPath {
   '/enroll': typeof EnrollRoute
   '/sign-in': typeof SignInRoute
   '/chats': typeof AppChatsRouteWithChildren
+  '/events': typeof AppEventsRoute
   '/modules': typeof AppModulesRouteWithChildren
   '/passkeys': typeof AppPasskeysRoute
+  '/status': typeof AppStatusRoute
   '/chats/$chat': typeof AppChatsChatRoute
   '/modules/$module': typeof AppModulesModuleRoute
   '/chats/': typeof AppChatsIndexRoute
@@ -91,7 +105,9 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/enroll': typeof EnrollRoute
   '/sign-in': typeof SignInRoute
+  '/events': typeof AppEventsRoute
   '/passkeys': typeof AppPasskeysRoute
+  '/status': typeof AppStatusRoute
   '/': typeof AppIndexRoute
   '/chats/$chat': typeof AppChatsChatRoute
   '/modules/$module': typeof AppModulesModuleRoute
@@ -104,8 +120,10 @@ export interface FileRoutesById {
   '/enroll': typeof EnrollRoute
   '/sign-in': typeof SignInRoute
   '/_app/chats': typeof AppChatsRouteWithChildren
+  '/_app/events': typeof AppEventsRoute
   '/_app/modules': typeof AppModulesRouteWithChildren
   '/_app/passkeys': typeof AppPasskeysRoute
+  '/_app/status': typeof AppStatusRoute
   '/_app/': typeof AppIndexRoute
   '/_app/chats/$chat': typeof AppChatsChatRoute
   '/_app/modules/$module': typeof AppModulesModuleRoute
@@ -119,8 +137,10 @@ export interface FileRouteTypes {
     | '/enroll'
     | '/sign-in'
     | '/chats'
+    | '/events'
     | '/modules'
     | '/passkeys'
+    | '/status'
     | '/chats/$chat'
     | '/modules/$module'
     | '/chats/'
@@ -129,7 +149,9 @@ export interface FileRouteTypes {
   to:
     | '/enroll'
     | '/sign-in'
+    | '/events'
     | '/passkeys'
+    | '/status'
     | '/'
     | '/chats/$chat'
     | '/modules/$module'
@@ -141,8 +163,10 @@ export interface FileRouteTypes {
     | '/enroll'
     | '/sign-in'
     | '/_app/chats'
+    | '/_app/events'
     | '/_app/modules'
     | '/_app/passkeys'
+    | '/_app/status'
     | '/_app/'
     | '/_app/chats/$chat'
     | '/_app/modules/$module'
@@ -193,6 +217,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppChatsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/events': {
+      id: '/_app/events'
+      path: '/events'
+      fullPath: '/events'
+      preLoaderRoute: typeof AppEventsRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/modules': {
       id: '/_app/modules'
       path: '/modules'
@@ -205,6 +236,13 @@ declare module '@tanstack/react-router' {
       path: '/passkeys'
       fullPath: '/passkeys'
       preLoaderRoute: typeof AppPasskeysRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/status': {
+      id: '/_app/status'
+      path: '/status'
+      fullPath: '/status'
+      preLoaderRoute: typeof AppStatusRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/chats/': {
@@ -268,15 +306,19 @@ const AppModulesRouteWithChildren = AppModulesRoute._addFileChildren(
 
 interface AppRouteChildren {
   AppChatsRoute: typeof AppChatsRouteWithChildren
+  AppEventsRoute: typeof AppEventsRoute
   AppModulesRoute: typeof AppModulesRouteWithChildren
   AppPasskeysRoute: typeof AppPasskeysRoute
+  AppStatusRoute: typeof AppStatusRoute
   AppIndexRoute: typeof AppIndexRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
   AppChatsRoute: AppChatsRouteWithChildren,
+  AppEventsRoute: AppEventsRoute,
   AppModulesRoute: AppModulesRouteWithChildren,
   AppPasskeysRoute: AppPasskeysRoute,
+  AppStatusRoute: AppStatusRoute,
   AppIndexRoute: AppIndexRoute,
 }
 

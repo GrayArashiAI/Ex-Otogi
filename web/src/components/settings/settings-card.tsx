@@ -108,7 +108,7 @@ function SettingsEditor({ module, current }: { module: string; current: Schemas[
                     Discard
                   </Button>
                 )}
-                <Button type="submit" disabled={!dirty}>
+                <Button type="submit" variant={dirty ? "default" : "outline"} disabled={!dirty}>
                   Save…
                 </Button>
               </>

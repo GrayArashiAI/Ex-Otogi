@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createFileRoute, Link, Outlet, redirect, useRouter } from "@tanstack/react-router";
-import { KeyRound, LogOut } from "lucide-react";
+import { createFileRoute, Link, Outlet, redirect, useRouter, useRouterState } from "@tanstack/react-router";
+import { ChevronDown, KeyRound, LogOut } from "lucide-react";
 import { api, data } from "@/api/client";
+import { Search } from "@/components/search";
 import { Menu, MenuItem, MenuLinkItem, MenuPopup, MenuSeparator, MenuTrigger } from "@/components/ui/menu";
 import { sessionQuery } from "@/queries/session";
 
@@ -16,8 +17,10 @@ export const Route = createFileRoute("/_app")({
 });
 
 const nav = [
+  { to: "/status", label: "Status" },
   { to: "/modules", label: "Modules" },
   { to: "/chats", label: "Chats" },
+  { to: "/events", label: "Event log" },
 ] as const;
 
 function Shell() {
@@ -27,7 +30,7 @@ function Shell() {
         <Link to="/" className="font-bold text-lg tracking-[-0.04em]">
           otogi
         </Link>
-        <nav className="flex gap-1">
+        <nav className="hidden gap-1 sm:flex">
           {nav.map((item) => (
             <Link
               key={item.to}
@@ -38,10 +41,32 @@ function Shell() {
             </Link>
           ))}
         </nav>
+        <PhoneNav />
+        <Search />
         <Account />
       </header>
       <Outlet />
     </>
+  );
+}
+
+/** PhoneNav is the navigation folded into a menu on narrow screens. */
+function PhoneNav() {
+  const here = useRouterState({ select: (s) => s.location.pathname });
+  const current = nav.find((item) => here.startsWith(item.to));
+  return (
+    <Menu>
+      <MenuTrigger className="-ml-3 flex items-center gap-1 rounded-lg px-2 py-1.5 font-medium text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring sm:hidden">
+        {current?.label ?? "Menu"} <ChevronDown className="size-4 text-muted-foreground" />
+      </MenuTrigger>
+      <MenuPopup align="start">
+        {nav.map((item) => (
+          <MenuLinkItem key={item.to} render={<Link to={item.to} />}>
+            {item.label}
+          </MenuLinkItem>
+        ))}
+      </MenuPopup>
+    </Menu>
   );
 }
 
@@ -60,7 +85,7 @@ function Account() {
   return (
     <Menu>
       <MenuTrigger
-        className="ml-auto grid size-8 place-items-center rounded-full bg-linear-to-b from-neutral-700 to-neutral-900 font-semibold text-white text-xs shadow-xs inset-shadow-[0_1px_--theme(--color-white/20%)] outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+        className="ml-auto grid size-8 place-items-center rounded-full md:ml-0 bg-linear-to-b from-neutral-700 to-neutral-900 font-semibold text-white text-xs shadow-xs inset-shadow-[0_1px_--theme(--color-white/20%)] outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
         aria-label="Account"
       >
         {name.slice(0, 1).toUpperCase() || "?"}

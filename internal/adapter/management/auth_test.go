@@ -63,7 +63,7 @@ func TestPasskeySignIn(t *testing.T) {
 	events := openLog(t)
 	handler, err := newHandler(ServerConfig{
 		Token: "secret", Events: events, PublicURL: "https://otogi.example.com", Passkeys: store,
-		Status: func(context.Context) any { return map[string]string{"version": "test"} }, Ready: func() bool { return true }, Shutdown: func() {},
+		Status: func(context.Context) Status { return Status{Version: "test"} }, Ready: func() bool { return true }, Shutdown: func() {},
 	})
 	if err != nil {
 		t.Fatal(err)

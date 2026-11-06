@@ -28,8 +28,8 @@ type ServerConfig struct {
 	Token string
 	// Events is the event log to query.
 	Events *EventLog
-	// Status returns the current status document for GET /api/status.
-	Status func(ctx context.Context) any
+	// Status returns the process's health for GET /api/status.
+	Status func(ctx context.Context) Status
 	// Ready reports whether the process should receive work (GET /readyz).
 	Ready func() bool
 	// Shutdown starts a graceful shutdown (POST /api/shutdown).
@@ -155,8 +155,8 @@ func newAPI(cfg ServerConfig, signIn *signIn, every bool) (*http.ServeMux, huma.
 	config.CreateHooks = nil // no $schema links in bodies
 	api := humago.New(apiMux, config)
 	huma.Register(api, huma.Operation{OperationID: "get-status", Method: http.MethodGet, Path: "/api/status", Summary: "The process's health", Tags: []string{"Status"}},
-		func(ctx context.Context, _ *struct{}) (*struct{ Body any }, error) {
-			return &struct{ Body any }{cfg.Status(ctx)}, nil
+		func(ctx context.Context, _ *struct{}) (*struct{ Body Status }, error) {
+			return &struct{ Body Status }{cfg.Status(ctx)}, nil
 		})
 	huma.Register(api, huma.Operation{OperationID: "list-events", Method: http.MethodGet, Path: "/api/events", Summary: "Event log records, newest first", Tags: []string{"Event log"}},
 		func(ctx context.Context, in *eventsInput) (*struct{ Body Page }, error) {
@@ -178,7 +178,7 @@ func newAPI(cfg ServerConfig, signIn *signIn, every bool) (*http.ServeMux, huma.
 		},
 		) (*struct {
 			Body struct {
-				Records []Entry `json:"records"`
+				Records []Entry `json:"records" nullable:"false"`
 			}
 		}, error,
 		) {
@@ -188,7 +188,7 @@ func newAPI(cfg ServerConfig, signIn *signIn, every bool) (*http.ServeMux, huma.
 			}
 			out := &struct {
 				Body struct {
-					Records []Entry `json:"records"`
+					Records []Entry `json:"records" nullable:"false"`
 				}
 			}{}
 			out.Body.Records = entries

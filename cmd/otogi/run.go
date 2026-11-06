@@ -105,7 +105,7 @@ func run(ctx context.Context, cfg Config, log *slog.Logger) (failure error) {
 	}
 	settings.kernel = k
 	var drivers []driver
-	var statuses []func(context.Context) any
+	var statuses []func(context.Context) management.DriverStatus
 	var telegramDrivers []*telegram.Driver
 	for _, a := range cfg.Telegram {
 		d := telegram.New(telegram.Config{
@@ -115,7 +115,11 @@ func run(ctx context.Context, cfg Config, log *slog.Logger) (failure error) {
 		})
 		routes[destination{telegram.Platform, otogi.AccountID(a.Account)}] = d
 		drivers = append(drivers, d)
-		statuses = append(statuses, func(ctx context.Context) any { return d.Status(ctx) })
+		statuses = append(statuses, func(ctx context.Context) management.DriverStatus {
+			s := d.Status(ctx)
+			return management.DriverStatus{Platform: string(s.Platform), Account: s.Account, Ready: s.Ready, Error: s.Error,
+				PendingInbox: s.PendingInbox, FailedInbox: s.FailedInbox, Gaps: s.Gaps, Details: s}
+		})
 		telegramDrivers = append(telegramDrivers, d)
 	}
 	var qqDrivers []*qq.Driver
@@ -126,7 +130,11 @@ func run(ctx context.Context, cfg Config, log *slog.Logger) (failure error) {
 		})
 		routes[destination{qq.Platform, otogi.AccountID(a.Account)}] = d
 		drivers = append(drivers, d)
-		statuses = append(statuses, func(ctx context.Context) any { return d.Status(ctx) })
+		statuses = append(statuses, func(ctx context.Context) management.DriverStatus {
+			s := d.Status(ctx)
+			return management.DriverStatus{Platform: string(s.Platform), Account: s.Account, Ready: s.Ready, Error: s.Error,
+				PendingInbox: s.PendingInbox, FailedInbox: s.FailedInbox, Gaps: s.Gaps, Details: s}
+		})
 		qqDrivers = append(qqDrivers, d)
 	}
 	status = func(ctx context.Context) utility.Status {
@@ -170,15 +178,19 @@ func run(ctx context.Context, cfg Config, log *slog.Logger) (failure error) {
 			Addr: addr, Token: cfg.Management.Token, Events: events, Logger: log,
 			Shutdown: requestShutdown, Modules: moduleAPI{settings}, Media: routes.FetchMedia, Version: version(),
 			Ready: func() bool { return allReady(drivers) },
-			Status: func(ctx context.Context) any {
-				driverStatus := make([]any, len(statuses))
-				for i, status := range statuses {
-					driverStatus[i] = status(ctx)
+			Status: func(ctx context.Context) management.Status {
+				stats := k.Stats()
+				s := management.Status{
+					Version: version(), StartedAt: started, Ready: allReady(drivers), Drivers: []management.DriverStatus{},
+					Kernel:   management.KernelStatus{State: stats.State, InFlight: stats.InFlight, MaxInFlight: stats.MaxInFlight, Workers: stats.Workers},
+					EventLog: management.EventLogStatus{Health: events.Health(ctx), RetentionMS: cfg.EventLog.Retention.Milliseconds()},
 				}
-				return map[string]any{
-					"version": version(), "started_at": started, "uptime": time.Since(started).Round(time.Second).String(),
-					"ready": allReady(drivers), "kernel": k.Stats(), "drivers": driverStatus, "event_log": events.Health(ctx),
+				for _, status := range statuses {
+					d := status(ctx)
+					d.LastEvent = events.LastReceived(ctx, d.Platform, d.Account)
+					s.Drivers = append(s.Drivers, d)
 				}
+				return s
 			},
 		})
 		if err != nil {

@@ -1,5 +1,5 @@
 import { useSuspenseQuery } from "@tanstack/react-query";
-import { createFileRoute, Link, Outlet } from "@tanstack/react-router";
+import { createFileRoute, Link, Outlet, useMatch } from "@tanstack/react-router";
 import { Search } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Segmented } from "@/components/segmented";
@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { chatName, preview } from "@/lib/chats";
 import { platformMeta } from "@/lib/meta";
 import { ago } from "@/lib/time";
+import { cn } from "@/lib/utils";
 import { chatsQuery } from "@/queries/chats";
 
 export const Route = createFileRoute("/_app/chats")({
@@ -31,9 +32,13 @@ function Chats() {
         (!q || `${chatName(c)} ${c.title ?? ""} ${c.id} ${preview(c)}`.toLowerCase().includes(q)),
     );
   }, [chats, filter, search]);
+  const open = useMatch({ from: "/_app/chats/$chat", shouldThrow: false });
+  const current = open?.params.chat;
   return (
-    <div className="grid min-h-0 flex-1 md:grid-cols-[21rem_minmax(0,1fr)]">
-      <aside className="flex min-h-0 flex-col border-b md:h-[calc(100svh-3.5rem)] md:border-r md:border-b-0">
+    <div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[21rem_minmax(0,1fr)]">
+      <aside
+        className={cn("min-h-0 flex-col md:flex md:h-[calc(100svh-3.5rem)] md:border-r", open ? "hidden" : "flex")}
+      >
         <div className="flex flex-col gap-2.5 px-3 pt-4 pb-2">
           <div className="relative">
             <Search className="pointer-events-none absolute top-1/2 left-2.5 z-10 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -64,7 +69,10 @@ function Chats() {
                 <Link
                   to="/chats/$chat"
                   params={{ chat: c.id }}
-                  className="flex gap-3 rounded-xl px-2 py-2.5 outline-none transition-colors hover:bg-accent/70 focus-visible:ring-2 focus-visible:ring-ring data-[status=active]:bg-accent"
+                  className={cn(
+                    "flex gap-3 rounded-xl px-2 py-2.5 outline-none transition-colors hover:bg-accent/70 focus-visible:ring-2 focus-visible:ring-ring",
+                    c.id === current && "bg-accent",
+                  )}
                 >
                   <Tile tone={p.tone} icon={p.icon} />
                   <span className="min-w-0 flex-1">

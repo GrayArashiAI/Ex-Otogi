@@ -139,7 +139,7 @@ type Query struct {
 
 // Page is one page of records, newest first.
 type Page struct {
-	Records []Entry `json:"records"`
+	Records []Entry `json:"records" nullable:"false"`
 	// More reports whether further records match in the paging direction.
 	More bool `json:"more"`
 	// OldestRetained is the ID of the oldest record still kept.
@@ -270,6 +270,17 @@ func (l *EventLog) RunPruner(ctx context.Context, retention time.Duration) {
 		case <-ticker.C:
 		}
 	}
+}
+
+// LastReceived returns when an event from a platform account was last
+// received, or zero.
+func (l *EventLog) LastReceived(ctx context.Context, platform, account string) time.Time {
+	var at int64
+	err := l.db.QueryRowContext(ctx, "SELECT at FROM records WHERE kind = 'event.received' AND platform = ? AND account = ? ORDER BY id DESC LIMIT 1", platform, account).Scan(&at)
+	if err != nil {
+		return time.Time{}
+	}
+	return time.UnixMilli(at).UTC()
 }
 
 // Health describes the event log's state for status.

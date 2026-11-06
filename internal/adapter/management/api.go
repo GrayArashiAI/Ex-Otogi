@@ -561,3 +561,40 @@ func registerChats(api huma.API, modules Modules, events *EventLog, media func(c
 			}}, nil
 		})
 }
+
+// Status is the process's health.
+type Status struct {
+	Version   string         `json:"version"`
+	StartedAt time.Time      `json:"started_at"`
+	Ready     bool           `json:"ready" doc:"Whether every driver is ready."`
+	Drivers   []DriverStatus `json:"drivers" nullable:"false"`
+	Kernel    KernelStatus   `json:"kernel"`
+	EventLog  EventLogStatus `json:"event_log"`
+}
+
+// DriverStatus is one platform account's driver.
+type DriverStatus struct {
+	Platform     string    `json:"platform"`
+	Account      string    `json:"account"`
+	Ready        bool      `json:"ready"`
+	Error        string    `json:"error,omitempty"`
+	LastEvent    time.Time `json:"last_event,omitzero" doc:"When the event log last received an event from it."`
+	PendingInbox int       `json:"pending_inbox" doc:"Updates stored and not yet handled."`
+	FailedInbox  int       `json:"failed_inbox" doc:"Updates that could not be handled."`
+	Gaps         int       `json:"gaps" doc:"Times the platform said updates were missed."`
+	Details      any       `json:"details" doc:"Everything the driver reports, as it reports it."`
+}
+
+// KernelStatus is the kernel's load.
+type KernelStatus struct {
+	State       string `json:"state"`
+	InFlight    int    `json:"in_flight" doc:"Events admitted and not yet finished."`
+	MaxInFlight int    `json:"max_in_flight"`
+	Workers     int    `json:"workers"`
+}
+
+// EventLogStatus is the event log's health and retention.
+type EventLogStatus struct {
+	Health
+	RetentionMS int64 `json:"retention_ms"`
+}
