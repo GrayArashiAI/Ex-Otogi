@@ -71,7 +71,7 @@ function SchemaField({
               block
             >
               {set && (
-                <div className="surface-inset w-full rounded-xl px-3.5">
+                <div className="w-full border-l pl-4">
                   <SchemaFields form={form} root={root} schema={s} path={name} />
                 </div>
               )}
@@ -285,7 +285,7 @@ function ObjectList({
                   // biome-ignore lint/suspicious/noArrayIndexKey: items have no identity until named
                   key={i}
                   defaultOpen={!value?.name}
-                  className="surface-inset rounded-xl"
+                  className="rounded-xl border"
                 >
                   <div className="flex items-center gap-2 px-2 py-1.5">
                     <CollapsibleTrigger className="group flex flex-1 items-center gap-1.5 rounded-md px-1.5 py-1 text-left font-medium text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring">
@@ -297,7 +297,7 @@ function ObjectList({
                     </Button>
                   </div>
                   <CollapsiblePanel>
-                    <div className="mx-2 mb-2 rounded-lg bg-background px-3.5 shadow-[0_0_0_1px_--theme(--color-black/5%)]">
+                    <div className="border-t px-3.5">
                       <SchemaFields form={form} root={root} schema={item} path={`${name}[${i}]`} />
                     </div>
                   </CollapsiblePanel>
@@ -338,7 +338,7 @@ function ObjectMap({
           <Row title={title} doc={doc} block>
             <div className="flex flex-col gap-2">
               {entries.map((k) => (
-                <div key={k} className="surface-inset rounded-xl">
+                <div key={k} className="rounded-xl border">
                   <div className="flex items-center gap-2 px-3.5 pt-2.5">
                     <span className="font-medium font-mono text-sm">{k}</span>
                     <Button
@@ -354,7 +354,7 @@ function ObjectMap({
                       <Trash2 />
                     </Button>
                   </div>
-                  <div className="mx-2 mt-1.5 mb-2 rounded-lg bg-background px-3.5 shadow-[0_0_0_1px_--theme(--color-black/5%)]">
+                  <div className="mt-1.5 border-t px-3.5">
                     <SchemaFields form={form} root={root} schema={item} path={`${name}.${k}`} />
                   </div>
                 </div>
