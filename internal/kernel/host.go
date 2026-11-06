@@ -62,10 +62,6 @@ func (k *Kernel) recordFor(ctx context.Context, module otogi.ModuleID, r otogi.R
 
 func (h *host) Allowed(list, chat string) bool { return h.kernel.allowed(h.Module(), list, chat) }
 
-func (h *host) SetAllowed(ctx context.Context, list, chat string, allowed bool, by string) error {
-	return h.kernel.SetAllowed(ctx, h.Module(), list, chat, allowed, by)
-}
-
 func (h *host) Store() otogi.Store {
 	if h.kernel.cfg.Storage == nil {
 		return unavailableStore{}

@@ -98,15 +98,6 @@ func (h *host) Allowed(list, chat string) bool {
 	return ok
 }
 
-func (h *host) SetAllowed(_ context.Context, list, chat string, allowed bool, by string) error {
-	if allowed {
-		h.lists[[2]string{list, chat}] = by
-	} else {
-		delete(h.lists, [2]string{list, chat})
-	}
-	return nil
-}
-
 func (h *host) Service(name string) (any, bool) {
 	s, ok := h.services[name]
 	return s, ok
@@ -154,7 +145,7 @@ func newHarness(t *testing.T, profiles ...ProfileConfig) *harness {
 			return p, nil
 		}
 		return nil, fmt.Errorf("provider %q: %w", name, otogi.ErrInvalid)
-	}, []string{"telegram:user:op"})
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -386,7 +377,7 @@ func TestConfigErrors(t *testing.T) {
 		"duplicate names": {[]ProfileConfig{base, {Name: "a", Keywords: []string{"b"}, Provider: "gemini", Model: "m"}}, "used twice"},
 		"hot":             {[]ProfileConfig{{Name: "a", Keywords: []string{"a"}, Provider: "gemini", Model: "m", Temperature: ptr(2.5)}}, "temperature 2.5: want 0 to 2"},
 	} {
-		if _, err := New(Config{Profiles: c.profiles}, providers, nil); err == nil || !strings.Contains(err.Error(), c.want) {
+		if _, err := New(Config{Profiles: c.profiles}, providers); err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: err %v, want %q", name, err, c.want)
 		}
 	}
@@ -426,7 +417,7 @@ func TestToolGroups(t *testing.T) {
 	}}
 	h.llm["p"] = p
 	h.m, err = New(Config{Profiles: []ProfileConfig{{Name: "otogi", Keywords: []string{"otogi"}, Provider: "p", Model: "m", Tools: []string{"google_search", "fun"}}}},
-		func(string) (llm.Provider, error) { return p, nil }, nil)
+		func(string) (llm.Provider, error) { return p, nil })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -497,44 +488,5 @@ func TestSystemPromptAndTemperature(t *testing.T) {
 	req := p.requests[0]
 	if !strings.HasPrefix(req.System, "# Role: 水月\n\n称呼你为「博士」。") || req.Temperature == nil || *req.Temperature != 1.2 {
 		t.Fatalf("system %q, temperature %v", req.System, req.Temperature)
-	}
-}
-
-// Operators change where agents answer with /chat, and anyone can see the
-// list.
-func TestChatAllowAndDeny(t *testing.T) {
-	h := newHarness(t, ProfileConfig{Name: "Luna", Keywords: []string{"luna"}, Provider: "luna", Model: "m"},
-		ProfileConfig{Name: "Mizuki", Keywords: []string{"水月"}, Provider: "mizuki", Model: "m"})
-	delete(h.host.lists, [2]string{"Mizuki", group})
-	command := func(actor, args string) string {
-		e := h.message(actor, "/chat "+args)
-		e.Command = &otogi.Command{Name: "chat", Args: args, Argv: strings.Fields(args)}
-		h.mustHandle(e)
-		return h.replies[len(h.replies)-1]
-	}
-	for _, c := range []struct{ actor, args, want string }{
-		{"alice", "list", "In telegram:chat:1: Luna."},
-		{"alice", "allow 水月", "Only operators can change where agents answer. Your ID is telegram:user:alice."},
-		{"op", "allow 水月", "Mizuki now answers in telegram:chat:1."},
-		{"op", "allow mizuki", "Mizuki already answers in telegram:chat:1."},
-		{"op", "deny luna", "Luna no longer answers in telegram:chat:1."},
-		{"op", "allow luna qq:group:G1", "Luna now answers in qq:group:G1."},
-		{"op", "allow nobody", `No agent "nobody"; the agents are Luna, Mizuki.`},
-		{"op", "allow luna G1", `"G1" is not a chat; name it as /whoami prints it, like telegram:chat:1.`},
-		{"bob", "list", "In telegram:chat:1: Mizuki."},
-		{"bob", "list qq:group:G1", "In qq:group:G1: Luna."},
-	} {
-		if got := command(c.actor, c.args); got != c.want {
-			t.Errorf("/chat %s by %s: %q, want %q", c.args, c.actor, got, c.want)
-		}
-	}
-	h.llm["mizuki"].responses = []llm.Response{answer("博士！")}
-	h.mustHandle(h.message("alice", "水月 你好"))
-	h.mustHandle(h.message("alice", "luna hi"))
-	if len(h.llm["mizuki"].requests) != 1 || len(h.llm["luna"].requests) != 0 {
-		t.Fatalf("mizuki %d, luna %d requests", len(h.llm["mizuki"].requests), len(h.llm["luna"].requests))
-	}
-	if by := h.host.lists[[2]string{"Mizuki", group}]; by != "telegram:user:op" {
-		t.Fatalf("Mizuki allowed by %q", by)
 	}
 }

@@ -19,23 +19,22 @@ import (
 
 // Module is the chat module.
 type Module struct {
-	cfg       Config
-	profiles  []*profile
-	byName    map[string]*profile
-	operators []string
-	host      otogi.Host
-	store     *store
-	now       func() time.Time
+	cfg      Config
+	profiles []*profile
+	byName   map[string]*profile
+	host     otogi.Host
+	store    *store
+	now      func() time.Time
 }
 
 // New validates the configuration; providers finds the providers profiles
-// name. operators may change where agents answer with /chat.
-func New(cfg Config, providers func(string) (llm.Provider, error), operators []string) (*Module, error) {
+// name.
+func New(cfg Config, providers func(string) (llm.Provider, error)) (*Module, error) {
 	profiles, err := cfg.profiles(providers)
 	if err != nil {
 		return nil, err
 	}
-	m := &Module{cfg: cfg, profiles: profiles, byName: map[string]*profile{}, operators: operators, now: time.Now}
+	m := &Module{cfg: cfg, profiles: profiles, byName: map[string]*profile{}, now: time.Now}
 	for _, p := range profiles {
 		m.byName[p.Name] = p
 	}
@@ -58,12 +57,8 @@ func (m *Module) Descriptor() otogi.ModuleDescriptor {
 		}
 	}
 	return otogi.ModuleDescriptor{
-		ID:       "chat",
-		Requires: requires,
-		Commands: []otogi.CommandSpec{{
-			Name: "chat", Usage: "list [chat] | allow <agent> [chat] | deny <agent> [chat]",
-			Description: "show which agents answer in a chat, or (operators) change it",
-		}},
+		ID:         "chat",
+		Requires:   requires,
 		Subscribes: []otogi.EventAction{otogi.ActionMessageCreated, otogi.ActionMessageEdited, otogi.ActionMessageDeleted},
 		Ordering:   otogi.OrderNone,
 		Timeout:    time.Duration(m.cfg.Timeout),
@@ -112,9 +107,6 @@ func (m *Module) prune(ctx context.Context, _ otogi.Invocation) error {
 
 // Handle keeps the transcript of served chats and answers triggers.
 func (m *Module) Handle(ctx context.Context, e otogi.Event, inv otogi.Invocation) error {
-	if e.Command != nil && e.Command.Name == "chat" {
-		return m.command(ctx, e, inv)
-	}
 	if e.Action == otogi.ActionMessageDeleted {
 		return m.store.forget(ctx, e.Platform, e.Account, string(e.SourceID))
 	}
@@ -133,6 +125,10 @@ func (m *Module) Handle(ctx context.Context, e otogi.Event, inv otogi.Invocation
 	}
 	return m.respond(ctx, e, inv, p, parent, trigger)
 }
+
+// answers reports whether p answers in chat: whether chat is on p's
+// allowlist.
+func (m *Module) answers(p *profile, chat string) bool { return m.host.Allowed(p.Name, chat) }
 
 // serves reports whether any profile answers in chat.
 func (m *Module) serves(chat string) bool {

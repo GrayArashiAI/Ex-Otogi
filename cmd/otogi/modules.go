@@ -37,7 +37,7 @@ type moduleEnv struct {
 var moduleKinds = map[otogi.ModuleID]moduleKind{
 	"bilibili": kind(func(c bilibili.Config, _ moduleEnv) (otogi.Module, error) { return built(bilibili.New(c)) }),
 	"chat": kind(func(c chat.Config, env moduleEnv) (otogi.Module, error) {
-		return built(chat.New(c, env.llm, env.operators))
+		return built(chat.New(c, env.llm))
 	}),
 	"echo":      kind(func(struct{}, moduleEnv) (otogi.Module, error) { return echo.New(), nil }),
 	"notes":     kind(func(c notes.Config, _ moduleEnv) (otogi.Module, error) { return notes.New(c), nil }),

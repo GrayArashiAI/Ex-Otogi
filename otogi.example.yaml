@@ -21,7 +21,7 @@ management:
   #                                         # sign in with passkeys (otogi passkey enroll)
 
 # Platform-qualified actor IDs (as /whoami prints them) allowed to use operator
-# commands such as /status, /todou link, and /chat allow|deny.
+# commands such as /status and /todou link.
 operators: []             # e.g. ["telegram:user:123456789"]
 
 commands:
