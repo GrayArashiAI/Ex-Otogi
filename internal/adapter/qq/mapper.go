@@ -108,9 +108,7 @@ func (m *mapper) mapFrame(ctx context.Context, f frame, received time.Time) (oto
 		Platform: Platform, Account: m.account, SourceID: otogi.SourceEventID(msg.ID),
 		Action: otogi.ActionMessageCreated, Direction: otogi.DirectionIncoming,
 		ReceivedAt: received, Completeness: otogi.CompletenessComplete,
-		// QQ strips the @ from these itself; a C2C message is always for
-		// the bot.
-		Mentioned: f.T == "GROUP_AT_MESSAGE_CREATE" || f.T == "C2C_MESSAGE_CREATE",
+		Mentioned: f.T == "GROUP_AT_MESSAGE_CREATE", // QQ strips the @ itself
 	}
 	if t, err := time.Parse(time.RFC3339, msg.Timestamp); err == nil {
 		e.OccurredAt = t.UTC()

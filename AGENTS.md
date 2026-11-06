@@ -15,9 +15,11 @@ In order:
 
 - No hand-rolled infrastructure: when a modern, mature, well-maintained library solves the problem (serialization, HTTP, SQL, migrations, config, logging, lint rules), use it instead of writing our own. Heavy dependencies are fine if they are high quality.
 - No over-engineering: no speculative abstractions, configuration knobs, or layers without a current use. Lean is not closed: keep the extension seams the roadmap needs. The rich event model and driver contract stay protocol-neutral, with no platform assumptions in `pkg/otogi` or the kernel. The module contract grows new capabilities additively.
+- No platform-specific logic in modules unless strictly necessary: a module behaves the same on every platform, and platform limits and quirks (message size, formatting, reply rules) are the drivers' to handle.
 - No over-defensive programming: no validation, permission checks, retries, fallbacks, or tests that guard against failures that cannot realistically happen. Every safeguard names the real failure it prevents.
 - No data hiding: telemetry, event logs, and diagnostics are never redacted or silently trimmed. Message content is recorded in full. Credentials are kept out simply by not logging them.
 - No ceremony: no compliance-style process, release attestations, or documentation that restates code. Do not test documentation wording.
+- No tests for removed logic: when behavior is removed, its code and tests go together. Never add a persistent test that checks removed logic stays absent.
 - No compatibility shims to the pre-`next` (`master`) implementation.
 
 ## Workflow
