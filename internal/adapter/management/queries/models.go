@@ -14,12 +14,24 @@ type Chat struct {
 	FirstSeen    int64
 	LastSeen     int64
 	LastMessage  int64
+	Description  string
+	Members      int64
 }
 
 type ChatDay struct {
 	Platform     string
 	Conversation string
 	Day          string
+	Messages     int64
+}
+
+type ChatPerson struct {
+	Platform     string
+	Conversation string
+	Actor        string
+	Name         string
+	FirstSeen    int64
+	LastSeen     int64
 	Messages     int64
 }
 

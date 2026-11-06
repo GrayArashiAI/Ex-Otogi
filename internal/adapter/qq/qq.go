@@ -137,7 +137,8 @@ func (d *Driver) Start(ctx context.Context) error {
 	}
 	disp := &dispatcher{
 		store: store, api: d.api, kernel: d.cfg.Kernel, wake: wake, poll: time.Second, log: d.log, now: time.Now, record: d.record,
-		mapper: &mapper{account: otogi.AccountID(d.cfg.AccountKey), refs: store, self: d.selfID},
+		mapper:    &mapper{account: otogi.AccountID(d.cfg.AccountKey), refs: store, names: store, self: d.selfID},
+		directory: &directory{store: store, api: d.api, log: d.log, record: d.record, now: time.Now, refused: map[string]bool{}, retry: map[string]time.Time{}},
 	}
 	g.Go(guarded("gateway", func() error { return gw.run(groupCtx) }))
 	g.Go(guarded("dispatcher", func() error {

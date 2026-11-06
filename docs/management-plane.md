@@ -44,7 +44,7 @@ The API is built with [huma](https://huma.rocks): `GET /api/openapi.json` (or `.
 | `GET /api/modules/{module}/allowlists/{list}` | The chats on an allowlist, with who added each and when, and what the chat directory knows of it |
 | `PUT`, `DELETE /api/modules/{module}/allowlists/{list}/chats/{chat}` | Add a chat to an allowlist, or remove it; recorded as `allowlist.changed` |
 | `GET /api/chats` | Every chat the bot has seen, most recently seen first: kind, title, name, first and last seen, latest message, and the allowlists it is on |
-| `GET /api/chats/{chat}` | One chat, with its new messages per day over the last 7 days |
+| `GET /api/chats/{chat}` | One chat: its description and member count when the platform gives them, how many people were seen in it and the latest 100 of them with their names, and its new messages per day over the last 7 days |
 | `PATCH /api/chats/{chat}` | Name it (`{"name": "..."}`); the name wins over the platform's title, and an empty one clears it |
 | `GET /api/chats/{chat}/messages` | Its conversation, newest first (`before=<message id>`, `limit`): people's messages from the events received, and the bot's from what it sent, each naming its module and that module's records for the event it answered (`chat.reply` with the model, `module.completed` with the duration) |
 | `GET /api/chats/{chat}/media/{message}/{part}` | An image or file in the conversation: what the bot sent comes from the event log; what people sent is fetched through the platform, so it is gone once the platform drops it |

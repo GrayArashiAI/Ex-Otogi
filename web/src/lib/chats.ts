@@ -30,6 +30,7 @@ export function preview(c: Schemas["SeenChat"]): string {
   if (!event) return "";
   const parts = event.message?.parts ?? [];
   const text = parts.find((p) => p.kind === "text")?.text ?? (parts.some((p) => p.media) ? "Photo" : "");
-  const who = event.actor?.name || event.actor?.id?.split(":").pop();
+  const fromPeer = c.kind === "direct" && event.actor?.id === c.conversation;
+  const who = event.actor?.name || (fromPeer && (c.name || c.title)) || event.actor?.id?.split(":").pop();
   return who ? `${who}: ${text}` : text;
 }

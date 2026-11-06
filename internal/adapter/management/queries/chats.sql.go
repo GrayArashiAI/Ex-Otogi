@@ -50,8 +50,79 @@ func (q *Queries) ChatDays(ctx context.Context, arg ChatDaysParams) ([]ChatDaysR
 	return items, nil
 }
 
+const chatName = `-- name: ChatName :one
+SELECT name, title FROM chats WHERE platform = ?1 AND conversation = ?2
+`
+
+type ChatNameParams struct {
+	Platform     string
+	Conversation string
+}
+
+type ChatNameRow struct {
+	Name  string
+	Title string
+}
+
+func (q *Queries) ChatName(ctx context.Context, arg ChatNameParams) (ChatNameRow, error) {
+	row := q.db.QueryRowContext(ctx, chatName, arg.Platform, arg.Conversation)
+	var i ChatNameRow
+	err := row.Scan(&i.Name, &i.Title)
+	return i, err
+}
+
+const chatPeople = `-- name: ChatPeople :many
+SELECT actor, name, first_seen, last_seen, messages FROM chat_people
+WHERE platform = ?1 AND conversation = ?2
+ORDER BY last_seen DESC LIMIT ?3
+`
+
+type ChatPeopleParams struct {
+	Platform     string
+	Conversation string
+	Limit        int64
+}
+
+type ChatPeopleRow struct {
+	Actor     string
+	Name      string
+	FirstSeen int64
+	LastSeen  int64
+	Messages  int64
+}
+
+func (q *Queries) ChatPeople(ctx context.Context, arg ChatPeopleParams) ([]ChatPeopleRow, error) {
+	rows, err := q.db.QueryContext(ctx, chatPeople, arg.Platform, arg.Conversation, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ChatPeopleRow
+	for rows.Next() {
+		var i ChatPeopleRow
+		if err := rows.Scan(
+			&i.Actor,
+			&i.Name,
+			&i.FirstSeen,
+			&i.LastSeen,
+			&i.Messages,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const chats = `-- name: Chats :many
-SELECT c.platform, c.conversation, c.account, c.kind, c.title, c.name, c.first_seen, c.last_seen,
+SELECT c.platform, c.conversation, c.account, c.kind, c.title, c.name, c.description, c.members, c.first_seen, c.last_seen,
+       (SELECT COUNT(*) FROM chat_people p WHERE p.platform = c.platform AND p.conversation = c.conversation) AS people,
        r.id AS message_id, r.at AS message_at, r.payload AS message
 FROM chats c LEFT JOIN records r ON r.id = c.last_message
 ORDER BY c.last_seen DESC
@@ -64,8 +135,11 @@ type ChatsRow struct {
 	Kind         string
 	Title        string
 	Name         string
+	Description  string
+	Members      int64
 	FirstSeen    int64
 	LastSeen     int64
+	People       int64
 	MessageID    sql.NullInt64
 	MessageAt    sql.NullInt64
 	Message      sql.NullString
@@ -87,8 +161,11 @@ func (q *Queries) Chats(ctx context.Context) ([]ChatsRow, error) {
 			&i.Kind,
 			&i.Title,
 			&i.Name,
+			&i.Description,
+			&i.Members,
 			&i.FirstSeen,
 			&i.LastSeen,
+			&i.People,
 			&i.MessageID,
 			&i.MessageAt,
 			&i.Message,
@@ -141,6 +218,24 @@ func (q *Queries) NameChat(ctx context.Context, arg NameChatParams) (int64, erro
 	return result.RowsAffected()
 }
 
+const personName = `-- name: PersonName :one
+SELECT name FROM chat_people
+WHERE platform = ?1 AND actor = ?2 AND name <> ''
+ORDER BY last_seen DESC LIMIT 1
+`
+
+type PersonNameParams struct {
+	Platform string
+	Actor    string
+}
+
+func (q *Queries) PersonName(ctx context.Context, arg PersonNameParams) (string, error) {
+	row := q.db.QueryRowContext(ctx, personName, arg.Platform, arg.Actor)
+	var name string
+	err := row.Scan(&name)
+	return name, err
+}
+
 const pruneChatDays = `-- name: PruneChatDays :exec
 DELETE FROM chat_days WHERE day < ?1
 `
@@ -151,12 +246,14 @@ func (q *Queries) PruneChatDays(ctx context.Context, before string) error {
 }
 
 const seeChat = `-- name: SeeChat :exec
-INSERT INTO chats (platform, conversation, account, kind, title, first_seen, last_seen, last_message)
-VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6, ?7)
+INSERT INTO chats (platform, conversation, account, kind, title, description, members, first_seen, last_seen, last_message)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8, ?9)
 ON CONFLICT (platform, conversation) DO UPDATE SET
     account      = excluded.account,
     kind         = CASE WHEN excluded.kind <> '' THEN excluded.kind ELSE chats.kind END,
     title        = CASE WHEN excluded.title <> '' THEN excluded.title ELSE chats.title END,
+    description  = CASE WHEN excluded.description <> '' THEN excluded.description ELSE chats.description END,
+    members      = CASE WHEN excluded.members <> 0 THEN excluded.members ELSE chats.members END,
     last_seen    = MAX(chats.last_seen, excluded.last_seen),
     last_message = CASE WHEN excluded.last_message <> 0 THEN excluded.last_message ELSE chats.last_message END
 `
@@ -167,6 +264,8 @@ type SeeChatParams struct {
 	Account      string
 	Kind         string
 	Title        string
+	Description  string
+	Members      int64
 	At           int64
 	LastMessage  int64
 }
@@ -178,8 +277,38 @@ func (q *Queries) SeeChat(ctx context.Context, arg SeeChatParams) error {
 		arg.Account,
 		arg.Kind,
 		arg.Title,
+		arg.Description,
+		arg.Members,
 		arg.At,
 		arg.LastMessage,
+	)
+	return err
+}
+
+const seePerson = `-- name: SeePerson :exec
+INSERT INTO chat_people (platform, conversation, actor, name, first_seen, last_seen, messages)
+VALUES (?1, ?2, ?3, ?4, ?5, ?5, 1)
+ON CONFLICT (platform, conversation, actor) DO UPDATE SET
+    name      = CASE WHEN excluded.name <> '' THEN excluded.name ELSE chat_people.name END,
+    last_seen = MAX(chat_people.last_seen, excluded.last_seen),
+    messages  = chat_people.messages + 1
+`
+
+type SeePersonParams struct {
+	Platform     string
+	Conversation string
+	Actor        string
+	Name         string
+	At           int64
+}
+
+func (q *Queries) SeePerson(ctx context.Context, arg SeePersonParams) error {
+	_, err := q.db.ExecContext(ctx, seePerson,
+		arg.Platform,
+		arg.Conversation,
+		arg.Actor,
+		arg.Name,
+		arg.At,
 	)
 	return err
 }

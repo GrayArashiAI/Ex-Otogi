@@ -30,3 +30,10 @@ sql:
       go:
         package: queries
         out: internal/adapter/management/panel/queries
+  - engine: sqlite
+    schema: internal/adapter/qq/store/migrations
+    queries: internal/adapter/qq/store/queries
+    gen:
+      go:
+        package: queries
+        out: internal/adapter/qq/store/queries

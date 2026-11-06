@@ -1,8 +1,11 @@
 package management
 
 import (
+	"cmp"
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -19,6 +22,9 @@ type Chat struct {
 	Kind         string    `json:"kind,omitempty"`
 	Title        string    `json:"title,omitempty"` // as the platform names it
 	Name         string    `json:"name,omitempty"`  // as the operator names it
+	Description  string    `json:"description,omitempty"`
+	Members      int       `json:"members,omitempty" doc:"How many members it has, as the platform last said."`
+	People       int       `json:"people" doc:"How many people the bot has seen sending messages in it."`
 	FirstSeen    time.Time `json:"first_seen"`
 	LastSeen     time.Time `json:"last_seen"`
 	// LastMessage is the event.received record of its latest new message,
@@ -46,10 +52,16 @@ func seeChat(ctx context.Context, q *queries.Queries, e otogi.Event, at time.Tim
 	}
 	err := q.SeeChat(ctx, queries.SeeChatParams{
 		Platform: string(e.Platform), Conversation: string(e.Conversation.ID), Account: string(e.Account),
-		Kind: string(e.Conversation.Kind), Title: e.Conversation.Title, At: at.UnixMilli(), LastMessage: last,
+		Kind: string(e.Conversation.Kind), Title: e.Conversation.Title, Description: e.Conversation.Description,
+		Members: int64(e.Conversation.Members), At: at.UnixMilli(), LastMessage: last,
 	})
 	if err == nil && last != 0 {
 		err = q.CountMessage(ctx, queries.CountMessageParams{Platform: string(e.Platform), Conversation: string(e.Conversation.ID), Day: day(at)})
+	}
+	if err == nil && last != 0 && e.Direction == otogi.DirectionIncoming && e.Actor.ID != "" {
+		err = q.SeePerson(ctx, queries.SeePersonParams{
+			Platform: string(e.Platform), Conversation: string(e.Conversation.ID), Actor: string(e.Actor.ID), Name: e.Actor.Name, At: at.UnixMilli(),
+		})
 	}
 	if err != nil {
 		return fmt.Errorf("chat directory: %w", err)
@@ -67,6 +79,7 @@ func (l *EventLog) Chats(ctx context.Context) ([]Chat, error) {
 	for i, r := range rows {
 		out[i] = Chat{
 			Platform: r.Platform, Conversation: r.Conversation, Account: r.Account, Kind: r.Kind, Title: r.Title, Name: r.Name,
+			Description: r.Description, Members: int(r.Members), People: int(r.People),
 			FirstSeen: time.UnixMilli(r.FirstSeen).UTC(), LastSeen: time.UnixMilli(r.LastSeen).UTC(),
 		}
 		if r.MessageID.Valid {
@@ -87,6 +100,47 @@ func (l *EventLog) NameChat(ctx context.Context, platform, conversation, name st
 		return false, fmt.Errorf("event log: name chat: %w", err)
 	}
 	return n > 0, nil
+}
+
+// Person is someone seen sending messages in a chat.
+type Person struct {
+	Actor     string    `json:"actor"`
+	Name      string    `json:"name,omitempty" doc:"The latest name they were seen with."`
+	FirstSeen time.Time `json:"first_seen"`
+	LastSeen  time.Time `json:"last_seen"`
+	Messages  int64     `json:"messages"`
+}
+
+// ChatPeople returns the people seen in a chat, most recently seen first.
+func (l *EventLog) ChatPeople(ctx context.Context, platform, conversation string, limit int) ([]Person, error) {
+	rows, err := queries.New(l.db).ChatPeople(ctx, queries.ChatPeopleParams{Platform: platform, Conversation: conversation, Limit: int64(limit)})
+	if err != nil {
+		return nil, fmt.Errorf("event log: chat people: %w", err)
+	}
+	out := make([]Person, len(rows))
+	for i, r := range rows {
+		out[i] = Person{Actor: r.Actor, Name: r.Name, FirstSeen: time.UnixMilli(r.FirstSeen).UTC(), LastSeen: time.UnixMilli(r.LastSeen).UTC(), Messages: r.Messages}
+	}
+	return out, nil
+}
+
+// Names returns what a chat and a person are called: the chat by the name
+// the operator gave it, else the platform's latest title, and the person
+// by the latest name they were seen with anywhere. Unknown ones are "".
+func (l *EventLog) Names(ctx context.Context, platform, conversation, actor string) (chat, person string, err error) {
+	q := queries.New(l.db)
+	c, err := q.ChatName(ctx, queries.ChatNameParams{Platform: platform, Conversation: conversation})
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return "", "", fmt.Errorf("event log: chat name: %w", err)
+	}
+	chat = cmp.Or(c.Name, c.Title)
+	if actor != "" {
+		person, err = q.PersonName(ctx, queries.PersonNameParams{Platform: platform, Actor: actor})
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return "", "", fmt.Errorf("event log: person name: %w", err)
+		}
+	}
+	return chat, person, nil
 }
 
 // ChatDays returns a chat's daily new messages since a day, oldest first;

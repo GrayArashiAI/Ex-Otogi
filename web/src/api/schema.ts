@@ -499,13 +499,24 @@ export interface components {
         Chat: {
             account: string;
             conversation: string;
+            description?: string;
             /** Format: date-time */
             first_seen: string;
             kind?: string;
             last_message?: components["schemas"]["Entry"];
             /** Format: date-time */
             last_seen: string;
+            /**
+             * Format: int64
+             * @description How many members it has, as the platform last said.
+             */
+            members?: number;
             name?: string;
+            /**
+             * Format: int64
+             * @description How many people the bot has seen sending messages in it.
+             */
+            people: number;
             platform: string;
             title?: string;
         };
@@ -532,6 +543,7 @@ export interface components {
             conversation: string;
             /** @description New messages per day over the last 7 days, days without any left out. */
             days: components["schemas"]["ChatDay"][] | null;
+            description?: string;
             /** Format: date-time */
             first_seen: string;
             /** @description The chat as /whoami prints it. */
@@ -542,7 +554,19 @@ export interface components {
             last_seen: string;
             /** @description The allowlists it is on. */
             lists: components["schemas"]["AllowedChat"][];
+            /**
+             * Format: int64
+             * @description How many members it has, as the platform last said.
+             */
+            members?: number;
             name?: string;
+            /**
+             * Format: int64
+             * @description How many people the bot has seen sending messages in it.
+             */
+            people: number;
+            /** @description The people seen sending messages in it, most recently seen first, up to 100. */
+            people_seen: components["schemas"]["Person"][];
             platform: string;
             title?: string;
         };
@@ -824,6 +848,17 @@ export interface components {
              */
             used_at?: string;
         };
+        Person: {
+            actor: string;
+            /** Format: date-time */
+            first_seen: string;
+            /** Format: date-time */
+            last_seen: string;
+            /** Format: int64 */
+            messages: number;
+            /** @description The latest name they were seen with. */
+            name?: string;
+        };
         Poll: {
             multiple?: boolean;
             options?: string[] | null;
@@ -854,6 +889,7 @@ export interface components {
         SeenChat: {
             account: string;
             conversation: string;
+            description?: string;
             /** Format: date-time */
             first_seen: string;
             /** @description The chat as /whoami prints it. */
@@ -864,7 +900,17 @@ export interface components {
             last_seen: string;
             /** @description The allowlists it is on. */
             lists: components["schemas"]["AllowedChat"][];
+            /**
+             * Format: int64
+             * @description How many members it has, as the platform last said.
+             */
+            members?: number;
             name?: string;
+            /**
+             * Format: int64
+             * @description How many people the bot has seen sending messages in it.
+             */
+            people: number;
             platform: string;
             title?: string;
         };

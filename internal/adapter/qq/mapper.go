@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	qqstore "github.com/TundraWork/Ex-Otogi/internal/adapter/qq/store"
 	"github.com/TundraWork/Ex-Otogi/pkg/otogi"
 )
 
@@ -82,10 +83,17 @@ type refs interface {
 	FindRef(ctx context.Context, refIdx string) (string, bool, error)
 }
 
+// peerNames keeps the names users are seen with.
+type peerNames interface {
+	SetPeerName(ctx context.Context, peer, name string) error
+	Peer(ctx context.Context, peer string) (qqstore.Peer, error)
+}
+
 // mapper turns dispatches into events.
 type mapper struct {
 	account otogi.AccountID
 	refs    refs
+	names   peerNames
 	// self is the bot's own user ID from READY, which its own messages carry.
 	self func() string
 }
@@ -124,6 +132,9 @@ func (m *mapper) mapFrame(ctx context.Context, f frame, received time.Time) (oto
 		}
 	}
 	e.Actor = otogi.Actor{ID: otogi.ActorID("user:" + actor), Name: msg.Author.Username}
+	if err := m.learnNames(ctx, msg, actor); err != nil {
+		return otogi.Event{}, err
+	}
 
 	var err error
 	if e.Message, err = m.content(ctx, msg, &e); err != nil {
@@ -159,6 +170,25 @@ func (m *mapper) sent(f frame, received time.Time) (otogi.Event, error) {
 	return e, nil
 }
 
+// learnNames keeps the names a message shows: its sender's, and those of
+// the people it mentions. QQ sends a name only now and then (never in
+// private chats), so a name seen once names the user from then on.
+func (m *mapper) learnNames(ctx context.Context, msg message, actor string) error {
+	if msg.Author.Username != "" && actor != "" {
+		if err := m.names.SetPeerName(ctx, "user:"+actor, msg.Author.Username); err != nil {
+			return err
+		}
+	}
+	for _, mention := range msg.Mentions {
+		if id := firstOf(mention.MemberOpenID, mention.UserOpenID, mention.ID); id != "" && mention.Username != "" && !mention.IsYou {
+			if err := m.names.SetPeerName(ctx, "user:"+id, mention.Username); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 var mentionToken = regexp.MustCompile(`<@!?([^>\s]+)>`)
 
 // content builds the message: text with mentions as annotations, then the
@@ -175,6 +205,11 @@ func (m *mapper) content(ctx context.Context, msg message, e *otogi.Event) (otog
 		last = loc[1]
 		id := content[loc[2]:loc[3]]
 		name, target := id, otogi.ActorID("user:"+id)
+		if known, err := m.names.Peer(ctx, "user:"+id); err != nil {
+			return otogi.Message{}, err
+		} else if known.Name != "" {
+			name = known.Name
+		}
 		for _, mention := range msg.Mentions {
 			if mention.MemberOpenID == id || mention.UserOpenID == id || mention.ID == id {
 				if mention.Username != "" {

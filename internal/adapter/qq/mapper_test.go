@@ -19,7 +19,7 @@ func testMapper(t *testing.T) *mapper {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = s.Close() })
-	return &mapper{account: "bot", refs: s, self: func() string { return "B1" }}
+	return &mapper{account: "bot", refs: s, names: s, self: func() string { return "B1" }}
 }
 
 func mapOne(t *testing.T, m *mapper, typ, d string) otogi.Event {
@@ -119,5 +119,23 @@ func TestMapSentMessage(t *testing.T) {
 	e := mapOne(t, m, sentType, `{"id":"s1","content":"**hi**","timestamp":"2026-11-06T02:00:00Z","peer":"U1","self":"B1","self_name":"Otogi"}`)
 	if e.Direction != otogi.DirectionOutgoing || e.Conversation.ID != "user:U1" || e.Actor.ID != "user:B1" || e.Actor.Name != "Otogi" || e.Message.PlainText() != "**hi**" || e.SourceID != "s1" {
 		t.Fatalf("event = %+v", e)
+	}
+}
+
+// Names a message shows are kept: a later mention that QQ sends without a
+// name still reads as the person.
+func TestMapLearnsNames(t *testing.T) {
+	m := testMapper(t)
+	mapOne(t, m, "GROUP_MESSAGE_CREATE", `{"id":"g1","content":"hi <@M2>","group_openid":"G1",
+		"author":{"member_openid":"M1","username":"Alice"},"mentions":[{"member_openid":"M2","username":"Bob"}]}`)
+	e := mapOne(t, m, "GROUP_MESSAGE_CREATE", `{"id":"g2","content":"<@M1> hello","group_openid":"G1",
+		"author":{"member_openid":"M2"},"mentions":[{"member_openid":"M1"}]}`)
+	if e.Message.PlainText() != "@Alice hello" {
+		t.Fatalf("text = %q", e.Message.PlainText())
+	}
+	for peer, want := range map[string]string{"user:M1": "Alice", "user:M2": "Bob"} {
+		if p, err := m.names.Peer(context.Background(), peer); err != nil || p.Name != want {
+			t.Fatalf("%s = %+v, %v", peer, p, err)
+		}
 	}
 }

@@ -24,7 +24,7 @@ func TestMapNewAndEditMessages(t *testing.T) {
 		t.Fatal(err)
 	}
 	if result.Events[0].Action != otogi.ActionMessageCreated || result.Events[0].Conversation.ID != "user:9" || result.Events[0].Direction != otogi.DirectionIncoming {
-		t.Fatalf("event action=%s conversation=%s direction=%s", result.Events[0].Action, result.Events[0].Conversation, result.Events[0].Direction)
+		t.Fatalf("event action=%s conversation=%+v direction=%s", result.Events[0].Action, result.Events[0].Conversation, result.Events[0].Direction)
 	}
 	if result.Events[0].Actor.ID != "user:9" || result.Events[0].Conversation.Kind != otogi.ConversationDirect {
 		t.Fatalf("actor=%v conversation=%v", result.Events[0].Actor, result.Events[0].Conversation)

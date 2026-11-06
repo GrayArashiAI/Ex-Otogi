@@ -219,11 +219,18 @@ func (m *Module) system(p *profile, e otogi.Event) string {
 	if e.Conversation.Title != "" {
 		where += " called " + e.Conversation.Title
 	}
+	if e.Conversation.Members > 0 {
+		where += fmt.Sprintf(" (%d members)", e.Conversation.Members)
+	}
+	about := ""
+	if d := strings.TrimSpace(e.Conversation.Description); d != "" {
+		about = " The chat describes itself as: " + d
+	}
 	return strings.TrimSpace(p.System) + "\n\n" + fmt.Sprintf(
 		"You are %s, talking in %s on %s. It is %s. People address you by starting a message with your name, by mentioning you, or by replying to you. "+
 			"In group chats each message starts with its sender's name. You speak through a shared account: chat lines marked (this account) were sent by you or by another agent or feature of this bot. "+
-			"Write in Markdown.",
-		p.Name, where, e.Platform, m.now().In(time.Local).Format("Monday, 2 January 2006, 15:04 MST"))
+			"Write in Markdown.%s",
+		p.Name, where, e.Platform, m.now().In(time.Local).Format("Monday, 2 January 2006, 15:04 MST"), about)
 }
 
 // present is a reply as the chat shows it: after the profile's label, as a

@@ -91,6 +91,12 @@ type Conversation struct {
 	Kind ConversationKind `json:"kind,omitempty"`
 	// Title is the display title when the driver knows it.
 	Title string `json:"title,omitempty"`
+	// Description is what the conversation says about itself, such as a
+	// group's introduction, when the driver knows it.
+	Description string `json:"description,omitempty"`
+	// Members is how many members the conversation has, when the driver
+	// knows it.
+	Members int `json:"members,omitempty"`
 }
 
 // Actor describes who caused an event.

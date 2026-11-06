@@ -14,6 +14,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { chatKind, chatName } from "@/lib/chats";
 import { listMeta, moduleMeta, platformMeta } from "@/lib/meta";
+import { ago } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import { chatQuery, messagesQuery } from "@/queries/chats";
 import { modulesQuery } from "@/queries/modules";
@@ -72,7 +73,7 @@ function ChatPage() {
         <div className="border-b px-4 py-2 lg:hidden">
           <ModuleSwitches chat={chat} compact />
         </div>
-        <Conversation chat={id} />
+        <Conversation chat={id} people={senders(chat)} />
       </section>
       <aside className="hidden flex-col gap-5 border-l px-4 py-5 lg:flex lg:h-[calc(100svh-3.5rem)] lg:overflow-y-auto">
         <ModuleSwitches chat={chat} />
@@ -86,7 +87,16 @@ type Message = Schemas["ChatMessage"];
 
 /** Conversation shows a chat's messages, oldest at the top, and loads
  * older ones as one scrolls up. */
-function Conversation({ chat }: { chat: string }) {
+/** senders names people by what the directory knows: their latest name,
+ * and in a private chat, the chat's name for the other person. */
+function senders(chat: Schemas["ChatOutputBody"]): Record<string, string> {
+  const names: Record<string, string> = {};
+  if (chat.kind === "direct") names[chat.conversation] = chatName(chat);
+  for (const p of chat.people_seen) if (p.name) names[p.actor] = p.name;
+  return names;
+}
+
+function Conversation({ chat, people }: { chat: string; people: Record<string, string> }) {
   const messages = useInfiniteQuery(messagesQuery(chat));
   const { data: modules } = useQuery(modulesQuery);
   const items = (messages.data?.pages.flatMap((p) => p.messages ?? []) ?? []).toReversed();
@@ -158,7 +168,7 @@ function Conversation({ chat }: { chat: string }) {
               style={{ transform: `translateY(${row.start}px)` }}
             >
               {newDay && <DayLabel at={m.at} />}
-              <MessageRow chat={chat} m={m} labels={labels} />
+              <MessageRow chat={chat} m={m} labels={labels} people={people} />
             </div>
           );
         })}
@@ -180,10 +190,12 @@ function MessageRow({
   chat,
   m,
   labels,
+  people,
 }: {
   chat: string;
   m: Message;
   labels: Record<string, ReturnType<typeof listMeta>>;
+  people: Record<string, string>;
 }) {
   const records = m.records ?? [];
   const own = records.find((r) => !r.kind.startsWith("module."));
@@ -192,7 +204,8 @@ function MessageRow({
   const meta = m.bot
     ? (reply?.profile && labels[`${m.module}/${reply.profile}`]) || moduleMeta(m.module ?? "")
     : undefined;
-  const who = m.bot ? (meta?.title ?? "Bot") : m.actor?.name || m.actor?.id?.split(":").pop() || "Someone";
+  const actor = m.actor?.id ?? "";
+  const who = m.bot ? (meta?.title ?? "Bot") : m.actor?.name || people[actor] || actor.split(":").pop() || "Someone";
   const parts = m.message.parts ?? [];
   const text = parts
     .filter((part) => part.kind === "text" && part.text)
@@ -361,6 +374,8 @@ function About({ chat }: { chat: Schemas["ChatOutputBody"] }) {
   const facts = [
     { label: "Platform", value: chatKind(chat) },
     { label: "Bot account", value: chat.account },
+    ...(chat.members ? [{ label: "Members", value: chat.members }] : []),
+    { label: "People seen", value: chat.people },
     { label: "First seen", value: format(new Date(chat.first_seen), "MMM d, HH:mm") },
     { label: "Messages, 7 days", value: week.reduce((n, d) => n + d.messages, 0) },
   ];
@@ -369,6 +384,11 @@ function About({ chat }: { chat: Schemas["ChatOutputBody"] }) {
       <h2 className="mb-2 px-0.5 font-semibold text-[13px]">About this chat</h2>
       <div className="surface-raised rounded-2xl px-3">
         <Name chat={chat} />
+        {chat.description && (
+          <p className="whitespace-pre-wrap border-t border-border/80 py-2.5 text-[13px] text-muted-foreground">
+            {chat.description}
+          </p>
+        )}
         <dl className="divide-y divide-border/80 border-t border-border/80">
           {facts.map((f) => (
             <div key={f.label} className="flex justify-between gap-3 py-2 text-[13px]">
@@ -395,7 +415,35 @@ function About({ chat }: { chat: Schemas["ChatOutputBody"] }) {
           </div>
         </div>
       </div>
+      <People people={chat.people_seen} />
     </section>
+  );
+}
+
+/** People lists who has been seen sending messages here, recent first. */
+function People({ people }: { people: Schemas["Person"][] }) {
+  if (people.length === 0) return null;
+  return (
+    <>
+      <h2 className="mt-5 mb-2 px-0.5 font-semibold text-[13px]">People</h2>
+      <ul className="surface-raised divide-y divide-border/80 rounded-2xl px-3">
+        {people.map((p) => (
+          <li key={p.actor} className="flex items-center gap-2.5 py-2">
+            <span className="grid size-7 flex-none place-items-center rounded-full bg-linear-to-b from-neutral-100 to-neutral-200 font-semibold text-neutral-600 text-xs shadow-[inset_0_0_0_1px_--theme(--color-black/5%)]">
+              {(p.name || "?").slice(0, 1).toUpperCase()}
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate font-medium text-[13px]">{p.name || "Unnamed"}</span>
+              <span className="block truncate font-mono text-[11px] text-muted-foreground">{p.actor}</span>
+            </span>
+            <span className="text-right text-muted-foreground text-xs tabular">
+              {p.messages}
+              <span className="block">{ago(p.last_seen)}</span>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </>
   );
 }
 

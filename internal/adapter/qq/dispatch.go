@@ -29,15 +29,16 @@ const dispatchBatch = 100
 // Rows left pending (because the process stopped first) are dispatched again
 // on the next start.
 type dispatcher struct {
-	store  *qqstore.Store
-	mapper *mapper
-	api    *api
-	kernel Submitter
-	wake   <-chan struct{}
-	poll   time.Duration
-	log    *slog.Logger
-	now    func() time.Time
-	record func(kind, outcome string, payload any)
+	store     *qqstore.Store
+	mapper    *mapper
+	directory *directory
+	api       *api
+	kernel    Submitter
+	wake      <-chan struct{}
+	poll      time.Duration
+	log       *slog.Logger
+	now       func() time.Time
+	record    func(kind, outcome string, payload any)
 
 	mu     sync.Mutex
 	failed error // first error from a done callback, surfaced by run
@@ -85,6 +86,9 @@ func (d *dispatcher) dispatch(ctx context.Context, row qqstore.InboxRow) (bool, 
 	var event otogi.Event
 	if err == nil {
 		event, err = d.mapper.mapFrame(ctx, f, row.ReceivedAt)
+	}
+	if err == nil {
+		err = d.directory.complete(ctx, &event)
 	}
 	if err == nil {
 		event.ID = inboxEventID(row.ID)

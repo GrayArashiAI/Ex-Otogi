@@ -62,3 +62,41 @@ func TestChatDirectory(t *testing.T) {
 		t.Fatalf("after pruning: chats %+v, days %+v", chats, days)
 	}
 }
+
+// The people who send messages in a chat are kept with their latest name,
+// which also names them where a later event has none; an operator's name
+// for a chat wins over the platform's title.
+func TestChatPeopleAndNames(t *testing.T) {
+	l := openLog(t)
+	ctx := context.Background()
+	at := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
+	send := func(actor, name string, direction otogi.Direction) {
+		at = at.Add(time.Minute)
+		e := otogi.Event{ID: otogi.EventID("e" + at.Format("1504")), Platform: "qq", Account: "otogi", Action: otogi.ActionMessageCreated, Direction: direction,
+			Conversation: otogi.Conversation{ID: "group:G1", Kind: otogi.ConversationGroup, Description: "喝茶聊天", Members: 42},
+			Actor:        otogi.Actor{ID: otogi.ActorID(actor), Name: name}, Message: otogi.TextMessage("hi")}
+		l.Record(ctx, otogi.Record{At: at, Kind: "event.received", Component: "kernel", Event: e.ID, Platform: e.Platform, Account: e.Account, Conversation: e.Conversation.ID, Payload: e})
+	}
+	send("user:M1", "Alice", otogi.DirectionIncoming)
+	send("user:M1", "", otogi.DirectionIncoming)
+	send("user:M2", "Bob", otogi.DirectionIncoming)
+	send("user:B1", "Otogi", otogi.DirectionOutgoing) // the bot is not one of the people
+
+	people, err := l.ChatPeople(ctx, "qq", "group:G1", 10)
+	if err != nil || len(people) != 2 || people[0].Name != "Bob" || people[1].Name != "Alice" || people[1].Messages != 2 {
+		t.Fatalf("people %+v, %v", people, err)
+	}
+	chats, _ := l.Chats(ctx)
+	if c := chats[0]; c.People != 2 || c.Members != 42 || c.Description != "喝茶聊天" {
+		t.Fatalf("chat %+v", c)
+	}
+	if _, err := l.NameChat(ctx, "qq", "group:G1", "茶话会"); err != nil {
+		t.Fatal(err)
+	}
+	if chat, person, err := l.Names(ctx, "qq", "group:G1", "user:M1"); chat != "茶话会" || person != "Alice" || err != nil {
+		t.Fatalf("names %q %q %v", chat, person, err)
+	}
+	if chat, person, err := l.Names(ctx, "qq", "user:U9", "user:U9"); chat != "" || person != "" || err != nil {
+		t.Fatalf("unknown names %q %q %v", chat, person, err)
+	}
+}

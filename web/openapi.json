@@ -129,6 +129,9 @@
           "conversation": {
             "type": "string"
           },
+          "description": {
+            "type": "string"
+          },
           "first_seen": {
             "format": "date-time",
             "type": "string"
@@ -143,8 +146,18 @@
             "format": "date-time",
             "type": "string"
           },
+          "members": {
+            "description": "How many members it has, as the platform last said.",
+            "format": "int64",
+            "type": "integer"
+          },
           "name": {
             "type": "string"
+          },
+          "people": {
+            "description": "How many people the bot has seen sending messages in it.",
+            "format": "int64",
+            "type": "integer"
           },
           "platform": {
             "type": "string"
@@ -157,6 +170,7 @@
           "platform",
           "conversation",
           "account",
+          "people",
           "first_seen",
           "last_seen"
         ],
@@ -245,6 +259,9 @@
               "null"
             ]
           },
+          "description": {
+            "type": "string"
+          },
           "first_seen": {
             "format": "date-time",
             "type": "string"
@@ -270,8 +287,25 @@
             },
             "type": "array"
           },
+          "members": {
+            "description": "How many members it has, as the platform last said.",
+            "format": "int64",
+            "type": "integer"
+          },
           "name": {
             "type": "string"
+          },
+          "people": {
+            "description": "How many people the bot has seen sending messages in it.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "people_seen": {
+            "description": "The people seen sending messages in it, most recently seen first, up to 100.",
+            "items": {
+              "$ref": "#/components/schemas/Person"
+            },
+            "type": "array"
           },
           "platform": {
             "type": "string"
@@ -282,11 +316,13 @@
         },
         "required": [
           "days",
+          "people_seen",
           "id",
           "lists",
           "platform",
           "conversation",
           "account",
+          "people",
           "first_seen",
           "last_seen"
         ],
@@ -1133,6 +1169,37 @@
         ],
         "type": "object"
       },
+      "Person": {
+        "additionalProperties": false,
+        "properties": {
+          "actor": {
+            "type": "string"
+          },
+          "first_seen": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "last_seen": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "messages": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "name": {
+            "description": "The latest name they were seen with.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "actor",
+          "first_seen",
+          "last_seen",
+          "messages"
+        ],
+        "type": "object"
+      },
       "Poll": {
         "additionalProperties": false,
         "properties": {
@@ -1245,6 +1312,9 @@
           "conversation": {
             "type": "string"
           },
+          "description": {
+            "type": "string"
+          },
           "first_seen": {
             "format": "date-time",
             "type": "string"
@@ -1270,8 +1340,18 @@
             },
             "type": "array"
           },
+          "members": {
+            "description": "How many members it has, as the platform last said.",
+            "format": "int64",
+            "type": "integer"
+          },
           "name": {
             "type": "string"
+          },
+          "people": {
+            "description": "How many people the bot has seen sending messages in it.",
+            "format": "int64",
+            "type": "integer"
           },
           "platform": {
             "type": "string"
@@ -1286,6 +1366,7 @@
           "platform",
           "conversation",
           "account",
+          "people",
           "first_seen",
           "last_seen"
         ],

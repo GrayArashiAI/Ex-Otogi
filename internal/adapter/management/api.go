@@ -452,7 +452,8 @@ func registerChats(api huma.API, modules Modules, events *EventLog, media func(c
 	type chatOutput struct {
 		Body struct {
 			SeenChat
-			Days []ChatDay `json:"days" doc:"New messages per day over the last 7 days, days without any left out."`
+			Days       []ChatDay `json:"days" doc:"New messages per day over the last 7 days, days without any left out."`
+			PeopleSeen []Person  `json:"people_seen" nullable:"false" doc:"The people seen sending messages in it, most recently seen first, up to 100."`
 		}
 	}
 	withDays := func(ctx context.Context, c SeenChat) (*chatOutput, error) {
@@ -460,8 +461,12 @@ func registerChats(api huma.API, modules Modules, events *EventLog, media func(c
 		if err != nil {
 			return nil, problem(err)
 		}
+		people, err := events.ChatPeople(ctx, c.Platform, c.Conversation, 100)
+		if err != nil {
+			return nil, problem(err)
+		}
 		out := &chatOutput{}
-		out.Body.SeenChat, out.Body.Days = c, days
+		out.Body.SeenChat, out.Body.Days, out.Body.PeopleSeen = c, days, people
 		return out, nil
 	}
 	huma.Register(api, huma.Operation{OperationID: "get-chat", Method: http.MethodGet, Path: "/api/chats/{chat}", Summary: "One chat", Tags: []string{"Chats"}},
