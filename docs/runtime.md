@@ -70,6 +70,8 @@ new -> starting -> ready -> draining -> stopped
 
 Components are not restarted in-process. The process supervisor (systemd, a container runtime) restarts the process.
 
+Modules are the exception: a running kernel's module set can change (`Kernel.Reconfigure`). The kernel never restarts a module instance. It starts a new one, and from then on every delivery goes to the new instance, after the old instance's deliveries in the same conversation. The old instance finishes its deliveries in flight and is then stopped. If the new instance fails to start, the old one keeps running. A module whose services others hold is replaced together with them (`Kernel.Dependents`).
+
 ## Goroutines
 
 Every goroutine has an owner that can cancel it and waits for it on stop. Blocking channel operations also select on cancellation. Only the producer closes a channel. No detached goroutines.

@@ -70,7 +70,10 @@ type moduleEntry struct {
 	descriptor otogi.ModuleDescriptor
 	subscribes map[otogi.EventAction]bool
 	timeout    time.Duration
-	counts     outcomeCounts
+	counts     *outcomeCounts // shared by the instances of one module
+	active     sync.WaitGroup // deliveries enqueued and not yet run
+	starting   bool           // in Start: may Schedule and Provide; guarded by Kernel.mu
+	retired    bool           // replaced: gets no more deliveries; guarded by Kernel.mu
 }
 
 // outcomeCounts counts a module's deliveries by outcome since start, for
@@ -94,22 +97,20 @@ type Kernel struct {
 	log        *slog.Logger
 	effector   otogi.Effector
 	middleware []otogi.Middleware
-	modules    []*moduleEntry
-	startOrder []*moduleEntry // providers before the modules requiring them
-	byID       map[otogi.ModuleID]*moduleEntry
-	commands   map[string][]*moduleEntry // command name -> declaring module
 	slots      chan struct{}
+
+	reconfiguring sync.Mutex     // one Reconfigure at a time
+	retiring      sync.WaitGroup // replaced instances not yet stopped
 
 	mu       sync.Mutex
 	state    state
+	routes   *routing
+	pending  *routing // the routing being started by Reconfigure
 	inFlight sync.WaitGroup
 	runCtx   context.Context
 	cancel   context.CancelFunc
 	sched    scheduler
 	workers  sync.WaitGroup
-	starting bool // modules may Schedule and Provide only while starting
-	services map[string]any
-	jobs     []*job
 	timers   map[string]bool // module/key of timers running now
 }
 
@@ -123,55 +124,24 @@ func New(cfg Config, modules []otogi.Module, middleware []otogi.Middleware, effe
 		log = slog.Default()
 	}
 	cfg = cfg.withDefaults()
-	entries := make([]*moduleEntry, 0, len(modules))
-	seen := make(map[otogi.ModuleID]bool, len(modules))
-	for _, module := range modules {
-		d := module.Descriptor()
-		if d.ID == "" || seen[d.ID] {
-			return nil, fmt.Errorf("new kernel: empty or duplicate module ID %q: %w", d.ID, otogi.ErrInvalid)
-		}
-		seen[d.ID] = true
-		entry := &moduleEntry{module: module, descriptor: d, subscribes: make(map[otogi.EventAction]bool, len(d.Subscribes)), timeout: cfg.HandlerTimeout, provides: set(d.Provides), requires: set(d.Requires)}
-		for _, action := range d.Subscribes {
-			if !action.Valid() {
-				return nil, fmt.Errorf("new kernel: module %q subscribes to invalid action %q: %w", d.ID, action, otogi.ErrInvalid)
-			}
-			entry.subscribes[action] = true
-		}
-		if d.Timeout != 0 {
-			entry.timeout = d.Timeout
-		}
-		entries = append(entries, entry)
-	}
-	slices.SortFunc(entries, func(a, b *moduleEntry) int { return strings.Compare(string(a.descriptor.ID), string(b.descriptor.ID)) })
-	commands := map[string][]*moduleEntry{}
-	for _, entry := range entries {
-		for _, c := range entry.descriptor.Commands {
-			if !commandName.MatchString(c.Name) {
-				return nil, fmt.Errorf("new kernel: module %q command %q: want lowercase letters, digits, or _: %w", entry.descriptor.ID, c.Name, otogi.ErrInvalid)
-			}
-			if owner := commands[c.Name]; owner != nil {
-				return nil, fmt.Errorf("new kernel: command %q declared by both %q and %q: %w", c.Name, owner[0].descriptor.ID, entry.descriptor.ID, otogi.ErrInvalid)
-			}
-			commands[c.Name] = []*moduleEntry{entry}
-		}
-	}
-	order, err := startOrder(entries)
-	if err != nil {
-		return nil, fmt.Errorf("new kernel: %w", err)
-	}
 	k := &Kernel{
-		cfg: cfg, log: log, effector: effector, modules: entries, startOrder: order, commands: commands,
-		byID:       map[otogi.ModuleID]*moduleEntry{},
+		cfg: cfg, log: log, effector: effector,
 		middleware: slices.Clone(middleware),
 		slots:      make(chan struct{}, cfg.MaxInFlight),
-		services:   map[string]any{},
 		timers:     map[string]bool{},
 	}
 	k.sched.init(&k.mu)
-	for _, entry := range entries {
-		entry.host = &host{kernel: k, entry: entry, log: log.With("module", entry.descriptor.ID)}
-		k.byID[entry.descriptor.ID] = entry
+	entries := make([]*moduleEntry, 0, len(modules))
+	for _, module := range modules {
+		entry, err := k.newEntry(module)
+		if err != nil {
+			return nil, fmt.Errorf("new kernel: %w", err)
+		}
+		entries = append(entries, entry)
+	}
+	var err error
+	if k.routes, err = newRouting(entries); err != nil {
+		return nil, fmt.Errorf("new kernel: %w", err)
 	}
 	return k, nil
 }
@@ -188,24 +158,12 @@ func (k *Kernel) Start(ctx context.Context) error {
 		k.mu.Unlock()
 		return fmt.Errorf("start kernel: already started: %w", otogi.ErrUnavailable)
 	}
-	k.starting = true
 	k.mu.Unlock()
-	for i, entry := range k.startOrder {
-		starter, ok := entry.module.(otogi.Starter)
-		if !ok {
-			continue
-		}
-		if err := guard(func() error { return starter.Start(ctx, entry.host) }); err != nil {
-			k.mu.Lock()
-			k.starting = false
-			k.mu.Unlock()
-			stopErr := k.stopModules(ctx, k.startOrder[:i])
-			return errors.Join(fmt.Errorf("start module %q: %w", entry.descriptor.ID, err), stopErr)
-		}
+	if err := k.startModules(ctx, k.routes.startOrder); err != nil {
+		return err
 	}
 	k.mu.Lock()
 	defer k.mu.Unlock()
-	k.starting = false
 	k.runCtx, k.cancel = context.WithCancel(context.Background())
 	for range k.cfg.Workers {
 		k.workers.Go(k.work)
@@ -249,16 +207,18 @@ func (k *Kernel) Submit(ctx context.Context, event otogi.Event, done func(otogi.
 			return nil
 		}
 	}
-	var deliveries []*delivery
-	for _, entry := range k.recipients(tracked.event) {
-		deliveries = append(deliveries, eventDelivery(tracked, entry))
-	}
-	tracked.begin(len(deliveries))
+	// Recipients are chosen under the lock that Reconfigure swaps modules
+	// under, so no delivery goes to an instance being retired.
 	k.mu.Lock()
-	for _, d := range deliveries {
-		k.sched.enqueue(d)
+	recipients := k.recipients(tracked.event)
+	tracked.begin(len(recipients))
+	for _, entry := range recipients {
+		k.sched.enqueue(eventDelivery(tracked, entry))
 	}
 	k.mu.Unlock()
+	if len(recipients) == 0 {
+		tracked.finish()
+	}
 	return nil
 }
 
@@ -325,20 +285,13 @@ func (k *Kernel) Stop(ctx context.Context) error {
 	if err := wait(ctx, &k.workers); err != nil {
 		return err
 	}
-	return k.stopModules(ctx, k.startOrder)
-}
-
-// stopModules stops modules implementing otogi.Stopper, in reverse order.
-func (k *Kernel) stopModules(ctx context.Context, entries []*moduleEntry) error {
-	var errs []error
-	for _, entry := range slices.Backward(entries) {
-		if stopper, ok := entry.module.(otogi.Stopper); ok {
-			if err := guard(func() error { return stopper.Stop(ctx) }); err != nil {
-				errs = append(errs, fmt.Errorf("stop module %q: %w", entry.descriptor.ID, err))
-			}
-		}
+	if err := wait(ctx, &k.retiring); err != nil {
+		return err
 	}
-	return errors.Join(errs...)
+	k.mu.Lock()
+	r := k.routes
+	k.mu.Unlock()
+	return k.stopModules(ctx, r.startOrder)
 }
 
 // guard turns a panic in fn into an error.
@@ -375,12 +328,10 @@ type tracked struct {
 	outcome otogi.Outcome
 }
 
+// begin expects deliveries; with none, the caller finishes the event.
 func (t *tracked) begin(deliveries int) {
 	t.outcome = otogi.Outcome{EventID: t.event.ID, Modules: make([]otogi.ModuleOutcome, 0, deliveries)}
 	t.pending = deliveries
-	if deliveries == 0 {
-		t.finish()
-	}
 }
 
 func (t *tracked) dropped(by otogi.MiddlewareID, err error) {
@@ -436,7 +387,7 @@ func (k *Kernel) run(d *delivery) {
 	outcome := otogi.ModuleOutcome{Module: d.module.descriptor.ID, Err: err, Duration: time.Since(started)}
 	component := "module:" + string(outcome.Module)
 	var panicked *panicError
-	counts := &d.module.counts
+	counts := d.module.counts
 	switch {
 	case errors.As(err, &panicked):
 		counts.panicked.Add(1)
@@ -457,6 +408,7 @@ func (k *Kernel) run(d *delivery) {
 	if d.done != nil {
 		d.done(outcome)
 	}
+	d.module.active.Done()
 }
 
 func (k *Kernel) invoke(d *delivery) (err error) {
@@ -523,11 +475,11 @@ type Stats struct {
 // Stats returns the kernel's current state and load.
 func (k *Kernel) Stats() Stats {
 	k.mu.Lock()
-	state := k.state
+	state, r := k.state, k.routes
 	k.mu.Unlock()
-	modules := make(map[otogi.ModuleID]ModuleCounts, len(k.modules))
-	for _, entry := range k.modules {
-		c := &entry.counts
+	modules := make(map[otogi.ModuleID]ModuleCounts, len(r.modules))
+	for _, entry := range r.modules {
+		c := entry.counts
 		modules[entry.descriptor.ID] = ModuleCounts{Completed: c.completed.Load(), Slow: c.slow.Load(), Failed: c.failed.Load(), Panicked: c.panicked.Load()}
 	}
 	return Stats{
@@ -539,14 +491,14 @@ func (k *Kernel) Stats() Stats {
 // recipients returns the modules an event goes to. A command declared by a
 // module goes only to that module, whatever it subscribes to; otherwise the
 // event goes to every module subscribed to its action. Filters apply in both
-// cases.
+// cases. The caller holds k.mu.
 func (k *Kernel) recipients(e otogi.Event) []*moduleEntry {
 	if e.Command != nil {
-		if owners, ok := k.commands[e.Command.Name]; ok {
+		if owners, ok := k.routes.commands[e.Command.Name]; ok {
 			return filtered(owners, e, func(*moduleEntry) bool { return true })
 		}
 	}
-	return filtered(k.modules, e, func(entry *moduleEntry) bool { return entry.subscribes[e.Action] })
+	return filtered(k.routes.modules, e, func(entry *moduleEntry) bool { return entry.subscribes[e.Action] })
 }
 
 func filtered(entries []*moduleEntry, e otogi.Event, eligible func(*moduleEntry) bool) []*moduleEntry {

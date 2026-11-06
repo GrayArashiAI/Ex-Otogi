@@ -24,13 +24,14 @@ func set(names []string) map[string]bool {
 
 // startOrder orders modules so every provider of a service starts before the
 // modules requiring it, breaking ties by module ID. It rejects duplicate
-// providers, missing providers, and cycles.
-func startOrder(entries []*moduleEntry) ([]*moduleEntry, error) {
+// providers, missing providers, and cycles. It also returns each service's
+// provider.
+func startOrder(entries []*moduleEntry) (map[string]*moduleEntry, []*moduleEntry, error) {
 	providers := map[string]*moduleEntry{}
 	for _, entry := range entries {
 		for name := range entry.provides {
 			if other := providers[name]; other != nil {
-				return nil, fmt.Errorf("service %q provided by both %q and %q: %w", name, other.descriptor.ID, entry.descriptor.ID, otogi.ErrInvalid)
+				return nil, nil, fmt.Errorf("service %q provided by both %q and %q: %w", name, other.descriptor.ID, entry.descriptor.ID, otogi.ErrInvalid)
 			}
 			providers[name] = entry
 		}
@@ -38,7 +39,7 @@ func startOrder(entries []*moduleEntry) ([]*moduleEntry, error) {
 	for _, entry := range entries {
 		for name := range entry.requires {
 			if providers[name] == nil {
-				return nil, fmt.Errorf("module %q requires service %q, which no module provides: %w", entry.descriptor.ID, name, otogi.ErrInvalid)
+				return nil, nil, fmt.Errorf("module %q requires service %q, which no module provides: %w", entry.descriptor.ID, name, otogi.ErrInvalid)
 			}
 		}
 	}
@@ -68,10 +69,10 @@ func startOrder(entries []*moduleEntry) ([]*moduleEntry, error) {
 					stuck = append(stuck, entry.descriptor.ID)
 				}
 			}
-			return nil, fmt.Errorf("service dependency cycle among %v: %w", stuck, otogi.ErrInvalid)
+			return nil, nil, fmt.Errorf("service dependency cycle among %v: %w", stuck, otogi.ErrInvalid)
 		}
 	}
-	return order, nil
+	return providers, order, nil
 }
 
 // job is a scheduled module job. next and pending are owned by the clock.
@@ -99,10 +100,13 @@ func (k *Kernel) clock() {
 }
 
 func (k *Kernel) tick(now time.Time) {
-	if !k.ready() {
+	k.mu.Lock()
+	r, ready := k.routes, k.state == stateReady
+	k.mu.Unlock()
+	if !ready {
 		return // draining: no new runs
 	}
-	for _, j := range k.jobs {
+	for _, j := range r.jobs {
 		if j.next.After(now) {
 			continue
 		}
@@ -114,7 +118,7 @@ func (k *Kernel) tick(now time.Time) {
 		return
 	}
 	var handlers []otogi.ModuleID
-	for _, entry := range k.modules {
+	for _, entry := range r.modules {
 		if _, ok := entry.module.(otogi.TimerHandler); ok {
 			handlers = append(handlers, entry.descriptor.ID)
 		}
@@ -150,13 +154,17 @@ func (k *Kernel) runJob(j *job, at time.Time) {
 }
 
 func (k *Kernel) runTimer(module otogi.ModuleID, t otogi.Timer) {
-	entry := k.byID[module]
-	handler := entry.module.(otogi.TimerHandler)
 	running := string(module) + "\x00" + t.Key
 	k.mu.Lock()
-	if k.timers[running] {
+	entry := k.routes.byID[module]
+	if entry == nil || k.timers[running] {
 		k.mu.Unlock()
-		return
+		return // removed since the tick began, or running
+	}
+	handler, ok := entry.module.(otogi.TimerHandler)
+	if !ok {
+		k.mu.Unlock()
+		return // replaced since the tick began by an instance without timers
 	}
 	k.timers[running] = true
 	k.mu.Unlock()
@@ -203,11 +211,12 @@ func (k *Kernel) finishTimer(module otogi.ModuleID, t otogi.Timer, running strin
 }
 
 // enqueueWork queues a job or timer delivery unless the kernel is draining or
-// stopped.
+// stopped, or the instance was replaced since the tick began; the
+// replacement's own jobs and timers run on later ticks.
 func (k *Kernel) enqueueWork(d *delivery) bool {
 	k.mu.Lock()
 	defer k.mu.Unlock()
-	if k.state != stateReady {
+	if k.state != stateReady || d.module.retired {
 		return false
 	}
 	k.sched.enqueue(d)

@@ -132,7 +132,7 @@ func TestScheduledJobRuns(t *testing.T) {
 	if !strings.HasPrefix(sent.Origin, "job:jobs:tick:") || sent.To.Conversation != "ops" {
 		t.Fatalf("job effect = %+v", sent)
 	}
-	if err := (&host{kernel: k, entry: k.byID["jobs"]}).Schedule("late", "@every 1s", nil); !errors.Is(err, otogi.ErrInvalid) {
+	if err := (&host{kernel: k, entry: k.routes.byID["jobs"]}).Schedule("late", "@every 1s", nil); !errors.Is(err, otogi.ErrInvalid) {
 		t.Fatalf("Schedule after Start = %v", err)
 	}
 }

@@ -74,15 +74,16 @@ func (h *host) Schedule(name, spec string, fn otogi.Job) error {
 	k := h.kernel
 	k.mu.Lock()
 	defer k.mu.Unlock()
-	if !k.starting {
+	if !h.entry.starting {
 		return fmt.Errorf("schedule %q: only during Start: %w", name, otogi.ErrInvalid)
 	}
-	for _, j := range k.jobs {
+	r := k.joining(h.entry)
+	for _, j := range r.jobs {
 		if j.entry == h.entry && j.name == name {
 			return fmt.Errorf("schedule %q: name already used: %w", name, otogi.ErrInvalid)
 		}
 	}
-	k.jobs = append(k.jobs, &job{entry: h.entry, name: name, schedule: schedule, fn: fn, next: schedule.Next(time.Now())})
+	r.jobs = append(r.jobs, &job{entry: h.entry, name: name, schedule: schedule, fn: fn, next: schedule.Next(time.Now())})
 	return nil
 }
 
@@ -110,10 +111,10 @@ func (h *host) Provide(name string, service any) error {
 	k := h.kernel
 	k.mu.Lock()
 	defer k.mu.Unlock()
-	if !k.starting {
+	if !h.entry.starting {
 		return fmt.Errorf("provide %q: only during Start: %w", name, otogi.ErrInvalid)
 	}
-	k.services[name] = service
+	k.joining(h.entry).services[name] = service
 	return nil
 }
 
@@ -124,7 +125,7 @@ func (h *host) Service(name string) (any, bool) {
 	k := h.kernel
 	k.mu.Lock()
 	defer k.mu.Unlock()
-	service, ok := k.services[name]
+	service, ok := k.joining(h.entry).services[name]
 	return service, ok
 }
 

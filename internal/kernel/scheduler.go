@@ -52,6 +52,7 @@ func (s *scheduler) init(mu *sync.Mutex) {
 }
 
 func (s *scheduler) enqueue(d *delivery) {
+	d.module.active.Add(1)
 	key := d.lane
 	if d.module.descriptor.Ordering == otogi.OrderNone {
 		s.sequence++
