@@ -4,11 +4,11 @@
 <meta charset="utf-8">
 <style>
   * { box-sizing: border-box; margin: 0; }
-  html, body { background: #101114; }
+  html, body { background: #101114; color: #f1f2f3; }
   body { font-family: "Noto Sans CJK SC", "Noto Sans SC", "PingFang SC", "Noto Color Emoji", sans-serif; -webkit-font-smoothing: antialiased; }
   .frame { position: relative; width: 720px; padding: 28px; overflow: hidden; }
   .backdrop { position: absolute; inset: -60px; background: center / cover no-repeat; filter: blur(46px) saturate(1.35) brightness(.72); }
-  .card { position: relative; border-radius: 22px; overflow: hidden; background: rgba(255, 255, 255, .95); box-shadow: 0 18px 48px rgba(0, 0, 0, .38); }
+  .card { position: relative; border-radius: 22px; overflow: hidden; color: #18191c; background: rgba(255, 255, 255, .95); box-shadow: 0 18px 48px rgba(0, 0, 0, .38); }
   .cover { position: relative; aspect-ratio: 16 / 9; background: #e3e5e7; }
   .cover img { display: block; width: 100%; height: 100%; object-fit: cover; }
   .badge { position: absolute; padding: 3px 9px; border-radius: 7px; color: #fff; font-size: 15px; font-weight: 600; line-height: 1.35; letter-spacing: .02em; }
@@ -20,7 +20,7 @@
   .owner img { width: 42px; height: 42px; border-radius: 50%; object-fit: cover; box-shadow: 0 0 0 2px #fff, 0 0 0 3px #f1f2f3; }
   .who { min-width: 0; flex: 1; }
   .name { color: #18191c; font-size: 16px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .when { color: #6d727a; font-size: 13px; margin-top: 2px; }
+  .when { color: #666b73; font-size: 13px; margin-top: 2px; }
   .honors { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; max-width: 46%; }
   .honor { padding: 3px 10px; border-radius: 999px; background: #fff1f5; color: #cc2d65; font-size: 13px; font-weight: 600; white-space: nowrap; }
   .stats { display: grid; grid-template-columns: repeat(12, 1fr); gap: 10px; margin-top: 18px; }
@@ -30,12 +30,12 @@
   .stat svg { flex: none; width: 22px; height: 22px; color: #61666d; }
   .stat.hot svg { color: #cc2d65; }
   .num { color: #18191c; font-size: 17px; font-weight: 700; line-height: 1.15; font-variant-numeric: tabular-nums; }
-  .label { color: #6d727a; font-size: 12px; line-height: 1.2; }
+  .label { color: #666b73; font-size: 12px; line-height: 1.2; }
   .desc { margin-top: 16px; padding: 12px 14px; border-radius: 12px; background: #f6f7f8; }
   .desc p { color: #61666d; font-size: 14px; line-height: 1.65; white-space: pre-line; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
   .foot { display: flex; justify-content: space-between; align-items: center; margin-top: 18px; }
   .brand { color: #cc2d65; font-size: 18px; font-weight: 800; letter-spacing: .04em; }
-  .id { color: #6d727a; font-size: 13px; font-family: "Noto Sans Mono", "DejaVu Sans Mono", monospace; letter-spacing: .03em; }
+  .id { color: #666b73; font-size: 13px; font-family: "Noto Sans Mono", "DejaVu Sans Mono", monospace; letter-spacing: .03em; }
 </style>
 </head>
 <body>
