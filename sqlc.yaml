@@ -23,3 +23,10 @@ sql:
       go:
         package: queries
         out: internal/adapter/management/queries
+  - engine: sqlite
+    schema: internal/adapter/management/panel/migrations
+    queries: internal/adapter/management/panel/queries
+    gen:
+      go:
+        package: queries
+        out: internal/adapter/management/panel/queries

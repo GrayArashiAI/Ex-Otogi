@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -50,6 +51,10 @@ type ManagementConfig struct {
 	Addr *string `yaml:"addr"`
 	// Token is the bearer token; required when Addr is not loopback.
 	Token string `yaml:"token"`
+	// PublicURL is where the control panel is served, such as
+	// https://otogi.example.com; passkeys are bound to it. Empty turns the
+	// panel's sign-in off.
+	PublicURL string `yaml:"public_url"`
 }
 
 // CommandsConfig configures the command parser.
@@ -159,6 +164,11 @@ func (c Config) validate() error {
 	}
 	if c.Log.Format != "json" && c.Log.Format != "text" {
 		errs = append(errs, fmt.Errorf("log.format %q: want json or text", c.Log.Format))
+	}
+	if u := c.Management.PublicURL; u != "" {
+		if parsed, err := url.Parse(u); err != nil || (parsed.Scheme != "https" && parsed.Scheme != "http") || parsed.Host == "" || parsed.Path != "" {
+			errs = append(errs, fmt.Errorf("management.public_url %q: want an origin, such as https://otogi.example.com", u))
+		}
 	}
 	if c.EventLog.Retention < 0 {
 		errs = append(errs, errors.New("eventlog.retention must not be negative"))

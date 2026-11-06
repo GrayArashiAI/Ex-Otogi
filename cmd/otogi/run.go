@@ -11,12 +11,14 @@ import (
 	"time"
 
 	"github.com/TundraWork/Ex-Otogi/internal/adapter/management"
+	"github.com/TundraWork/Ex-Otogi/internal/adapter/management/panel"
 	"github.com/TundraWork/Ex-Otogi/internal/adapter/modulestore"
 	"github.com/TundraWork/Ex-Otogi/internal/adapter/qq"
 	"github.com/TundraWork/Ex-Otogi/internal/adapter/telegram"
 	"github.com/TundraWork/Ex-Otogi/internal/kernel"
 	"github.com/TundraWork/Ex-Otogi/modules/utility"
 	"github.com/TundraWork/Ex-Otogi/pkg/otogi"
+	"github.com/TundraWork/Ex-Otogi/web"
 )
 
 // driver is the lifecycle every platform driver provides.
@@ -152,7 +154,19 @@ func run(ctx context.Context, cfg Config, log *slog.Logger) (failure error) {
 	}
 
 	if addr := *cfg.Management.Addr; addr != "" {
+		var passkeys *panel.Store
+		if cfg.Management.PublicURL != "" {
+			if passkeys, err = panel.Open(ctx, filepath.Join(cfg.DataDir, "panel.sqlite")); err != nil {
+				return err
+			}
+			defer func() {
+				if err := passkeys.Close(); err != nil && failure == nil {
+					failure = err
+				}
+			}()
+		}
 		server, err := management.StartServer(management.ServerConfig{
+			PublicURL: cfg.Management.PublicURL, Passkeys: passkeys, Panel: web.Panel(),
 			Addr: addr, Token: cfg.Management.Token, Events: events, Logger: log,
 			Shutdown: requestShutdown, Modules: moduleAPI{settings}, Media: routes.FetchMedia, Version: version(),
 			Ready: func() bool { return allReady(drivers) },

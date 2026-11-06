@@ -18,6 +18,11 @@ Calls to Gemini send the conversation, images included, to Google (or to the con
 
 - The management HTTP server binds to `127.0.0.1` by default.
 - When bound to any other address, it requires a bearer token from the configuration. Use TLS or a reverse proxy when it is reachable over a network.
+- The control panel signs in with passkeys only (WebAuthn, through go-webauthn), bound to `management.public_url`: its host is the relying party, and its origin the only one accepted. There are no passwords. Whoever holds a registered passkey is the operator.
+- The first passkey is registered through a one-time link from `otogi passkey enroll` on the server, valid for 10 minutes; only its hash is stored. A signed-in operator adds and removes further passkeys; the last one cannot be removed.
+- A session is a cookie sealed (signed and encrypted) with a key generated into `panel.sqlite`: `Secure`, `HttpOnly`, `SameSite=Strict`, valid 30 days, and only while its passkey stays registered. Cross-origin writes from browsers are refused (`http.CrossOriginProtection`).
+- Behind the reverse proxy, every API request needs a session: a request carrying `X-Forwarded-For` is never admitted by the token. The token serves scripts on the server, calling the server directly.
+- Each sign-in, failed sign-in, sign-out, and passkey change is recorded as `panel.session`; no credential is logged.
 
 ## Event data
 

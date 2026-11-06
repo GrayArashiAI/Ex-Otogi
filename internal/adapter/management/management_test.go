@@ -116,12 +116,15 @@ func TestHandler(t *testing.T) {
 	seed(t, l, 3, time.Unix(1000, 0))
 	shutdown := make(chan struct{}, 1)
 	ready := false
-	handler := newHandler(ServerConfig{
+	handler, err := newHandler(ServerConfig{
 		Events: l, Token: "secret",
 		Status:   func(context.Context) any { return map[string]string{"version": "test"} },
 		Ready:    func() bool { return ready },
 		Shutdown: func() { shutdown <- struct{}{} },
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	do := func(method, path, token string) (int, string) {
 		req := httptest.NewRequest(method, path, nil)
 		if token != "" {
@@ -138,8 +141,8 @@ func TestHandler(t *testing.T) {
 	}{
 		{"GET", "/healthz", "", 200, "alive"},
 		{"GET", "/readyz", "", 503, "not ready"},
-		{"GET", "/api/status", "", 401, "wrong bearer token"},
-		{"GET", "/api/status", "wrong", 401, "wrong bearer token"},
+		{"GET", "/api/status", "", 401, "send the management token"},
+		{"GET", "/api/status", "wrong", 401, "send the management token"},
 		{"GET", "/api/status", "secret", 200, `"version":"test"`},
 		{"GET", "/api/events?kind=k0&limit=1", "secret", 200, `"more":true`},
 		{"GET", "/api/events?before=x", "secret", 422, `"location":"query.before"`},

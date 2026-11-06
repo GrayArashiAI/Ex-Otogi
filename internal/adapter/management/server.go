@@ -3,10 +3,10 @@ package management
 import (
 	"cmp"
 	"context"
-	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net"
 	"net/http"
@@ -15,6 +15,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
 
+	"github.com/TundraWork/Ex-Otogi/internal/adapter/management/panel"
 	"github.com/TundraWork/Ex-Otogi/pkg/otogi"
 )
 
@@ -40,6 +41,13 @@ type ServerConfig struct {
 	Media func(context.Context, otogi.Destination, otogi.MediaSource) ([]byte, error)
 	// Version is the build, as the OpenAPI document names it.
 	Version string
+	// PublicURL is the panel's origin, such as https://otogi.example.com:
+	// passkeys are bound to it. Empty turns panel sign-in off.
+	PublicURL string
+	// Passkeys holds the panel's sign-in; required with PublicURL.
+	Passkeys *panel.Store
+	// Panel is the built control panel, served at every path outside /api/.
+	Panel fs.FS
 	// Logger receives server errors.
 	Logger *slog.Logger
 }
@@ -56,12 +64,16 @@ func StartServer(cfg ServerConfig) (*Server, error) {
 	if cfg.Token == "" && !loopback(cfg.Addr) {
 		return nil, fmt.Errorf("management: %s is not a loopback address, so management.token is required", cfg.Addr)
 	}
+	handler, err := newHandler(cfg)
+	if err != nil {
+		return nil, err
+	}
 	ln, err := net.Listen("tcp", cfg.Addr)
 	if err != nil {
 		return nil, fmt.Errorf("management: listen: %w", err)
 	}
 	s := &Server{
-		http: &http.Server{Handler: newHandler(cfg), ReadHeaderTimeout: 10 * time.Second},
+		http: &http.Server{Handler: handler, ReadHeaderTimeout: 10 * time.Second},
 		ln:   ln,
 		done: make(chan error, 1),
 	}
@@ -96,7 +108,7 @@ func loopback(addr string) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
-func newHandler(cfg ServerConfig) http.Handler {
+func newHandler(cfg ServerConfig) (http.Handler, error) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "alive"})
@@ -163,8 +175,19 @@ func newHandler(cfg ServerConfig) http.Handler {
 		registerAllowlists(api, cfg.Modules, cfg.Events)
 		registerChats(api, cfg.Modules, cfg.Events, cfg.Media)
 	}
-	mux.Handle("/api/", authorize(cfg.Token, apiMux))
-	return mux
+	var signIn *signIn
+	open := func(string) bool { return false }
+	if cfg.PublicURL != "" {
+		var err error
+		if signIn, err = newSignIn(cfg.Passkeys, cfg.PublicURL, cfg.Events); err != nil {
+			return nil, err
+		}
+		registerSignIn(api, signIn)
+		open = signInRoutes
+	}
+	mux.Handle("/api/", guard(cfg.Token, signIn, open, apiMux))
+	mux.Handle("/", spa(cfg.Panel))
+	return mux, nil
 }
 
 // eventsInput filters and pages event log records.
@@ -182,21 +205,6 @@ type eventsInput struct {
 	Before       int64     `query:"before" minimum:"1" doc:"Records older than this record ID."`
 	After        int64     `query:"after" minimum:"1" doc:"Records newer than this record ID, to poll."`
 	Limit        int       `query:"limit" minimum:"1" maximum:"500" default:"100"`
-}
-
-func authorize(token string, next http.Handler) http.Handler {
-	if token == "" {
-		return next
-	}
-	want := []byte("Bearer " + token)
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), want) != 1 {
-			w.Header().Set("Content-Type", "application/problem+json")
-			writeJSON(w, http.StatusUnauthorized, huma.ErrorModel{Title: "Unauthorized", Status: http.StatusUnauthorized, Detail: "missing or wrong bearer token"})
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
 }
 
 func writeJSON(w http.ResponseWriter, status int, body any) {

@@ -53,3 +53,7 @@ desktop.ini
 # Local bot configuration
 /otogi.yaml
 /otogi
+
+# The control panel build; the placeholder keeps go:embed working without one
+/web/dist/*
+!/web/dist/.gitkeep
