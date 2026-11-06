@@ -4,17 +4,13 @@ import (
 	"bytes"
 	"context"
 	_ "embed"
-	"encoding/base64"
 	"fmt"
 	"html/template"
-	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/chromedp/cdproto/cdp"
-	"github.com/chromedp/cdproto/page"
-	"github.com/chromedp/chromedp"
+	"github.com/TundraWork/Ex-Otogi/pkg/cardimage"
 )
 
 //go:embed card.html
@@ -105,63 +101,15 @@ type image struct {
 	mime string
 }
 
-func (i image) dataURI() template.URL {
-	if len(i.data) == 0 {
-		return ""
-	}
-	mime := i.mime
-	if mime == "" {
-		mime = http.DetectContentType(i.data)
-	}
-	return template.URL("data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(i.data))
-}
+func (i image) dataURI() template.URL { return cardimage.DataURI(i.data, i.mime) }
 
-// renderer draws cards with chrome-headless-shell, started for each card:
-// a few cards a day do not justify a browser kept in memory.
-type renderer struct {
-	chrome string
-}
-
-// render returns the card as a PNG at cardScale times its CSS size.
-func (r renderer) render(ctx context.Context, c card) ([]byte, error) {
+// render draws a card as a PNG.
+func render(ctx context.Context, r cardimage.Renderer, c card) ([]byte, error) {
 	var html bytes.Buffer
 	if err := cardTemplate.Execute(&html, c); err != nil {
 		return nil, fmt.Errorf("bilibili: card template: %w", err)
 	}
-	opts := append(chromedp.DefaultExecAllocatorOptions[:],
-		chromedp.ExecPath(r.chrome),
-		// The page is our own template with its images inline; Chrome needs
-		// no network, so it gets none. Without the network the sandbox
-		// (unavailable to a service user on Ubuntu 24.04) guards nothing
-		// the template does not already.
-		chromedp.Flag("no-sandbox", true),
-		chromedp.Flag("host-resolver-rules", "MAP * ~NOTFOUND"),
-		chromedp.Flag("hide-scrollbars", true),
-	)
-	allocCtx, cancel := chromedp.NewExecAllocator(ctx, opts...)
-	defer cancel()
-	tab, cancelTab := chromedp.NewContext(allocCtx)
-	defer cancelTab()
-	setContent := chromedp.Func(func(ctx context.Context, t *chromedp.Target) error {
-		tree, err := cdp.Call(ctx, t, page.GetFrameTree, cdp.Empty{})
-		if err != nil {
-			return err
-		}
-		_, err = cdp.Call(ctx, t, page.SetDocumentContent, page.SetDocumentContentParams{FrameID: tree.FrameTree.Frame.ID, HTML: html.String()})
-		return err
-	})
-	ready := chromedp.Evaluate[bool](`document.fonts.ready.then(() => Promise.all([...document.images].map(i => i.decode().catch(() => {})))).then(() => true)`, chromedp.EvalAwaitPromise)
-	if err := chromedp.Do(tab, chromedp.EmulateViewport(cardWidth, 600, chromedp.EmulateScale(cardScale)), chromedp.Navigate("about:blank"), setContent); err != nil {
-		return nil, fmt.Errorf("bilibili: render: %w", err)
-	}
-	if _, err := chromedp.Run(tab, ready); err != nil {
-		return nil, fmt.Errorf("bilibili: render: wait for fonts and images: %w", err)
-	}
-	png, err := chromedp.Run(tab, chromedp.Screenshot(chromedp.CSS(".card")))
-	if err != nil {
-		return nil, fmt.Errorf("bilibili: render: screenshot: %w", err)
-	}
-	return png, nil
+	return r.Render(ctx, html.String(), ".card", cardWidth, cardScale)
 }
 
 // The card is laid out at the width chat apps show an image, cardWidth CSS

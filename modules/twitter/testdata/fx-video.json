@@ -1,0 +1,76 @@
+{
+ "status": {
+  "type": "status",
+  "url": "https://x.com/NASA/status/2118034216503955710",
+  "id": "2118034216503955710",
+  "text": "Join us for @astro_anil and @astro_kutryk’s next spacewalk!\n\nTune in here on Nov. 5 at 8:30am ET (1330 UTC) to watch the astronauts install and deploy the second of two new solar arrays on the @Space_Station.",
+  "author": {
+   "screen_name": "NASA",
+   "url": "https://x.com/NASA",
+   "id": "11348282",
+   "likes": 17062,
+   "name": "NASA",
+   "avatar_url": "https://pbs.twimg.com/profile_images/1321163587679784960/0ZxKlEKB_200x200.jpg",
+   "verification": {
+    "verified": true,
+    "type": "government"
+   },
+   "type": "profile"
+  },
+  "replies": 138,
+  "reposts": 370,
+  "likes": 2774,
+  "bookmarks": 133,
+  "created_timestamp": 1793813683,
+  "possibly_sensitive": false,
+  "views": 496769,
+  "community_note": null,
+  "replying_to": null,
+  "media": {
+   "all": [
+    {
+     "id": "2118034167816466432",
+     "url": "https://video.twimg.com/amplify_video/2118034167816466432/vid/avc1/1080x1920/LXm6bV8AbjnxPEnU.mp4?tag=16",
+     "thumbnail_url": "https://pbs.twimg.com/media/HWTE5NjXsAA5oDT.jpg",
+     "duration": 41.033,
+     "width": 1080,
+     "height": 1920,
+     "type": "video"
+    }
+   ]
+  }
+ },
+ "thread": null,
+ "author": {
+  "screen_name": "NASA",
+  "url": "https://x.com/NASA",
+  "id": "11348282",
+  "followers": 92274180,
+  "following": 115,
+  "likes": 17062,
+  "media_count": 28235,
+  "statuses": 74504,
+  "name": "NASA",
+  "description": "Making the seemingly impossible, possible. ✨",
+  "raw_description": {
+   "text": "Making the seemingly impossible, possible. ✨",
+   "facets": []
+  },
+  "location": "Pale Blue Dot",
+  "banner_url": "https://pbs.twimg.com/profile_banners/11348282/1788992290",
+  "avatar_url": "https://pbs.twimg.com/profile_images/1321163587679784960/0ZxKlEKB_200x200.jpg",
+  "joined": "Wed Dec 19 20:20:32 +0000 2007",
+  "protected": false,
+  "website": {
+   "url": "http://www.nasa.gov/",
+   "display_url": "nasa.gov"
+  },
+  "verification": {
+   "verified": true,
+   "verified_at": null,
+   "type": "government"
+  },
+  "type": "profile"
+ },
+ "code": 200
+}

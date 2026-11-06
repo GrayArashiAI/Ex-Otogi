@@ -1,0 +1,293 @@
+package twitter
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/TundraWork/Ex-Otogi/pkg/cardimage"
+	"github.com/TundraWork/Ex-Otogi/pkg/otogi"
+)
+
+func TestPostsIn(t *testing.T) {
+	t.Parallel()
+	var r otogi.RichText
+	r.Write("see https://x.com/SpaceX/status/2112637394654822514?s=20 and twitter.com/NASA/status/2118034216503955710, ")
+	r.Mark(otogi.AnnotationLink, "https://fxtwitter.com/i/status/111", func() { r.Write("this") })
+	r.Write(" mobile.twitter.com/a/statuses/222 vxtwitter.com/b/status/333 x.com/SpaceX/status/2112637394654822514")
+	if got := postsIn(r.Message()); !slices.Equal(got, []string{"2112637394654822514", "2118034216503955710", "111"}) {
+		t.Fatalf("posts = %v", got)
+	}
+	if got := postsIn(otogi.TextMessage("x.com/SpaceX and example.com/a/status/1 and x.com/home")); got != nil {
+		t.Fatalf("not posts: %v", got)
+	}
+}
+
+func TestFormatting(t *testing.T) {
+	t.Parallel()
+	for n, want := range map[int64]string{7: "7", 4379: "4,379", 1005: "1,005", 836_652: "83.6万", 123_456_789: "1.2亿"} {
+		if got := count(n); got != want {
+			t.Errorf("count(%d) = %q, want %q", n, got, want)
+		}
+	}
+	zone := time.FixedZone("CST", 8*3600)
+	for at, want := range map[time.Time]string{
+		time.Date(2026, 11, 6, 15, 4, 0, 0, zone): "下午3:04 · 2026年11月6日",
+		time.Date(2026, 11, 6, 0, 30, 0, 0, zone): "上午12:30 · 2026年11月6日",
+		time.Date(2026, 11, 6, 12, 0, 0, 0, zone): "下午12:00 · 2026年11月6日",
+	} {
+		if got := clock(at); got != want {
+			t.Errorf("clock(%v) = %q, want %q", at, got, want)
+		}
+	}
+	if got := length(41.033); got != "0:41" {
+		t.Errorf("length = %q", got)
+	}
+	got := spans("hi @NASA #Webb https://www.example.com/a/very/long/path/to/something ok")
+	want := []span{{"hi ", false}, {"@NASA", true}, {" ", false}, {"#Webb", true}, {" ", false}, {"example.com/a/very/long/pa…", true}, {" ok", false}}
+	if !slices.Equal(got, want) {
+		t.Errorf("spans = %+v", got)
+	}
+	if text, cut := excerpt(strings.Repeat("word ", 200), 100); !cut || !strings.HasSuffix(text, "word…") || len([]rune(text)) > 101 {
+		t.Errorf("excerpt = %q, %v", text, cut)
+	}
+}
+
+// fakeX serves FxTwitter and the embed endpoint from the fixtures, and the
+// pictures; a test sets how FxTwitter answers.
+type fakeX struct {
+	mu       sync.Mutex
+	fx       func(id string) (int, string)
+	requests []string
+}
+
+func (f *fakeX) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	f.mu.Lock()
+	f.requests = append(f.requests, r.URL.Path+"?"+r.URL.RawQuery)
+	fx := f.fx
+	f.mu.Unlock()
+	switch {
+	case strings.HasPrefix(r.URL.Path, "/2/status/"):
+		code, file := fx(strings.TrimPrefix(r.URL.Path, "/2/status/"))
+		w.WriteHeader(code)
+		_, _ = w.Write(fixture(file))
+	case r.URL.Path == "/tweet-result" && r.URL.Query().Get("id") == "2112637394654822514":
+		_, _ = w.Write(fixture("syndication-quote.json"))
+	case r.URL.Path == "/tweet-result":
+		_, _ = w.Write([]byte(`{"__typename":"TweetTombstone","tombstone":{"text":{"text":"This Post was deleted by the Post author."}}}`))
+	default:
+		w.Header().Set("Content-Type", "image/jpeg")
+		_, _ = w.Write([]byte("picture"))
+	}
+}
+
+func fixture(name string) []byte {
+	if name == "" {
+		return nil
+	}
+	if !strings.HasSuffix(name, ".json") {
+		return []byte(name) // a literal body
+	}
+	data, err := os.ReadFile(filepath.Join("testdata", name))
+	if err != nil {
+		panic(err)
+	}
+	return data
+}
+
+// toFake sends every request, whatever its host, to the fake.
+type toFake struct{ srv *httptest.Server }
+
+func (t toFake) RoundTrip(r *http.Request) (*http.Response, error) {
+	r = r.Clone(r.Context())
+	r.URL.Scheme, r.URL.Host = "http", strings.TrimPrefix(t.srv.URL, "http://")
+	return http.DefaultTransport.RoundTrip(r)
+}
+
+func newClient(t *testing.T, fx func(string) (int, string)) (*client, *fakeX) {
+	t.Helper()
+	fake := &fakeX{fx: fx}
+	srv := httptest.NewServer(fake)
+	t.Cleanup(srv.Close)
+	return &client{fx: "https://api.fxtwitter.com", syndication: "https://cdn.syndication.twimg.com", http: &http.Client{Transport: toFake{srv}}}, fake
+}
+
+func TestFxTwitter(t *testing.T) {
+	t.Parallel()
+	c, _ := newClient(t, func(string) (int, string) { return 200, "fx-quote.json" })
+	tw, source, err := c.status(context.Background(), "2112637394654822514")
+	if err != nil || source != "fxtwitter" {
+		t.Fatal(source, err)
+	}
+	if tw.Author != (author{Name: "SpaceX", Handle: "SpaceX", Avatar: tw.Author.Avatar, Badge: "gold"}) || !strings.Contains(tw.Author.Avatar, "_200x200") {
+		t.Errorf("author %+v", tw.Author)
+	}
+	if !strings.HasPrefix(tw.Text, "Our Q3 2026 earnings report is now public → https://ir.spacex.com/") || *tw.Views != 836652 || *tw.Likes != 4379 || *tw.Reposts != 557 {
+		t.Errorf("post %+v", tw)
+	}
+	if q := tw.Quote; q == nil || q.Author.Handle != "SpaceX" || !strings.HasPrefix(q.Text, "Watch live") {
+		t.Errorf("quote %+v", tw.Quote)
+	}
+
+	c, _ = newClient(t, func(string) (int, string) { return 200, "fx-video.json" })
+	tw, _, _ = c.status(context.Background(), "2118034216503955710")
+	if len(tw.Media) != 1 || tw.Media[0].Kind != "video" || tw.Media[0].Seconds < 41 || !strings.Contains(tw.Media[0].Image, "pbs.twimg.com") || tw.Author.Badge != "grey" {
+		t.Errorf("video %+v, badge %q", tw.Media, tw.Author.Badge)
+	}
+}
+
+// FxTwitter down: the embed endpoint answers, without views or reposts.
+// FxTwitter saying a post is gone: it is gone, and nothing else is asked.
+func TestFallback(t *testing.T) {
+	t.Parallel()
+	c, _ := newClient(t, func(string) (int, string) { return 503, "<html>down</html>" })
+	tw, source, err := c.status(context.Background(), "2112637394654822514")
+	if err != nil || source != "syndication" {
+		t.Fatal(source, err)
+	}
+	if !strings.Contains(tw.Text, "https://ir.spacex.com/") || strings.Contains(tw.Text, "t.co") || tw.Views != nil || tw.Reposts != nil || *tw.Likes == 0 {
+		t.Errorf("post %+v", tw)
+	}
+	if tw.Author.Badge != "gold" || !strings.Contains(tw.Author.Avatar, "_200x200") || tw.Quote == nil {
+		t.Errorf("author %+v, quote %v", tw.Author, tw.Quote)
+	}
+	if _, _, err := c.status(context.Background(), "999"); !errors.As(err, new(*errGone)) {
+		t.Errorf("tombstone = %v", err)
+	}
+
+	c, fake := newClient(t, func(string) (int, string) { return 404, `{"code":404,"status":null}` })
+	if _, _, err := c.status(context.Background(), "1"); !errors.As(err, new(*errGone)) {
+		t.Fatalf("gone = %v", err)
+	}
+	for _, r := range fake.requests {
+		if strings.HasPrefix(r, "/tweet-result") {
+			t.Fatal("a post FxTwitter reported gone was asked of the embed endpoint")
+		}
+	}
+}
+
+type host struct {
+	otogi.Host
+	records []otogi.Record
+}
+
+func (h *host) Logger() *slog.Logger                     { return slog.New(slog.DiscardHandler) }
+func (h *host) Record(_ context.Context, r otogi.Record) { h.records = append(h.records, r) }
+
+type invocation struct {
+	otogi.Invocation
+	sent []otogi.Message
+	keys []string
+}
+
+func (i *invocation) Send(_ context.Context, slot string, msg otogi.Message) (otogi.EventRef, error) {
+	i.sent, i.keys = append(i.sent, msg), append(i.keys, slot)
+	return otogi.EventRef{}, nil
+}
+
+func chrome(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "chrome-headless-shell")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// A link gets its card as a reply; a gone post gets nothing but a record; a
+// chat not listed is left alone.
+func TestCards(t *testing.T) {
+	t.Parallel()
+	m, err := New(Config{Chats: []string{"qq:group:G1"}, Chrome: chrome(t), Timezone: "Asia/Shanghai"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.api, _ = newClient(t, func(id string) (int, string) {
+		if id == "1" {
+			return 404, `{"code":404,"status":null}`
+		}
+		return 200, "fx-quote.json"
+	})
+	var drawn []card
+	m.render = func(_ context.Context, c card) ([]byte, error) { drawn = append(drawn, c); return []byte("PNG"), nil }
+	h := &host{}
+	_ = m.Start(context.Background(), h)
+	e := otogi.Event{Platform: "qq", Conversation: otogi.Conversation{ID: "group:G1"}, SourceID: "m1", Action: otogi.ActionMessageCreated,
+		Message: otogi.TextMessage("https://x.com/SpaceX/status/2112637394654822514 x.com/a/status/1")}
+	inv := &invocation{}
+	if err := m.Handle(context.Background(), e, inv); err != nil {
+		t.Fatal(err)
+	}
+	if len(inv.sent) != 1 || inv.keys[0] != "card:2112637394654822514" || string(inv.sent[0].Parts[0].Media.Source.Inline) != "PNG" || inv.sent[0].Relations[0].Target.SourceEvent != "m1" {
+		t.Fatalf("sent %v %+v", inv.keys, inv.sent)
+	}
+	c := drawn[0]
+	if c.When != "上午4:09 · 2026年10月21日" || c.Views != "83.6万" || c.Badge != "gold" || c.Quote == nil || c.Quote.Date != "10月20日" || c.Avatar == "" {
+		t.Fatalf("card %+v", c)
+	}
+	var outcomes []string
+	for _, r := range h.records {
+		outcomes = append(outcomes, r.Outcome)
+	}
+	if !slices.Equal(outcomes, []string{"ok", "skipped"}) {
+		t.Fatalf("records %v", outcomes)
+	}
+	e.Conversation.ID = "group:OTHER"
+	if inv = (&invocation{}); m.Handle(context.Background(), e, inv) != nil || len(inv.sent) != 0 {
+		t.Fatal("answered in a chat not listed")
+	}
+}
+
+func TestConfig(t *testing.T) {
+	t.Parallel()
+	if _, err := New(Config{Chrome: chrome(t)}); err != nil {
+		t.Fatalf("no chats yet: %v", err)
+	}
+	for _, c := range []struct {
+		cfg  Config
+		want string
+	}{
+		{Config{Chats: []string{"G1"}, Chrome: chrome(t)}, `"G1": want <platform>:<chat id>`},
+		{Config{Chrome: chrome(t), Timezone: "Mars/Olympus"}, "timezone: unknown time zone"},
+		{Config{}, "the path of chrome-headless-shell is required"},
+	} {
+		if _, err := New(c.cfg); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%+v: %v, want %q", c.cfg, err, c.want)
+		}
+	}
+}
+
+// The real renderer, when a Chrome is at hand (OTOGI_CHROME), on a card with
+// every part: the card comes back as a PNG.
+func TestRenderWithChrome(t *testing.T) {
+	path := os.Getenv("OTOGI_CHROME")
+	if path == "" {
+		t.Skip("set OTOGI_CHROME to a chrome-headless-shell binary")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	views := int64(1234)
+	tw := tweet{Author: author{Name: "名字 🔥", Handle: "someone", Badge: "blue"}, Text: "Cat’s @x #y https://example.com", Time: time.Now(), Views: &views,
+		Media: []media{{Kind: "video", Seconds: 41}, {Kind: "photo"}, {Kind: "gif"}}, Sensitive: true, QuoteGone: "这个帖子不可用。",
+		Poll: &poll{Choices: []choice{{"A", 60}, {"B", 40}}, Votes: 10, Ended: true}, Note: "context", ReplyingTo: "other"}
+	png, err := render(ctx, cardimage.Renderer{Chrome: path}, newCard(tw, pictures{}, time.Local))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.HasPrefix(png, []byte("\x89PNG")) {
+		t.Fatal("not a PNG")
+	}
+	if out := os.Getenv("OTOGI_CARD_OUT"); out != "" {
+		_ = os.WriteFile(out, png, 0o600)
+	}
+}

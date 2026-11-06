@@ -75,6 +75,10 @@ modules:
   # bilibili:             # cards for Bilibili video links (see docs/operations.md for Chrome and fonts)
   #   chats: [telegram:channel:123]
   #   chrome: /opt/chrome-headless-shell-157.0.8103.38/chrome-headless-shell
+  # twitter:              # cards for X posts, laid out like X's post page
+  #   chats: []
+  #   chrome: /opt/chrome-headless-shell-157.0.8103.38/chrome-headless-shell
+  #   timezone: Asia/Shanghai   # where the cards' times are read; default: the server's
   # chat:                 # language model agents; needs a provider under llm
   #   retention: 720h      # threads and chat transcript kept this long
   #   timeout: 5m          # one reply, tool calls included

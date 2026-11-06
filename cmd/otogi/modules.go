@@ -13,6 +13,7 @@ import (
 	"github.com/TundraWork/Ex-Otogi/modules/notes"
 	"github.com/TundraWork/Ex-Otogi/modules/reminders"
 	"github.com/TundraWork/Ex-Otogi/modules/todou"
+	"github.com/TundraWork/Ex-Otogi/modules/twitter"
 	"github.com/TundraWork/Ex-Otogi/modules/utility"
 	"github.com/TundraWork/Ex-Otogi/pkg/llm"
 	"github.com/TundraWork/Ex-Otogi/pkg/otogi"
@@ -62,6 +63,13 @@ var moduleRegistry = map[string]moduleFactory{
 	"echo":      configured(func(struct{}) *echo.Module { return echo.New() }),
 	"notes":     configured(notes.New),
 	"reminders": configured(reminders.New),
+	"twitter": func(config *yaml.Node, _ moduleEnv) (otogi.Module, error) {
+		var cfg twitter.Config
+		if err := decodeSection(config, &cfg); err != nil {
+			return nil, err
+		}
+		return twitter.New(cfg)
+	},
 	"todou": func(config *yaml.Node, env moduleEnv) (otogi.Module, error) {
 		var cfg todou.Config
 		if err := decodeSection(config, &cfg); err != nil {

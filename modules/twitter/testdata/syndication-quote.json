@@ -1,0 +1,58 @@
+{
+ "__typename": "Tweet",
+ "favorite_count": 4380,
+ "possibly_sensitive": false,
+ "created_at": "2026-10-20T20:09:40.000Z",
+ "display_text_range": [
+  0,
+  156
+ ],
+ "entities": {
+  "urls": [
+   {
+    "expanded_url": "https://ir.spacex.com/files/content_files/SpaceX-Reports-Third-Quarter-2026-Results.pdf",
+    "url": "https://t.co/IRQs4EDBsS"
+   }
+  ]
+ },
+ "id_str": "2112637394654822514",
+ "text": "Our Q3 2026 earnings report is now public → https://t.co/IRQs4EDBsS\n\nThe live webcast with @ElonMusk, @Gwynne_Shotwell, and @BretWJ will begin in 30 minutes",
+ "user": {
+  "id_str": "34743251",
+  "name": "SpaceX",
+  "screen_name": "SpaceX",
+  "is_blue_verified": true,
+  "verified": false,
+  "verified_type": "Business",
+  "profile_image_url_https": "https://pbs.twimg.com/profile_images/1697749409851985920/HbrI04tM_normal.jpg"
+ },
+ "conversation_count": 230,
+ "quoted_tweet": {
+  "favorite_count": 6834,
+  "possibly_sensitive": false,
+  "created_at": "2026-10-20T15:00:41.000Z",
+  "display_text_range": [
+   0,
+   96
+  ],
+  "entities": {
+   "urls": [
+    {
+     "expanded_url": "https://x.com/i/broadcasts/1PKqrNbLZbPGb",
+     "url": "https://t.co/Qrb0qeVG15"
+    }
+   ]
+  },
+  "id_str": "2112559638579499258",
+  "text": "Watch live as SpaceX discusses our Q3 2026 earnings at 3:30pm CT today → https://t.co/Qrb0qeVG15",
+  "user": {
+   "id_str": "34743251",
+   "name": "SpaceX",
+   "screen_name": "SpaceX",
+   "is_blue_verified": true,
+   "verified": false,
+   "verified_type": "Business",
+   "profile_image_url_https": "https://pbs.twimg.com/profile_images/1697749409851985920/HbrI04tM_normal.jpg"
+  }
+ }
+}

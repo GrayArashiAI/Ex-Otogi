@@ -8,10 +8,10 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
+	"github.com/TundraWork/Ex-Otogi/pkg/cardimage"
 	"github.com/TundraWork/Ex-Otogi/pkg/otogi"
 )
 
@@ -46,21 +46,19 @@ func New(cfg Config) (*Module, error) {
 		}
 		chats[c] = true
 	}
-	if cfg.Chrome == "" {
-		errs = append(errs, errors.New("chrome: the path of chrome-headless-shell is required"))
-	} else if info, err := os.Stat(cfg.Chrome); err != nil {
-		errs = append(errs, fmt.Errorf("chrome: %w", err))
-	} else if info.IsDir() || info.Mode()&0o111 == 0 {
-		errs = append(errs, fmt.Errorf("chrome: %s is not an executable", cfg.Chrome))
+	if err := cardimage.Check(cfg.Chrome); err != nil {
+		errs = append(errs, err)
 	}
 	if err := errors.Join(errs...); err != nil {
 		return nil, fmt.Errorf("bilibili: %w", err)
 	}
 	return &Module{
-		chats:  chats,
-		api:    &client{api: "https://api.bilibili.com", http: &http.Client{Timeout: 20 * time.Second}, now: time.Now},
-		render: renderer{chrome: cfg.Chrome}.render,
-		now:    time.Now,
+		chats: chats,
+		api:   &client{api: "https://api.bilibili.com", http: &http.Client{Timeout: 20 * time.Second}, now: time.Now},
+		render: func(ctx context.Context, c card) ([]byte, error) {
+			return render(ctx, cardimage.Renderer{Chrome: cfg.Chrome}, c)
+		},
+		now: time.Now,
 	}, nil
 }
 

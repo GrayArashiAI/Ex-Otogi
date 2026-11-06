@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/TundraWork/Ex-Otogi/pkg/cardimage"
 	"github.com/TundraWork/Ex-Otogi/pkg/otogi"
 )
 
@@ -31,7 +32,7 @@ func TestVideosIn(t *testing.T) {
 		want []found
 	}{
 		"text, in order": {link, []found{{id: "BV1gm4a6yEor"}, {short: "https://b23.tv/AbCdEf1"}, {id: "av170001"}}},
-		"behind formatting, no repeats, at most three": {r.Message(), []found{{id: "BV1gm4a6yEor"}, {short: "https://b23.tv/xyz"}, {id: "BV17x411w7KC"}}},
+		"behind formatting, no repeats, at most three": {r.Message(), []found{{id: "BV17x411w7KC"}, {id: "BV1gm4a6yEor"}, {short: "https://b23.tv/xyz"}}},
 		"nothing":       {otogi.TextMessage("bilibili.com is a site; BV1gm4a6yEor alone is not a link; bilibili.com/video/BV1gm4a6yEorX is too long"), nil},
 		"case of an av": {otogi.TextMessage("bilibili.com/video/AV42"), []found{{id: "av42"}}},
 	} {
@@ -219,7 +220,7 @@ func TestConfig(t *testing.T) {
 	}{
 		{Config{Chrome: "/bin/sh"}, "chats: at least one"},
 		{Config{Chats: []string{"G1"}, Chrome: "/bin/sh"}, `"G1": want <platform>:<chat id>`},
-		{Config{Chats: []string{"qq:group:G1"}}, "chrome: the path"},
+		{Config{Chats: []string{"qq:group:G1"}}, "the path of chrome-headless-shell is required"},
 		{Config{Chats: []string{"qq:group:G1"}, Chrome: "/nonexistent/chrome"}, "no such file"},
 	} {
 		if _, err := New(c.cfg); err == nil || !strings.Contains(err.Error(), c.want) {
@@ -237,7 +238,7 @@ func TestRenderWithChrome(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	png, err := renderer{chrome: chrome}.render(ctx, card{Title: "标题 🔥 title", Owner: "someone", Duration: "1:00", Published: "today", ID: "BV1xx411c7mD", Parts: 2,
+	png, err := render(ctx, cardimage.Renderer{Chrome: chrome}, card{Title: "标题 🔥 title", Owner: "someone", Duration: "1:00", Published: "today", ID: "BV1xx411c7mD", Parts: 2,
 		Stats: []stat{{icons["view"], "1万", "播放", false}}, Honors: []string{"热门收录"}, Desc: "line\nline"})
 	if err != nil {
 		t.Fatal(err)

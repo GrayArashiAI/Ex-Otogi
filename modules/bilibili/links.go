@@ -1,6 +1,7 @@
 package bilibili
 
 import (
+	"cmp"
 	"regexp"
 	"slices"
 	"strings"
@@ -26,45 +27,53 @@ type found struct {
 	short string // https://b23.tv/…
 }
 
-// videosIn lists the videos a message names, in order and without
-// repeats: in its text, and behind formatted links.
+// videosIn lists the videos a message names, in the order they appear and
+// without repeats: in its text, and behind formatted links.
 func videosIn(msg otogi.Message) []found {
-	var texts []string
-	for _, p := range msg.Parts {
+	type at struct {
+		part, offset int
+		f            found
+	}
+	var all []at
+	for i, p := range msg.Parts {
 		if p.Kind != otogi.PartText {
 			continue
 		}
-		texts = append(texts, p.Text)
+		for _, m := range matches(p.Text) {
+			all = append(all, at{i, m.offset, m.found})
+		}
 		for _, a := range p.Annotations {
 			if a.Kind == otogi.AnnotationLink && a.Target != "" {
-				texts = append(texts, a.Target)
+				for _, m := range matches(a.Target) {
+					all = append(all, at{i, a.Offset, m.found})
+				}
 			}
 		}
 	}
+	slices.SortStableFunc(all, func(a, b at) int { return cmp.Or(a.part-b.part, a.offset-b.offset) })
 	var out []found
 	seen := map[string]bool{}
-	for _, text := range texts {
-		for _, m := range matches(text) {
-			key := strings.ToLower(m.id + m.short)
-			if seen[key] || len(out) == maxVideos {
-				continue
-			}
+	for _, a := range all {
+		key := strings.ToLower(a.f.id + a.f.short)
+		if !seen[key] && len(out) < maxVideos {
 			seen[key] = true
-			out = append(out, m)
+			out = append(out, a.f)
 		}
 	}
 	return out
 }
 
-// matches finds video and share links in text, in the order they appear.
-func matches(text string) []found {
-	type at struct {
-		pos int
-		f   found
-	}
-	var all []at
+// match is a video or share link found in text, at its byte offset.
+type match struct {
+	found
+	offset int
+}
+
+// matches finds video and share links in text.
+func matches(text string) []match {
+	var all []match
 	for _, m := range videoLink.FindAllStringSubmatchIndex(text, -1) {
-		all = append(all, at{m[0], found{id: normalize(text[m[2]:m[3]])}})
+		all = append(all, match{found{id: normalize(text[m[2]:m[3]])}, m[0]})
 	}
 	for _, m := range shortLink.FindAllStringSubmatchIndex(text, -1) {
 		code := text[m[2]:m[3]]
@@ -72,14 +81,9 @@ func matches(text string) []found {
 		if strings.HasPrefix(strings.ToUpper(code), "BV") && len(code) == 12 {
 			f = found{id: normalize(code)} // b23.tv/BV… names the video itself
 		}
-		all = append(all, at{m[0], f})
+		all = append(all, match{f, m[0]})
 	}
-	slices.SortFunc(all, func(a, b at) int { return a.pos - b.pos })
-	out := make([]found, len(all))
-	for i, a := range all {
-		out[i] = a.f
-	}
-	return out
+	return all
 }
 
 // normalize writes a video ID as Bilibili does: BV with its case kept (it
