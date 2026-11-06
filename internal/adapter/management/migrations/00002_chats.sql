@@ -20,3 +20,19 @@ CREATE TABLE chat_days (
     messages     INTEGER NOT NULL,
     PRIMARY KEY (platform, conversation, day)
 );
+-- The chats in the records kept so far.
+INSERT INTO chats (platform, conversation, account, kind, title, first_seen, last_seen, last_message)
+SELECT r.platform, r.conversation,
+       (SELECT account FROM records x WHERE x.kind = 'event.received' AND x.platform = r.platform AND x.conversation = r.conversation ORDER BY x.id DESC LIMIT 1),
+       COALESCE((SELECT json_extract(x.payload, '$.conversation.kind') FROM records x WHERE x.kind = 'event.received' AND x.platform = r.platform AND x.conversation = r.conversation ORDER BY x.id DESC LIMIT 1), ''),
+       COALESCE((SELECT json_extract(x.payload, '$.conversation.title') FROM records x WHERE x.kind = 'event.received' AND x.platform = r.platform AND x.conversation = r.conversation AND json_extract(x.payload, '$.conversation.title') <> '' ORDER BY x.id DESC LIMIT 1), ''),
+       MIN(r.at), MAX(r.at),
+       COALESCE(MAX(CASE WHEN json_extract(r.payload, '$.action') = 'message.created' THEN r.id END), 0)
+FROM records r
+WHERE r.kind = 'event.received' AND r.platform <> '' AND r.conversation <> ''
+GROUP BY r.platform, r.conversation;
+INSERT INTO chat_days (platform, conversation, day, messages)
+SELECT platform, conversation, date(at / 1000, 'unixepoch'), COUNT(*)
+FROM records
+WHERE kind = 'event.received' AND platform <> '' AND conversation <> '' AND json_extract(payload, '$.action') = 'message.created'
+GROUP BY platform, conversation, date(at / 1000, 'unixepoch');
