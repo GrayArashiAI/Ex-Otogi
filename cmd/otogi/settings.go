@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/TundraWork/Ex-Otogi/internal/adapter/management"
 	"github.com/TundraWork/Ex-Otogi/internal/adapter/modulestore"
 	"github.com/TundraWork/Ex-Otogi/internal/kernel"
 	"github.com/TundraWork/Ex-Otogi/pkg/otogi"
@@ -27,14 +28,6 @@ type moduleSettings struct {
 	log      *slog.Logger
 
 	mu sync.Mutex // one change at a time
-}
-
-// staleRevision is a change based on a revision that is no longer the
-// current one.
-type staleRevision struct{ current int64 }
-
-func (e *staleRevision) Error() string {
-	return fmt.Sprintf("settings changed meanwhile: the current revision is %d", e.current)
 }
 
 // enabled builds the modules whose current revision enables them, for the
@@ -76,15 +69,15 @@ func (s *moduleSettings) current(ctx context.Context, module otogi.ModuleID) (mo
 }
 
 // save applies a new revision of a module's settings and stores it. base is
-// the revision it changes; settings nil keeps the current ones. An enabled
-// module is rebuilt from the settings and replaces the running instance,
-// with the modules holding its services rebuilt from their own current
-// revisions; a disabled one is stopped. Nothing is stored unless that
-// succeeds.
-func (s *moduleSettings) save(ctx context.Context, module otogi.ModuleID, base int64, enabled bool, settings json.RawMessage, by string) (modulestore.SettingsRevision, error) {
+// the revision it changes; nil enabled or settings keep the current ones.
+// The module is built from the settings, which validates them, whether it
+// runs or not. An enabled module replaces the running instance, with the
+// modules holding its services rebuilt from their own current revisions; a
+// disabled one is stopped. Nothing is stored unless that succeeds.
+func (s *moduleSettings) save(ctx context.Context, module otogi.ModuleID, base int64, on *bool, settings json.RawMessage, by string) (modulestore.SettingsRevision, error) {
 	kind, ok := s.kinds[module]
 	if !ok {
-		return modulestore.SettingsRevision{}, fmt.Errorf("module %q: %w", module, errUnknownModule)
+		return modulestore.SettingsRevision{}, fmt.Errorf("module %q: %w", module, management.ErrNotFound)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -93,7 +86,11 @@ func (s *moduleSettings) save(ctx context.Context, module otogi.ModuleID, base i
 		return modulestore.SettingsRevision{}, err
 	}
 	if cur.Revision != base {
-		return modulestore.SettingsRevision{}, &staleRevision{current: cur.Revision}
+		return modulestore.SettingsRevision{}, &management.StaleRevisionError{Current: cur.Revision}
+	}
+	enabled := cur.Enabled
+	if on != nil {
+		enabled = *on
 	}
 	if settings == nil {
 		settings = cur.Settings
@@ -103,14 +100,14 @@ func (s *moduleSettings) save(ctx context.Context, module otogi.ModuleID, base i
 		return modulestore.SettingsRevision{}, fmt.Errorf("settings are not JSON: %w: %w", otogi.ErrInvalid, err)
 	}
 	running := slices.ContainsFunc(s.kernel.Descriptors(), func(d otogi.ModuleDescriptor) bool { return d.ID == module })
+	m, err := kind.instance(compact.Bytes(), s.env)
+	if err != nil {
+		return modulestore.SettingsRevision{}, err
+	}
 	var set []otogi.Module
 	var remove, dependents []otogi.ModuleID
 	switch {
 	case enabled:
-		m, err := kind.instance(compact.Bytes(), s.env)
-		if err != nil {
-			return modulestore.SettingsRevision{}, err
-		}
 		set = append(set, m)
 		dependents = s.kernel.Dependents(module)
 		for _, id := range dependents {

@@ -130,7 +130,7 @@ func (s *stream) close(ctx context.Context, msg otogi.Message, abandoned bool) (
 	if s.closeErr != nil {
 		kind, outcome, payload["error"] = "effect.failed", "error", s.closeErr.Error()
 	}
-	s.inv.kernel.record(s.inv.event, kind, "module:"+string(s.inv.module), outcome, time.Since(s.started), payload)
+	s.inv.kernel.record(effectScope(s.inv.event, effect), kind, "module:"+string(s.inv.module), outcome, time.Since(s.started), payload)
 	return s.refs, s.closeErr
 }
 

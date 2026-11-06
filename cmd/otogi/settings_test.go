@@ -14,6 +14,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 
 	"github.com/TundraWork/Ex-Otogi/internal/adapter/capture"
+	"github.com/TundraWork/Ex-Otogi/internal/adapter/management"
 	"github.com/TundraWork/Ex-Otogi/internal/adapter/modulestore"
 	"github.com/TundraWork/Ex-Otogi/internal/kernel"
 	"github.com/TundraWork/Ex-Otogi/pkg/llm"
@@ -79,21 +80,22 @@ func TestModuleSettingsRevisions(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = storage.Close() })
 	s, rec := settingsHarness(t, storage)
+	on, off := true, false
 
-	if _, err := s.save(ctx, "notes", 0, true, json.RawMessage(`{"max_notes": 5}`), "Tundra's iPhone"); err != nil {
+	if _, err := s.save(ctx, "notes", 0, &on, json.RawMessage(`{"max_notes": 5}`), "Tundra's iPhone"); err != nil {
 		t.Fatal(err)
 	}
 	chat := json.RawMessage(`{"profiles": [{"name": "Luna", "keywords": ["luna"], "provider": "gemini", "model": "m", "tools": ["notes"]}]}`)
-	if _, err := s.save(ctx, "chat", 0, true, chat, "Tundra's iPhone"); err != nil {
+	if _, err := s.save(ctx, "chat", 0, &on, chat, "Tundra's iPhone"); err != nil {
 		t.Fatal(err)
 	}
 	if got := running(s); !slices.Equal(got, []otogi.ModuleID{"chat", "notes"}) {
 		t.Fatalf("running %v", got)
 	}
-	if _, err := s.save(ctx, "notes", 0, true, json.RawMessage(`{}`), "x"); !errors.As(err, new(*staleRevision)) {
+	if _, err := s.save(ctx, "notes", 0, &on, json.RawMessage(`{}`), "x"); !errors.As(err, new(*management.StaleRevisionError)) {
 		t.Fatalf("saving over a stale revision: %v", err)
 	}
-	r, err := s.save(ctx, "notes", 1, true, nil, "x") // the same settings again
+	r, err := s.save(ctx, "notes", 1, nil, nil, "x") // the same settings again
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,10 +106,10 @@ func TestModuleSettingsRevisions(t *testing.T) {
 	if p := last.Payload.(map[string]any); last.Kind != "module.reconfigured" || !slices.Equal(p["restarted"].([]otogi.ModuleID), []otogi.ModuleID{"chat"}) {
 		t.Fatalf("record %+v", last)
 	}
-	if _, err := s.save(ctx, "notes", 2, false, nil, "x"); err == nil || !strings.Contains(err.Error(), "chat") {
+	if _, err := s.save(ctx, "notes", 2, &off, nil, "x"); err == nil || !strings.Contains(err.Error(), "chat") {
 		t.Fatalf("turning off notes, which chat uses: %v", err)
 	}
-	if _, err := s.save(ctx, "chat", 1, false, nil, "x"); err != nil {
+	if _, err := s.save(ctx, "chat", 1, &off, nil, "x"); err != nil {
 		t.Fatal(err)
 	}
 	if got := running(s); !slices.Equal(got, []otogi.ModuleID{"notes"}) {
@@ -138,7 +140,7 @@ func TestModuleSettingsValidation(t *testing.T) {
 		"todou":     {`{"cli": "todou", "agents": {"neptune": {"server": "https://todou.test", "token": "todou_pat_x"}}}`, "agents.neptune.token"},
 		"reminders": {`{"max_delay": "soon"}`, "max_delay"},
 	} {
-		_, err := s.save(ctx, module, 0, true, json.RawMessage(c.settings), "x")
+		_, err := s.save(ctx, module, 0, nil, json.RawMessage(c.settings), "x")
 		var invalid *invalidSettings
 		if !errors.As(err, &invalid) {
 			t.Fatalf("%s: %v, want invalid settings", module, err)

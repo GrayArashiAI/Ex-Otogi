@@ -137,6 +137,9 @@ func (e *invalidSettings) Error() string {
 
 func (e *invalidSettings) Unwrap() error { return otogi.ErrInvalid }
 
+// ErrorDetails lists the problems by field, for the API.
+func (e *invalidSettings) ErrorDetails() []error { return e.details }
+
 // durationSchema describes an otogi.Duration.
 type durationSchema struct{}
 
@@ -161,5 +164,3 @@ func commandsOf(descriptors []otogi.ModuleDescriptor) []utility.CommandInfo {
 	}
 	return out
 }
-
-var errUnknownModule = errors.New("no such module")

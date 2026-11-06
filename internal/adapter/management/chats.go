@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/TundraWork/Ex-Otogi/internal/adapter/management/queries"
@@ -100,4 +101,157 @@ func (l *EventLog) ChatDays(ctx context.Context, platform, conversation string, 
 		out[i] = ChatDay{Day: r.Day, Messages: r.Messages}
 	}
 	return out, nil
+}
+
+// ChatMessage is one message in a chat's conversation: a person's, from its
+// event.received record, or the bot's, from the effect.applied record of a
+// send or a stream. Media parts come without their bytes; ChatMedia serves
+// them.
+type ChatMessage struct {
+	ID      int64         `json:"id"` // the record's; the cursor
+	At      time.Time     `json:"at"`
+	Event   string        `json:"event,omitempty"` // the received event, or the event the bot answered
+	Bot     bool          `json:"bot"`
+	Actor   otogi.Actor   `json:"actor,omitzero"`
+	Source  string        `json:"source,omitempty"` // the platform's message ID
+	Message otogi.Message `json:"message"`
+	// Module sent the bot's message; Records are the module's records for
+	// the event it answered, such as chat.reply (with the model) and
+	// module.completed (with the duration).
+	Module  string  `json:"module,omitempty"`
+	Records []Entry `json:"records,omitempty"`
+}
+
+// sent is the payload of an effect.applied record.
+type sent struct {
+	Effect otogi.Effect     `json:"effect"`
+	Ref    otogi.EventRef   `json:"ref"`
+	Refs   []otogi.EventRef `json:"refs"`
+}
+
+const chatMessages = `SELECT id, at, kind, component, event, platform, account, conversation, outcome, duration_ms, payload FROM records
+	WHERE platform = ? AND conversation = ? AND id < ? AND (
+		(kind = 'event.received' AND json_extract(payload, '$.action') = 'message.created' AND IFNULL(json_extract(payload, '$.direction'), '') <> 'outgoing')
+		OR (kind = 'effect.applied' AND json_extract(payload, '$.effect.kind') IN ('send', 'stream')))
+	ORDER BY id DESC LIMIT ?`
+
+// ChatMessages returns a chat's messages older than the record before (0:
+// the newest), newest first, and whether older ones remain. The bot's own
+// messages come from what it sent, so a platform's echo of them is left out.
+func (l *EventLog) ChatMessages(ctx context.Context, platform, conversation string, before int64, limit int) ([]ChatMessage, bool, error) {
+	if before <= 0 {
+		before = 1<<63 - 1
+	}
+	limit = min(max(limit, 1), MaxPageSize)
+	entries, err := l.scan(ctx, chatMessages, platform, conversation, before, limit+1)
+	if err != nil {
+		return nil, false, err
+	}
+	more := len(entries) > limit
+	entries = entries[:min(len(entries), limit)]
+	out := make([]ChatMessage, 0, len(entries))
+	answered := map[string]bool{}
+	for _, e := range entries {
+		m, err := chatMessage(e)
+		if err != nil {
+			return nil, false, err
+		}
+		if m.Bot && m.Event != "" {
+			answered[m.Event] = true
+		}
+		out = append(out, m)
+	}
+	records, err := l.moduleRecords(ctx, answered)
+	if err != nil {
+		return nil, false, err
+	}
+	for i, m := range out {
+		if m.Bot {
+			out[i].Records = records[m.Event+"\x00module:"+m.Module]
+		}
+	}
+	return out, more, nil
+}
+
+func chatMessage(e Entry) (ChatMessage, error) {
+	m := ChatMessage{ID: e.ID, At: e.At, Event: e.Event}
+	if e.Kind == "event.received" {
+		var ev otogi.Event
+		if err := json.Unmarshal(e.Payload, &ev); err != nil {
+			return ChatMessage{}, fmt.Errorf("event log: record %d: %w", e.ID, err)
+		}
+		m.Actor, m.Source, m.Message = ev.Actor, string(ev.SourceID), ev.Message
+	} else {
+		var s sent
+		if err := json.Unmarshal(e.Payload, &s); err != nil {
+			return ChatMessage{}, fmt.Errorf("event log: record %d: %w", e.ID, err)
+		}
+		m.Bot, m.Module, m.Message, m.Source = true, string(s.Effect.Module), s.Effect.Message, string(s.Ref.SourceEvent)
+		if len(s.Refs) > 0 {
+			m.Source = string(s.Refs[0].SourceEvent)
+		}
+	}
+	for i := range m.Message.Parts {
+		if md := m.Message.Parts[i].Media; md != nil {
+			media := *md
+			media.Source.Inline = nil
+			m.Message.Parts[i].Media = &media
+		}
+	}
+	return m, nil
+}
+
+// moduleRecords returns the records modules wrote for the given events,
+// other than their effects, by event and component.
+func (l *EventLog) moduleRecords(ctx context.Context, events map[string]bool) (map[string][]Entry, error) {
+	if len(events) == 0 {
+		return nil, nil
+	}
+	args := make([]any, 0, len(events))
+	for e := range events {
+		args = append(args, e)
+	}
+	entries, err := l.scan(ctx, `SELECT id, at, kind, component, event, platform, account, conversation, outcome, duration_ms, payload FROM records
+		WHERE event IN (?`+strings.Repeat(", ?", len(args)-1)+`) AND component LIKE 'module:%' AND kind NOT LIKE 'effect.%' ORDER BY id`, args...)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string][]Entry{}
+	for _, e := range entries {
+		key := e.Event + "\x00" + e.Component
+		out[key] = append(out[key], e)
+	}
+	return out, nil
+}
+
+// ChatMedia returns a media part of a message in a chat, by its record and
+// part ID, and the conversation it is in, for fetching it through the
+// driver when its bytes are not inline.
+func (l *EventLog) ChatMedia(ctx context.Context, platform, conversation string, record int64, part otogi.PartID) (otogi.Destination, otogi.Media, bool, error) {
+	entries, err := l.scan(ctx, `SELECT id, at, kind, component, event, platform, account, conversation, outcome, duration_ms, payload FROM records
+		WHERE id = ? AND platform = ? AND conversation = ? AND kind IN ('event.received', 'effect.applied')`, record, platform, conversation)
+	if err != nil || len(entries) == 0 {
+		return otogi.Destination{}, otogi.Media{}, false, err
+	}
+	e := entries[0]
+	var msg otogi.Message
+	if e.Kind == "event.received" {
+		var ev otogi.Event
+		err = json.Unmarshal(e.Payload, &ev)
+		msg = ev.Message
+	} else {
+		var s sent
+		err = json.Unmarshal(e.Payload, &s)
+		msg = s.Effect.Message
+	}
+	if err != nil {
+		return otogi.Destination{}, otogi.Media{}, false, fmt.Errorf("event log: record %d: %w", e.ID, err)
+	}
+	for _, p := range msg.Parts {
+		if p.ID == part && p.Media != nil {
+			to := otogi.Destination{Platform: otogi.PlatformID(e.Platform), Account: otogi.AccountID(e.Account), Conversation: otogi.ConversationID(e.Conversation)}
+			return to, *p.Media, true, nil
+		}
+	}
+	return otogi.Destination{}, otogi.Media{}, false, nil
 }

@@ -13,7 +13,7 @@ Each record has:
 - a monotonically increasing ID and a timestamp;
 - a kind: `event.received`, `event.dropped`, `module.completed`, `module.failed`, `module.panicked`, `job.skipped`, `timer.failed`, `effect.applied`, `effect.failed`, `driver.state`, `driver.gap`, `inbox.failed`, `llm.completed`, `llm.failed`, `process.state`, `module.reconfigured` (a saved revision of a module's settings, applied: its number, whether the module is on, the settings, who saved it, and the modules restarted with it), `allowlist.changed` (a chat added to or removed from a module's allowlist, with the list, the chat, and who changed it; component `module:<id>`), or a module's own kind (`chat.reply`, `chat.tool`, `chat.media_skipped`, `twitter.translation` (a translated card: ok, degraded, or error with the model's reply), `bilibili.card` and `twitter.card` (outcome ok, degraded when the card fell back to text, skipped for a missing or private item, or error; twitter's also names its source), `todou.write`, `todou.call_failed`, `todou.watch_warning`, `todou.watch_failed`, `todou.delivery_failed`);
 - the component (`kernel`, `module:<id>`, `middleware:<id>`, `driver:telegram/<account>`, `llm:<provider>`, `process`);
-- the correlated event ID when there is one, plus platform, account, and conversation;
+- the correlated event ID when there is one, plus platform, account, and conversation: the event's, except that an outbound action names the conversation it changes;
 - an outcome and a duration where applicable;
 - the full payload as JSON: message content, error chain, panic stack, and so on.
 

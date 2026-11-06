@@ -154,8 +154,8 @@ func run(ctx context.Context, cfg Config, log *slog.Logger) (failure error) {
 	if addr := *cfg.Management.Addr; addr != "" {
 		server, err := management.StartServer(management.ServerConfig{
 			Addr: addr, Token: cfg.Management.Token, Events: events, Logger: log,
-			Shutdown: requestShutdown,
-			Ready:    func() bool { return allReady(drivers) },
+			Shutdown: requestShutdown, Modules: moduleAPI{settings}, Media: routes.FetchMedia, Version: version(),
+			Ready: func() bool { return allReady(drivers) },
 			Status: func(ctx context.Context) any {
 				driverStatus := make([]any, len(statuses))
 				for i, status := range statuses {

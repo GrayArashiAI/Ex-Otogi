@@ -1,6 +1,7 @@
 package management
 
 import (
+	"cmp"
 	"context"
 	"crypto/subtle"
 	"encoding/json"
@@ -9,8 +10,12 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"strconv"
 	"time"
+
+	"github.com/danielgtaylor/huma/v2"
+	"github.com/danielgtaylor/huma/v2/adapters/humago"
+
+	"github.com/TundraWork/Ex-Otogi/pkg/otogi"
 )
 
 // ServerConfig configures the management HTTP API.
@@ -28,6 +33,13 @@ type ServerConfig struct {
 	Ready func() bool
 	// Shutdown starts a graceful shutdown (POST /api/shutdown).
 	Shutdown func()
+	// Modules serves the module, allowlist, and chat routes; without it
+	// they are absent.
+	Modules Modules
+	// Media fetches media people sent through the platform's driver.
+	Media func(context.Context, otogi.Destination, otogi.MediaSource) ([]byte, error)
+	// Version is the build, as the OpenAPI document names it.
+	Version string
 	// Logger receives server errors.
 	Logger *slog.Logger
 }
@@ -96,37 +108,80 @@ func newHandler(cfg ServerConfig) http.Handler {
 		}
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "not ready"})
 	})
-	api := http.NewServeMux()
-	api.HandleFunc("GET /api/status", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, cfg.Status(r.Context()))
-	})
-	api.HandleFunc("GET /api/events", func(w http.ResponseWriter, r *http.Request) {
-		q, err := parseQuery(r)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, "bad_request", err.Error())
-			return
-		}
-		page, err := cfg.Events.Query(r.Context(), q)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, "bad_request", err.Error())
-			return
-		}
-		writeJSON(w, http.StatusOK, page)
-	})
-	api.HandleFunc("GET /api/events/{id}/trace", func(w http.ResponseWriter, r *http.Request) {
-		entries, err := cfg.Events.Trace(r.Context(), r.PathValue("id"))
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", err.Error())
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"records": entries})
-	})
-	api.HandleFunc("POST /api/shutdown", func(w http.ResponseWriter, _ *http.Request) {
-		cfg.Shutdown()
-		writeJSON(w, http.StatusAccepted, map[string]string{"status": "shutting down"})
-	})
-	mux.Handle("/api/", authorize(cfg.Token, api))
+	apiMux := http.NewServeMux()
+	config := huma.DefaultConfig("Ex-Otogi management API", cmp.Or(cfg.Version, "dev"))
+	config.OpenAPIPath, config.SchemasPath, config.DocsPath = "/api/openapi", "/api/schemas", ""
+	config.CreateHooks = nil // no $schema links in bodies
+	api := humago.New(apiMux, config)
+	huma.Register(api, huma.Operation{OperationID: "get-status", Method: http.MethodGet, Path: "/api/status", Summary: "The process's health", Tags: []string{"Status"}},
+		func(ctx context.Context, _ *struct{}) (*struct{ Body any }, error) {
+			return &struct{ Body any }{cfg.Status(ctx)}, nil
+		})
+	huma.Register(api, huma.Operation{OperationID: "list-events", Method: http.MethodGet, Path: "/api/events", Summary: "Event log records, newest first", Tags: []string{"Event log"}},
+		func(ctx context.Context, in *eventsInput) (*struct{ Body Page }, error) {
+			if in.Before != 0 && in.After != 0 {
+				return nil, huma.Error400BadRequest("before and after are exclusive")
+			}
+			page, err := cfg.Events.Query(ctx, Query{
+				Kind: in.Kind, Component: in.Component, Event: in.Event, Platform: in.Platform, Account: in.Account, Conversation: in.Conversation,
+				Outcome: in.Outcome, Text: in.Text, Since: in.Since, Until: in.Until, Before: in.Before, After: in.After, Limit: in.Limit,
+			})
+			if err != nil {
+				return nil, problem(err)
+			}
+			return &struct{ Body Page }{page}, nil
+		})
+	huma.Register(api, huma.Operation{OperationID: "get-trace", Method: http.MethodGet, Path: "/api/events/{id}/trace", Summary: "Every record of one event, in order", Tags: []string{"Event log"}},
+		func(ctx context.Context, in *struct {
+			ID string `path:"id" doc:"The event ID."`
+		},
+		) (*struct {
+			Body struct {
+				Records []Entry `json:"records"`
+			}
+		}, error,
+		) {
+			entries, err := cfg.Events.Trace(ctx, in.ID)
+			if err != nil {
+				return nil, problem(err)
+			}
+			out := &struct {
+				Body struct {
+					Records []Entry `json:"records"`
+				}
+			}{}
+			out.Body.Records = entries
+			return out, nil
+		})
+	huma.Register(api, huma.Operation{OperationID: "shutdown", Method: http.MethodPost, Path: "/api/shutdown", Summary: "Shut the process down gracefully", DefaultStatus: http.StatusAccepted, Tags: []string{"Status"}},
+		func(context.Context, *struct{}) (*struct{}, error) {
+			cfg.Shutdown()
+			return nil, nil
+		})
+	if cfg.Modules != nil {
+		registerModules(api, cfg.Modules)
+		registerAllowlists(api, cfg.Modules, cfg.Events)
+		registerChats(api, cfg.Modules, cfg.Events, cfg.Media)
+	}
+	mux.Handle("/api/", authorize(cfg.Token, apiMux))
 	return mux
+}
+
+// eventsInput filters and pages event log records.
+type eventsInput struct {
+	Kind         string    `query:"kind"`
+	Component    string    `query:"component"`
+	Event        string    `query:"event"`
+	Platform     string    `query:"platform"`
+	Account      string    `query:"account"`
+	Conversation string    `query:"conversation"`
+	Outcome      string    `query:"outcome"`
+	Text         string    `query:"q" doc:"Text in the payload."`
+	Since        time.Time `query:"since"`
+	Until        time.Time `query:"until"`
+	Before       int64     `query:"before" minimum:"1" doc:"Records older than this record ID."`
+	After        int64     `query:"after" minimum:"1" doc:"Records newer than this record ID, to poll."`
+	Limit        int       `query:"limit" minimum:"1" maximum:"500" default:"100"`
 }
 
 func authorize(token string, next http.Handler) http.Handler {
@@ -136,59 +191,18 @@ func authorize(token string, next http.Handler) http.Handler {
 	want := []byte("Bearer " + token)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), want) != 1 {
-			writeError(w, http.StatusUnauthorized, "unauthorized", "missing or wrong bearer token")
+			w.Header().Set("Content-Type", "application/problem+json")
+			writeJSON(w, http.StatusUnauthorized, huma.ErrorModel{Title: "Unauthorized", Status: http.StatusUnauthorized, Detail: "missing or wrong bearer token"})
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
 }
 
-func parseQuery(r *http.Request) (Query, error) {
-	v := r.URL.Query()
-	q := Query{
-		Kind: v.Get("kind"), Component: v.Get("component"), Event: v.Get("event"), Platform: v.Get("platform"),
-		Account: v.Get("account"), Conversation: v.Get("conversation"), Outcome: v.Get("outcome"), Text: v.Get("q"),
-	}
-	for _, f := range []struct {
-		name string
-		dst  *int64
-	}{{"before", &q.Before}, {"after", &q.After}} {
-		if s := v.Get(f.name); s != "" {
-			n, err := strconv.ParseInt(s, 10, 64)
-			if err != nil || n <= 0 {
-				return Query{}, fmt.Errorf("%s must be a positive record ID", f.name)
-			}
-			*f.dst = n
-		}
-	}
-	if s := v.Get("limit"); s != "" {
-		n, err := strconv.Atoi(s)
-		if err != nil || n <= 0 {
-			return Query{}, errors.New("limit must be a positive integer")
-		}
-		q.Limit = n
-	}
-	for _, f := range []struct {
-		name string
-		dst  *time.Time
-	}{{"since", &q.Since}, {"until", &q.Until}} {
-		if s := v.Get(f.name); s != "" {
-			t, err := time.Parse(time.RFC3339, s)
-			if err != nil {
-				return Query{}, fmt.Errorf("%s must be an RFC 3339 time", f.name)
-			}
-			*f.dst = t
-		}
-	}
-	return q, nil
-}
-
 func writeJSON(w http.ResponseWriter, status int, body any) {
-	w.Header().Set("Content-Type", "application/json")
+	if w.Header().Get("Content-Type") == "" {
+		w.Header().Set("Content-Type", "application/json")
+	}
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(body) // the client is gone if this fails
-}
-
-func writeError(w http.ResponseWriter, status int, code, message string) {
-	writeJSON(w, status, map[string]any{"error": map[string]string{"code": code, "message": message}})
 }

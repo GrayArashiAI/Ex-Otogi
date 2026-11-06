@@ -89,13 +89,25 @@ func (i *invocation) apply(ctx context.Context, slot string, e otogi.Effect) (ot
 	e.Module, e.Origin, e.Key = i.module, i.originID, otogi.IdempotencyKeyFor(i.originID, i.module, slot)
 	started := time.Now()
 	ref, err := i.kernel.effector.Apply(ctx, e)
-	component := "module:" + string(i.module)
+	component, scope := "module:"+string(i.module), effectScope(i.event, e)
 	if err != nil {
-		i.kernel.record(i.event, "effect.failed", component, "error", time.Since(started), map[string]any{"slot": slot, "effect": e, "error": err.Error()})
+		i.kernel.record(scope, "effect.failed", component, "error", time.Since(started), map[string]any{"slot": slot, "effect": e, "error": err.Error()})
 		return otogi.EventRef{}, err
 	}
-	i.kernel.record(i.event, "effect.applied", component, "ok", time.Since(started), map[string]any{"slot": slot, "effect": e, "ref": ref})
+	i.kernel.record(scope, "effect.applied", component, "ok", time.Since(started), map[string]any{"slot": slot, "effect": e, "ref": ref})
 	return ref, nil
+}
+
+// effectScope is where an effect's record belongs: the event it answers,
+// for its trace, and the conversation it changes, which a job or a SendTo
+// does not share with the event.
+func effectScope(event otogi.Event, e otogi.Effect) otogi.Event {
+	if e.To.Conversation != "" { // a send or a stream
+		event.Platform, event.Account, event.Conversation.ID = e.To.Platform, e.To.Account, e.To.Conversation
+	} else {
+		event.Platform, event.Account, event.Conversation.ID = e.Ref.Platform, e.Ref.Account, e.Ref.Conversation
+	}
+	return event
 }
 
 // claim reserves slot for one effect of this unit of work. Reusing a slot is

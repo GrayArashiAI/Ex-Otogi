@@ -138,15 +138,15 @@ func TestHandler(t *testing.T) {
 	}{
 		{"GET", "/healthz", "", 200, "alive"},
 		{"GET", "/readyz", "", 503, "not ready"},
-		{"GET", "/api/status", "", 401, "unauthorized"},
-		{"GET", "/api/status", "wrong", 401, "unauthorized"},
+		{"GET", "/api/status", "", 401, "wrong bearer token"},
+		{"GET", "/api/status", "wrong", 401, "wrong bearer token"},
 		{"GET", "/api/status", "secret", 200, `"version":"test"`},
 		{"GET", "/api/events?kind=k0&limit=1", "secret", 200, `"more":true`},
-		{"GET", "/api/events?before=x", "secret", 400, "before must be"},
+		{"GET", "/api/events?before=x", "secret", 422, `"location":"query.before"`},
 		{"GET", "/api/events?before=2&after=1", "secret", 400, "exclusive"},
-		{"GET", "/api/events?since=yesterday", "secret", 400, "RFC 3339"},
+		{"GET", "/api/events?since=yesterday", "secret", 422, `"location":"query.since"`},
 		{"GET", "/api/events/ea/trace", "secret", 200, `"kind":"k0"`},
-		{"POST", "/api/shutdown", "secret", 202, "shutting down"},
+		{"POST", "/api/shutdown", "secret", 202, ""},
 	}
 	for _, test := range tests {
 		code, body := do(test.method, test.path, test.token)
