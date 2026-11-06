@@ -122,7 +122,7 @@ type renderer struct {
 	chrome string
 }
 
-// render returns the card as a PNG at twice its CSS size.
+// render returns the card as a PNG at cardScale times its CSS size.
 func (r renderer) render(ctx context.Context, c card) ([]byte, error) {
 	var html bytes.Buffer
 	if err := cardTemplate.Execute(&html, c); err != nil {
@@ -151,21 +151,26 @@ func (r renderer) render(ctx context.Context, c card) ([]byte, error) {
 		return err
 	})
 	ready := chromedp.Evaluate[bool](`document.fonts.ready.then(() => Promise.all([...document.images].map(i => i.decode().catch(() => {})))).then(() => true)`, chromedp.EvalAwaitPromise)
-	if err := chromedp.Do(tab, chromedp.EmulateViewport(cardWidth, 600, chromedp.EmulateScale(2)), chromedp.Navigate("about:blank"), setContent); err != nil {
+	if err := chromedp.Do(tab, chromedp.EmulateViewport(cardWidth, 600, chromedp.EmulateScale(cardScale)), chromedp.Navigate("about:blank"), setContent); err != nil {
 		return nil, fmt.Errorf("bilibili: render: %w", err)
 	}
 	if _, err := chromedp.Run(tab, ready); err != nil {
 		return nil, fmt.Errorf("bilibili: render: wait for fonts and images: %w", err)
 	}
-	png, err := chromedp.Run(tab, chromedp.Screenshot(chromedp.CSS(".frame")))
+	png, err := chromedp.Run(tab, chromedp.Screenshot(chromedp.CSS(".card")))
 	if err != nil {
 		return nil, fmt.Errorf("bilibili: render: screenshot: %w", err)
 	}
 	return png, nil
 }
 
-// cardWidth is the card's CSS width, which .frame sets too.
-const cardWidth = 720
+// The card is laid out at the width chat apps show an image, cardWidth CSS
+// pixels (as .card sets), and drawn at cardScale for sharp text: 1440 pixels
+// wide.
+const (
+	cardWidth = 480
+	cardScale = 3
+)
 
 // icons are the counters' symbols, drawn in currentColor.
 var icons = map[string]template.HTML{
