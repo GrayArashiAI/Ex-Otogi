@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/TundraWork/Ex-Otogi/pkg/cardimage"
+	"github.com/TundraWork/Ex-Otogi/pkg/llm"
 	"github.com/TundraWork/Ex-Otogi/pkg/otogi"
 )
 
@@ -208,7 +209,7 @@ func chrome(t *testing.T) string {
 // chat not listed is left alone.
 func TestCards(t *testing.T) {
 	t.Parallel()
-	m, err := New(Config{Chats: []string{"qq:group:G1"}, Chrome: chrome(t), Timezone: "Asia/Shanghai"})
+	m, err := New(Config{Chats: []string{"qq:group:G1"}, Chrome: chrome(t), Timezone: "Asia/Shanghai"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -248,9 +249,87 @@ func TestCards(t *testing.T) {
 	}
 }
 
+func noProviders(name string) (llm.Provider, error) {
+	if name == "gemini" {
+		return &model{}, nil
+	}
+	return nil, errors.New("no provider " + name)
+}
+
+// model answers translations with a fixed reply.
+type model struct {
+	reply    string
+	err      error
+	requests []llm.Request
+}
+
+func (m *model) Generate(_ context.Context, req llm.Request, _ func(otogi.Message) error) (llm.Response, error) {
+	m.requests = append(m.requests, req)
+	return llm.Response{Markdown: m.reply}, m.err
+}
+
+// A post not in Chinese gets a second card, translated, with the quote
+// translated too; a post in Chinese gets none; a reply out of form is
+// recorded and sends nothing more.
+func TestTranslatedCards(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name, reply string
+		cards       int
+		record      string
+	}{
+		{"english", "<language>英语</language>\n<post>我们 2026 年第三季度的财报现已公开 → https://ir.spacex.com/x @ElonMusk</post>\n<quote>观看直播</quote>", 2, "ok"},
+		{"chinese", "<language>中文</language>", 1, ""},
+		{"out of form", "Sure! Here is the translation.", 1, "error"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			lm := &model{reply: c.reply}
+			m, err := New(Config{Chats: []string{"qq:group:G1"}, Chrome: chrome(t), Translate: &Translate{Provider: "gemini", Model: "gemini-4-argon", Thinking: "low"}},
+				func(string) (llm.Provider, error) { return lm, nil })
+			if err != nil {
+				t.Fatal(err)
+			}
+			m.api, _ = newClient(t, func(string) (int, string) { return 200, "fx-quote.json" })
+			var drawn []card
+			m.render = func(_ context.Context, c card) ([]byte, error) { drawn = append(drawn, c); return []byte("PNG"), nil }
+			h := &host{}
+			_ = m.Start(context.Background(), h)
+			inv := &invocation{}
+			e := otogi.Event{Platform: "qq", Conversation: otogi.Conversation{ID: "group:G1"}, SourceID: "m1", Action: otogi.ActionMessageCreated, Message: otogi.TextMessage("x.com/SpaceX/status/2112637394654822514")}
+			if err := m.Handle(context.Background(), e, inv); err != nil {
+				t.Fatal(err)
+			}
+			if len(inv.sent) != c.cards {
+				t.Fatalf("%d cards sent", len(inv.sent))
+			}
+			if req := lm.requests[0]; req.Model != "gemini-4-argon" || req.Thinking != "low" || !strings.Contains(req.Turns[0].Content.PlainText(), "<quote>Watch live") {
+				t.Fatalf("request %+v", req)
+			}
+			if c.cards == 2 {
+				tr := drawn[1]
+				if inv.keys[1] != "translation:2112637394654822514" || tr.Translated != "由 Gemini 翻译自英语" || tr.Text[0].Text != "我们 2026 年第三季度的财报现已公开 → " || tr.Quote.Text[0].Text != "观看直播" {
+					t.Fatalf("translated card %+v", tr)
+				}
+				if drawn[0].Translated != "" || drawn[0].Text[0].Text == tr.Text[0].Text {
+					t.Fatal("the original card was translated")
+				}
+			}
+			var got string
+			for _, r := range h.records {
+				if r.Kind == "twitter.translation" {
+					got = r.Outcome
+				}
+			}
+			if got != c.record {
+				t.Fatalf("translation record %q, want %q", got, c.record)
+			}
+		})
+	}
+}
+
 func TestConfig(t *testing.T) {
 	t.Parallel()
-	if _, err := New(Config{Chrome: chrome(t)}); err != nil {
+	if _, err := New(Config{Chrome: chrome(t)}, nil); err != nil {
 		t.Fatalf("no chats yet: %v", err)
 	}
 	for _, c := range []struct {
@@ -260,8 +339,10 @@ func TestConfig(t *testing.T) {
 		{Config{Chats: []string{"G1"}, Chrome: chrome(t)}, `"G1": want <platform>:<chat id>`},
 		{Config{Chrome: chrome(t), Timezone: "Mars/Olympus"}, "timezone: unknown time zone"},
 		{Config{}, "the path of chrome-headless-shell is required"},
+		{Config{Chrome: chrome(t), Translate: &Translate{Provider: "openai", Model: "m"}}, "translate.provider: no provider openai"},
+		{Config{Chrome: chrome(t), Translate: &Translate{Provider: "gemini"}}, "translate.model is required"},
 	} {
-		if _, err := New(c.cfg); err == nil || !strings.Contains(err.Error(), c.want) {
+		if _, err := New(c.cfg, noProviders); err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%+v: %v, want %q", c.cfg, err, c.want)
 		}
 	}

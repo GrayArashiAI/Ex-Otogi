@@ -40,6 +40,7 @@ type card struct {
 	Poll                            *pollView
 	When, Views                     string
 	Actions                         []action
+	Translated                      string // who translated the text from what, on a translated card
 }
 
 type span struct {

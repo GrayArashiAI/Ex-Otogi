@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/TundraWork/Ex-Otogi/pkg/cardimage"
+	"github.com/TundraWork/Ex-Otogi/pkg/llm"
 	"github.com/TundraWork/Ex-Otogi/pkg/otogi"
 )
 
@@ -26,20 +27,25 @@ type Config struct {
 	// Timezone is where the cards' times are read, an IANA name such as
 	// "Asia/Shanghai"; default the process's local time zone.
 	Timezone string `yaml:"timezone"`
+	// Translate, when set, follows the card of a post not in Chinese with a
+	// second card, the post translated by a language model.
+	Translate *Translate `yaml:"translate"`
 }
 
 // Module is the twitter module.
 type Module struct {
-	chats  map[string]bool
-	zone   *time.Location
-	api    *client
-	render func(context.Context, card) ([]byte, error)
-	host   otogi.Host
-	now    func() time.Time
+	chats      map[string]bool
+	zone       *time.Location
+	api        *client
+	translator *translator // nil: no translated cards
+	render     func(context.Context, card) ([]byte, error)
+	host       otogi.Host
+	now        func() time.Time
 }
 
-// New validates cfg and returns the module.
-func New(cfg Config) (*Module, error) {
+// New validates cfg and returns the module; providers finds the provider a
+// translation names.
+func New(cfg Config, providers func(string) (llm.Provider, error)) (*Module, error) {
 	var errs []error
 	chats := map[string]bool{}
 	for _, c := range cfg.Chats {
@@ -58,12 +64,24 @@ func New(cfg Config) (*Module, error) {
 			errs = append(errs, fmt.Errorf("timezone: %w", err))
 		}
 	}
+	var tr *translator
+	if t := cfg.Translate; t != nil {
+		p, err := providers(t.Provider)
+		switch {
+		case err != nil:
+			errs = append(errs, fmt.Errorf("translate.provider: %w", err))
+		case t.Model == "":
+			errs = append(errs, errors.New("translate.model is required"))
+		default:
+			tr = &translator{cfg: *t, provider: p}
+		}
+	}
 	if err := errors.Join(errs...); err != nil {
 		return nil, fmt.Errorf("twitter: %w", err)
 	}
 	renderer := cardimage.Renderer{Chrome: cfg.Chrome}
 	return &Module{
-		chats: chats, zone: zone,
+		chats: chats, zone: zone, translator: tr,
 		api:    &client{fx: "https://api.fxtwitter.com", syndication: "https://cdn.syndication.twimg.com", http: &http.Client{Timeout: 20 * time.Second}},
 		render: func(ctx context.Context, c card) ([]byte, error) { return render(ctx, renderer, c) },
 		now:    time.Now,
@@ -76,7 +94,7 @@ func (*Module) Descriptor() otogi.ModuleDescriptor {
 		ID:         "twitter",
 		Subscribes: []otogi.EventAction{otogi.ActionMessageCreated},
 		Ordering:   otogi.OrderNone,
-		Timeout:    2 * time.Minute,
+		Timeout:    5 * time.Minute, // a translation waits on a language model
 	}
 }
 
@@ -143,7 +161,64 @@ func (m *Module) answer(ctx context.Context, e otogi.Event, inv otogi.Invocation
 		outcome = "degraded"
 	}
 	m.host.Record(ctx, otogi.Record{Kind: "twitter.card", Outcome: outcome, Duration: m.now().Sub(started), Payload: payload})
+	if m.translator != nil && t.Text != "" {
+		return m.translated(ctx, e, inv, t, pics)
+	}
 	return nil
+}
+
+// translated sends the post's card again, translated, unless it is in
+// Chinese. A failed translation is recorded and sends nothing.
+func (m *Module) translated(ctx context.Context, e otogi.Event, inv otogi.Invocation, t tweet, pics pictures) error {
+	started := m.now()
+	tr, needed, err := m.translator.translate(ctx, t)
+	payload := map[string]any{"post": t.ID, "model": m.translator.cfg.Model, "took": m.now().Sub(started).String()}
+	switch {
+	case err != nil:
+		m.host.Logger().Warn("twitter: translation failed", "post", t.ID, "error", err)
+		payload["error"] = err.Error()
+		m.host.Record(ctx, otogi.Record{Kind: "twitter.translation", Outcome: "error", Payload: payload})
+		return nil
+	case !needed:
+		m.host.Logger().Debug("twitter: post is in Chinese; no translation", "post", t.ID)
+		return nil
+	}
+	payload["language"] = tr.Language
+	t.Text = tr.Post
+	if t.Quote != nil && tr.Quote != "" {
+		q := *t.Quote
+		q.Text = tr.Quote
+		t.Quote = &q
+	}
+	c := newCard(t, pics, m.zone)
+	c.Translated = "由 " + providerName(m.translator.cfg.Provider) + " 翻译自" + tr.Language
+	var msg otogi.Message
+	if png, err := m.render(ctx, c); err != nil {
+		m.host.Logger().Warn("twitter: translated card not rendered; sending text", "post", t.ID, "error", err)
+		payload["render_error"] = err.Error()
+		msg = textCard(t)
+	} else {
+		msg = otogi.Message{Roots: []otogi.PartID{"card"}, Parts: []otogi.Part{{ID: "card", Kind: otogi.PartMedia,
+			Media: &otogi.Media{Role: otogi.MediaImage, MediaType: "image/png", ByteSize: int64(len(png)), Source: otogi.MediaSource{Kind: otogi.MediaSourceInline, Inline: png}}}}}
+	}
+	msg.Relations = []otogi.Relation{{Kind: otogi.RelationReply, Target: e.Ref()}}
+	if _, err := inv.Send(ctx, "translation:"+t.ID, msg); err != nil {
+		return err
+	}
+	outcome := "ok"
+	if payload["render_error"] != nil {
+		outcome = "degraded"
+	}
+	m.host.Record(ctx, otogi.Record{Kind: "twitter.translation", Outcome: outcome, Duration: m.now().Sub(started), Payload: payload})
+	return nil
+}
+
+// providerName is a provider as a card names it: gemini is Gemini.
+func providerName(p string) string {
+	if p == "" {
+		return p
+	}
+	return strings.ToUpper(p[:1]) + p[1:]
 }
 
 // pictures downloads what the card shows: avatars, and the media at the

@@ -23,6 +23,7 @@
   .text { margin-top: 10px; font-size: 16.5px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
   .link { color: #1471b8; }
   .more { display: block; margin-top: 2px; color: #1471b8; font-size: 15px; }
+  .translated { margin-top: 8px; color: #536471; font-size: 14px; }
   .media { position: relative; display: grid; gap: 2px; margin-top: 12px; border: 1px solid #cfd9de; border-radius: 16px; overflow: hidden; background: #f7f9f9; }
   .media.n2 { grid-template-columns: 1fr 1fr; aspect-ratio: 16 / 9; }
   .media.n3 { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; aspect-ratio: 16 / 9; }
@@ -77,6 +78,7 @@
   {{if .ReplyingTo}}<div class="replying">回复 <span class="link">@{{.ReplyingTo}}</span></div>{{end}}
   {{if .Text}}<div class="text">{{range .Text}}{{if .Link}}<span class="link">{{.Text}}</span>{{else}}{{.Text}}{{end}}{{end}}</div>{{end}}
   {{if .More}}<span class="more">显示更多</span>{{end}}
+  {{if .Translated}}<div class="translated">{{.Translated}}</div>{{end}}
   {{template "media" .Media}}
   {{with .Poll}}<div class="poll">
     {{range .Choices}}<div class="choice{{if .Top}} top{{end}}"><div class="bar" style="width: {{.Width}}%"></div><span>{{.Label}}</span><span>{{.Percent}}</span></div>{{end}}

@@ -79,6 +79,10 @@ modules:
   #   chats: []
   #   chrome: /opt/chrome-headless-shell-157.0.8103.38/chrome-headless-shell
   #   timezone: Asia/Shanghai   # where the cards' times are read; default: the server's
+  #   translate:                # a second card in Chinese for posts in other languages
+  #     provider: gemini
+  #     model: gemini-flash-latest
+  #     thinking: low
   # chat:                 # language model agents; needs a provider under llm
   #   retention: 720h      # threads and chat transcript kept this long
   #   timeout: 5m          # one reply, tool calls included
