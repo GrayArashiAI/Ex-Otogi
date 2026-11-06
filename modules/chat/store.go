@@ -212,7 +212,7 @@ func (s *store) thread(ctx context.Context, profile string, to otogi.Destination
 	}
 	for _, ref := range sent {
 		if ref.SourceEvent == "" {
-			continue // a send Telegram confirmed without naming the message
+			continue // a send the platform confirmed without naming the message
 		}
 		if _, err := tx.ExecContext(ctx, "INSERT OR REPLACE INTO sent (platform, account, conversation, source_id, turn) VALUES (?, ?, ?, ?, ?)",
 			ref.Platform, ref.Account, ref.Conversation, ref.SourceEvent, parent); err != nil {

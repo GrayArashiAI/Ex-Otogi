@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/TundraWork/Ex-Otogi/pkg/otogi"
 )
@@ -66,8 +67,8 @@ func TestLongDigestsSplitAndRepeatTheIssueLine(t *testing.T) {
 		t.Fatalf("split into %d messages", len(split))
 	}
 	for _, m := range split {
-		if n := utf16Len(m.PlainText()); n > messageLimit {
-			t.Fatalf("message of %d UTF-16 units exceeds the limit", n)
+		if n := utf8.RuneCountInString(m.PlainText()); n > digestSize {
+			t.Fatalf("message of %d characters exceeds the digest size", n)
 		}
 		if err := m.Validate(); err != nil {
 			t.Fatal(err)
@@ -122,11 +123,8 @@ func TestOversizedEntriesContinueWithAllFormatting(t *testing.T) {
 	code, boldLong := 0, 0
 	for i, m := range msgs {
 		part := m.Parts[0]
-		if n := len(part.Annotations); n > entityLimit {
-			t.Fatalf("message %d has %d annotations", i, n)
-		}
-		if n := utf16Len(part.Text); n > messageLimit {
-			t.Fatalf("message %d has %d UTF-16 units", i, n)
+		if n := utf8.RuneCountInString(part.Text); n > digestSize {
+			t.Fatalf("message %d has %d characters", i, n)
 		}
 		if err := m.Validate(); err != nil {
 			t.Fatal(err)

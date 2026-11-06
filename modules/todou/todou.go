@@ -45,8 +45,8 @@ type Config struct {
 	Events []string `yaml:"events"`
 	// MaxBodyChars cuts each quoted body; default 800, at most 3000. Quotes
 	// are collapsed, so they cost little room on screen, but they count
-	// toward Telegram's 4096 per message: 800 keeps about four entries in
-	// one message.
+	// toward a digest message's 4000 characters: 800 keeps about four
+	// entries in one message.
 	MaxBodyChars int `yaml:"max_body_chars"`
 	// MaxAttempts is how many times a digest message is tried, a minute
 	// apart, before it is marked failed; default 60.

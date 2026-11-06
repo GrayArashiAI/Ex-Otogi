@@ -75,9 +75,63 @@ func (x *effects) Apply(ctx context.Context, e otogi.Effect) (otogi.EventRef, er
 	}
 }
 
+// send sends e's message as one Telegram message when it fits one, a
+// caption included, and otherwise as several in order: text split at
+// Telegram's limits and each media part on its own, sent once each under
+// "<key>", "<key>#1", …. The first message carries the reply, and its
+// reference is returned.
 func (x *effects) send(ctx context.Context, e otogi.Effect) (otogi.EventRef, error) {
-	ref, _, err := x.sendKeyed(ctx, string(e.Key), string(e.To.Conversation), e.Message, withFloodWait)
-	return ref, err
+	key, conversation := string(e.Key), string(e.To.Conversation)
+	if fitsOne(e.Message) {
+		ref, _, err := x.sendKeyed(ctx, key, conversation, e.Message, withFloodWait)
+		return ref, err
+	}
+	segments, err := layout(e.Message)
+	if err != nil {
+		return otogi.EventRef{}, err
+	}
+	var first otogi.EventRef
+	for i, seg := range segments {
+		m := seg.message()
+		k := key
+		if i == 0 {
+			m.Relations = e.Message.Relations
+		} else {
+			k += "#" + strconv.Itoa(i)
+		}
+		ref, _, err := x.sendKeyed(ctx, k, conversation, m, withFloodWait)
+		if err != nil {
+			return first, err
+		}
+		if i == 0 {
+			first = ref
+		}
+	}
+	return first, nil
+}
+
+// captionLimit is how much text Telegram takes as a media caption.
+const captionLimit = 1024
+
+// fitsOne reports whether msg is one Telegram message: at most one text
+// and one media part, with the text within the limits of a message, or of
+// a caption beside media.
+func fitsOne(msg otogi.Message) bool {
+	var texts, media, size, entities int
+	for _, p := range msg.Parts {
+		switch p.Kind {
+		case otogi.PartText:
+			texts++
+			size, entities = utf16Len(p.Text), len(p.Annotations)
+		case otogi.PartMedia, otogi.PartFile:
+			media++
+		}
+	}
+	limit := messageLimit
+	if media > 0 {
+		limit = captionLimit
+	}
+	return texts <= 1 && media <= 1 && size <= limit && entities <= entityLimit
 }
 
 // floodPolicy runs an RPC under a FLOOD_WAIT policy: withFloodWait, or a

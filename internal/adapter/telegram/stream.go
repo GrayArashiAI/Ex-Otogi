@@ -235,16 +235,19 @@ func (s *stream) deleteFrom(ctx context.Context, i int) error {
 // message is segment i as an otogi message; the first carries the stream's
 // relations, such as the message it replies to.
 func (s *stream) message(i int, seg segment) otogi.Message {
-	var m otogi.Message
-	if seg.media != nil {
-		m = otogi.Message{Roots: []otogi.PartID{"media"}, Parts: []otogi.Part{{ID: "media", Kind: otogi.PartMedia, Media: seg.media}}}
-	} else {
-		m = seg.text.Message()
-	}
+	m := seg.message()
 	if i == 0 {
 		m.Relations = s.relations
 	}
 	return m
+}
+
+// message is the segment as a message of its own.
+func (seg segment) message() otogi.Message {
+	if seg.media != nil {
+		return otogi.Message{Roots: []otogi.PartID{"media"}, Parts: []otogi.Part{{ID: "media", Kind: otogi.PartMedia, Media: seg.media}}}
+	}
+	return seg.text.Message()
 }
 
 func (s *stream) showDraft(ctx context.Context, i int, seg segment) error {
@@ -332,7 +335,8 @@ func (s *stream) keepAlive(ctx context.Context) {
 }
 
 // layout splits msg into Telegram messages: each text part split at the
-// message limits, each media or file part on its own.
+// message limits, each media or file part on its own. Streams and long sends
+// use it.
 func layout(msg otogi.Message) ([]segment, error) {
 	var out []segment
 	for _, p := range msg.Parts {
@@ -346,14 +350,14 @@ func layout(msg otogi.Message) ([]segment, error) {
 					return utf16Len(prefix) <= messageLimit && annotations <= entityLimit
 				})
 				if first.Len() == 0 { // more entities start at once than a message holds
-					return nil, fmt.Errorf("telegram stream: text with over %d entities at one point: %w", entityLimit, otogi.ErrUnsupported)
+					return nil, fmt.Errorf("telegram: text with over %d entities at one point: %w", entityLimit, otogi.ErrUnsupported)
 				}
 				out = append(out, segment{text: first})
 			}
 		case otogi.PartMedia, otogi.PartFile:
 			out = append(out, segment{media: p.Media})
 		default:
-			return nil, fmt.Errorf("telegram stream: %s part: %w", p.Kind, otogi.ErrUnsupported)
+			return nil, fmt.Errorf("telegram: %s part: %w", p.Kind, otogi.ErrUnsupported)
 		}
 	}
 	return out, nil

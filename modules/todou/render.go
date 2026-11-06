@@ -6,25 +6,21 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"unicode/utf16"
+	"unicode/utf8"
 
 	"github.com/TundraWork/Ex-Otogi/pkg/markdown"
 	"github.com/TundraWork/Ex-Otogi/pkg/otogi"
 )
 
-const (
-	// messageLimit keeps a message under Telegram's 4096 UTF-16 units, which
-	// count collapsed quotes in full, with room for a little overhead.
-	messageLimit = 4000
-	// entityLimit is Telegram's cap of about 100 formatting entities per
-	// message (reported by users, not documented).
-	entityLimit = 100
-)
+// digestSize is how many characters one digest message holds: about what
+// reads as one message. A longer digest continues in the next message,
+// naming its issue again; drivers split anything a platform cannot hold.
+const digestSize = 4000
 
 // renderer turns queued entries into digest messages.
 type renderer struct {
 	links   map[string]string // web base URL for issue links, by agent
-	maxBody int               // UTF-16 units of a body to quote
+	maxBody int               // characters of a body to quote
 }
 
 // facts is what a digest knows beyond its entries, looked up through each
@@ -94,10 +90,8 @@ func (r renderer) digest(entries []entry, known facts) []otogi.Message {
 				}
 				// Too big for any one message: fill this one and continue in
 				// the next.
-				units, entities := messageLimit-utf16Len(msg.String()+room), entityLimit-len(msg.Annotations())
-				first, rest := chunk.Split(func(prefix string, annotations int) bool {
-					return utf16Len(prefix) <= units && annotations <= entities
-				})
+				space := digestSize - utf8.RuneCountInString(msg.String()+room)
+				first, rest := chunk.Split(func(prefix string, _ int) bool { return utf8.RuneCountInString(prefix) <= space })
 				if first.Len() == 0 {
 					flush()
 					continue
@@ -118,9 +112,9 @@ func (r renderer) digest(entries []entry, known facts) []otogi.Message {
 	return out
 }
 
-// fits reports whether msg can take sep and chunk within Telegram's limits.
+// fits reports whether msg can take sep and chunk within one digest message.
 func fits(msg *otogi.RichText, sep string, chunk *otogi.RichText) bool {
-	return utf16Len(msg.String()+sep+chunk.String()) <= messageLimit && len(msg.Annotations())+len(chunk.Annotations()) <= entityLimit
+	return utf8.RuneCountInString(msg.String()+sep+chunk.String()) <= digestSize
 }
 
 // joined is the issue line head, then t on the next line.
@@ -369,14 +363,14 @@ func answersMarkdown(p map[string]any, questions []question) string {
 }
 
 // quote renders a Markdown body for a collapsed quote under an entry, cut to
-// maxBody UTF-16 units and without block quotes of its own: chats do not
-// nest quotes.
+// maxBody characters and without block quotes of its own: chats do not nest
+// quotes.
 func (r renderer) quote(body, linkBase string) *otogi.RichText {
 	md := markdown.Render(strings.TrimSpace(body))
 	text := md.String()
-	end, units := len(text), 0
-	for i, c := range text {
-		if units += utf16.RuneLen(c); units > r.maxBody {
+	end, chars := len(text), 0
+	for i := range text {
+		if chars++; chars > r.maxBody {
 			end = len(strings.TrimRight(text[:i], " \t\n"))
 			break
 		}
@@ -399,8 +393,6 @@ func (r renderer) quote(body, linkBase string) *otogi.RichText {
 	}
 	return out
 }
-
-func utf16Len(s string) int { return len(utf16.Encode([]rune(s))) }
 
 func str(v any) string {
 	switch v := v.(type) {

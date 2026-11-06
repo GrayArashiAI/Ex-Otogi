@@ -5,6 +5,8 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -100,6 +102,38 @@ func TestSendRecordsAndDeduplicates(t *testing.T) {
 	}
 }
 
+// A message too long for Telegram goes out as several, in order, each sent
+// once: the first replies, and a replay sends nothing again.
+func TestLongSendIsSplit(t *testing.T) {
+	x, log, _ := newEffects(t, sentOK)
+	var text otogi.RichText
+	text.Mark(otogi.AnnotationBold, "", func() { text.Write(strings.Repeat("长", messageLimit+100)) })
+	msg := text.Message()
+	msg.Relations = []otogi.Relation{{Kind: otogi.RelationReply, Target: messageRef("user:7", 5)}}
+	if _, err := x.Apply(context.Background(), send("long", msg)); err != nil {
+		t.Fatal(err)
+	}
+	var sends []*tg.MessagesSendMessageRequest
+	for _, r := range log.requests {
+		if req, ok := r.(*tg.MessagesSendMessageRequest); ok {
+			sends = append(sends, req)
+		}
+	}
+	if len(sends) != 2 || sends[0].RandomID != RandomID("long") || sends[1].RandomID != RandomID("long#1") {
+		t.Fatalf("%d sends", len(sends))
+	}
+	if sends[0].ReplyTo == nil || sends[1].ReplyTo != nil || len(sends[0].Entities) != 1 || len(sends[1].Entities) != 1 {
+		t.Fatalf("reply %v %v, entities %d %d", sends[0].ReplyTo, sends[1].ReplyTo, len(sends[0].Entities), len(sends[1].Entities))
+	}
+	if sends[0].Message+sends[1].Message != text.String() {
+		t.Fatal("the parts do not add up to the text")
+	}
+	before := len(log.requests)
+	if _, err := x.Apply(context.Background(), send("long", msg)); err != nil || len(log.requests) != before {
+		t.Fatalf("replay: %v, %d new requests", err, len(log.requests)-before)
+	}
+}
+
 func TestSendErrors(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -192,10 +226,24 @@ func TestSendMediaUploadsAndCaptions(t *testing.T) {
 	if _, ok := req.Media.(*tg.InputMediaUploadedPhoto); !ok || req.Message != "caption" || req.RandomID != RandomID("media") {
 		t.Fatalf("send media = %+v", req)
 	}
+	// More than one message holds goes out as one message per part.
 	two := msg
 	two.Parts = append(two.Parts, otogi.Part{ID: "t2", Kind: otogi.PartText, Text: "second"})
-	if _, err := x.Apply(context.Background(), send("two", two)); !errors.Is(err, otogi.ErrUnsupported) {
-		t.Fatalf("two text parts = %v", err)
+	before := len(log.requests)
+	if _, err := x.Apply(context.Background(), send("two", two)); err != nil {
+		t.Fatal(err)
+	}
+	var kinds []string
+	for _, r := range log.requests[before:] {
+		switch req := r.(type) {
+		case *tg.MessagesSendMediaRequest:
+			kinds = append(kinds, "media:"+req.Message)
+		case *tg.MessagesSendMessageRequest:
+			kinds = append(kinds, "text:"+req.Message)
+		}
+	}
+	if !slices.Equal(kinds, []string{"media:", "text:caption", "text:second"}) {
+		t.Fatalf("sends = %v", kinds)
 	}
 }
 
