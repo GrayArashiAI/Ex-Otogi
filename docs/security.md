@@ -27,6 +27,10 @@ The event log and inbox store full message content by design, because operators 
 
 Platform payloads are untrusted. Drivers enforce limits only where the platform itself does not and where a real resource problem exists: maximum media download size, maximum stored payload size, and timeouts on every network call. Parsers return errors on malformed input; they never panic.
 
+## Rendering
+
+The bilibili module draws cards with chrome-headless-shell running without its sandbox, which a service user cannot have on Ubuntu 24.04. Chrome loads only the module's own template, with every value escaped by `html/template` and every image inlined, and it gets no network: all host names resolve to nothing. The sandbox would guard against hostile web content, which this page cannot contain.
+
 ## Dependencies
 
 Prefer mature, actively maintained, widely used libraries over our own implementations; size alone is not a reason to avoid one. Run `govulncheck` when upgrading dependencies or before tagging a release, and fix reachable vulnerabilities.

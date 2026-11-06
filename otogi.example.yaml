@@ -72,6 +72,9 @@ modules:
   #   events: [comment, opened, closed, reopened, status_changed, assigned, spec_pushed, spec_review, question_answered, block_added, block_removed, block_cleared]
   #   max_body_chars: 800                # per collapsed quote; ~4 entries per 4096-unit message
   #   max_attempts: 60                   # tries, a minute apart, before a digest message is given up
+  # bilibili:             # cards for Bilibili video links (see docs/operations.md for Chrome and fonts)
+  #   chats: [telegram:channel:123]
+  #   chrome: /opt/chrome-headless-shell-157.0.8103.38/chrome-headless-shell
   # chat:                 # language model agents; needs a provider under llm
   #   retention: 720h      # threads and chat transcript kept this long
   #   timeout: 5m          # one reply, tool calls included

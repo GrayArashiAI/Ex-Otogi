@@ -7,6 +7,7 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
+	"github.com/TundraWork/Ex-Otogi/modules/bilibili"
 	"github.com/TundraWork/Ex-Otogi/modules/chat"
 	"github.com/TundraWork/Ex-Otogi/modules/echo"
 	"github.com/TundraWork/Ex-Otogi/modules/notes"
@@ -44,6 +45,13 @@ func configured[C any, M otogi.Module](build func(C) M) moduleFactory {
 // moduleRegistry lists every module compiled into the binary, by the ID used
 // under `modules:` in the config file.
 var moduleRegistry = map[string]moduleFactory{
+	"bilibili": func(config *yaml.Node, _ moduleEnv) (otogi.Module, error) {
+		var cfg bilibili.Config
+		if err := decodeSection(config, &cfg); err != nil {
+			return nil, err
+		}
+		return bilibili.New(cfg)
+	},
 	"chat": func(config *yaml.Node, env moduleEnv) (otogi.Module, error) {
 		var cfg chat.Config
 		if err := decodeSection(config, &cfg); err != nil {
