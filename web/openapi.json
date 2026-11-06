@@ -1,0 +1,2788 @@
+{
+  "components": {
+    "schemas": {
+      "Actor": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "type": "object"
+      },
+      "AllowedChat": {
+        "additionalProperties": false,
+        "properties": {
+          "added_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "added_by": {
+            "type": "string"
+          },
+          "chat": {
+            "type": "string"
+          },
+          "list": {
+            "type": "string"
+          },
+          "module": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "module",
+          "list",
+          "chat",
+          "added_at",
+          "added_by"
+        ],
+        "type": "object"
+      },
+      "Allowlist": {
+        "additionalProperties": false,
+        "properties": {
+          "chats": {
+            "description": "How many chats are on it.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "description": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "title",
+          "chats"
+        ],
+        "type": "object"
+      },
+      "Annotation": {
+        "additionalProperties": false,
+        "properties": {
+          "extensions": {
+            "items": {
+              "$ref": "#/components/schemas/Extension"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "length": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "offset": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "target": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "offset",
+          "length",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "Begin-enrollmentRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "token": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "token"
+        ],
+        "type": "object"
+      },
+      "Chat": {
+        "additionalProperties": false,
+        "properties": {
+          "account": {
+            "type": "string"
+          },
+          "conversation": {
+            "type": "string"
+          },
+          "first_seen": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "last_message": {
+            "$ref": "#/components/schemas/Entry"
+          },
+          "last_seen": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "platform": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "platform",
+          "conversation",
+          "account",
+          "first_seen",
+          "last_seen"
+        ],
+        "type": "object"
+      },
+      "ChatDay": {
+        "additionalProperties": false,
+        "properties": {
+          "day": {
+            "type": "string"
+          },
+          "messages": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "day",
+          "messages"
+        ],
+        "type": "object"
+      },
+      "ChatMessage": {
+        "additionalProperties": false,
+        "properties": {
+          "actor": {
+            "$ref": "#/components/schemas/Actor"
+          },
+          "at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "bot": {
+            "type": "boolean"
+          },
+          "event": {
+            "type": "string"
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "message": {
+            "$ref": "#/components/schemas/Message"
+          },
+          "module": {
+            "type": "string"
+          },
+          "records": {
+            "items": {
+              "$ref": "#/components/schemas/Entry"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "at",
+          "bot",
+          "message"
+        ],
+        "type": "object"
+      },
+      "ChatOutputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "account": {
+            "type": "string"
+          },
+          "conversation": {
+            "type": "string"
+          },
+          "days": {
+            "description": "New messages per day over the last 7 days, days without any left out.",
+            "items": {
+              "$ref": "#/components/schemas/ChatDay"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "first_seen": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "description": "The chat as /whoami prints it.",
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "last_message": {
+            "$ref": "#/components/schemas/Entry"
+          },
+          "last_seen": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "lists": {
+            "description": "The allowlists it is on.",
+            "items": {
+              "$ref": "#/components/schemas/AllowedChat"
+            },
+            "type": "array"
+          },
+          "name": {
+            "type": "string"
+          },
+          "platform": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "days",
+          "id",
+          "lists",
+          "platform",
+          "conversation",
+          "account",
+          "first_seen",
+          "last_seen"
+        ],
+        "type": "object"
+      },
+      "Command": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "usage": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "Contact": {
+        "additionalProperties": false,
+        "properties": {
+          "address": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "EmbeddedMessage": {
+        "additionalProperties": false,
+        "properties": {
+          "reference": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "Entry": {
+        "additionalProperties": false,
+        "properties": {
+          "account": {
+            "type": "string"
+          },
+          "at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "component": {
+            "type": "string"
+          },
+          "conversation": {
+            "type": "string"
+          },
+          "duration_ms": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "event": {
+            "type": "string"
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "outcome": {
+            "type": "string"
+          },
+          "payload": {},
+          "platform": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "at",
+          "kind",
+          "component",
+          "payload"
+        ],
+        "type": "object"
+      },
+      "ErrorDetail": {
+        "additionalProperties": false,
+        "properties": {
+          "location": {
+            "description": "Where the error occurred, e.g. 'body.items[3].tags' or 'path.thing-id'",
+            "type": "string"
+          },
+          "message": {
+            "description": "Error message text",
+            "type": "string"
+          },
+          "value": {
+            "description": "The value at the given location"
+          }
+        },
+        "type": "object"
+      },
+      "ErrorModel": {
+        "additionalProperties": false,
+        "properties": {
+          "detail": {
+            "description": "A human-readable explanation specific to this occurrence of the problem.",
+            "examples": [
+              "Property foo is required but is missing."
+            ],
+            "type": "string"
+          },
+          "errors": {
+            "description": "Optional list of individual error details",
+            "items": {
+              "$ref": "#/components/schemas/ErrorDetail"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "instance": {
+            "description": "A URI reference that identifies the specific occurrence of the problem.",
+            "examples": [
+              "https://example.com/error-log/abc123"
+            ],
+            "format": "uri",
+            "type": "string"
+          },
+          "status": {
+            "description": "HTTP status code",
+            "examples": [
+              400
+            ],
+            "format": "int64",
+            "type": "integer"
+          },
+          "title": {
+            "description": "A short, human-readable summary of the problem type. This value should not change between occurrences of the error.",
+            "examples": [
+              "Bad Request"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "default": "about:blank",
+            "description": "A URI reference to human-readable documentation for the error.",
+            "examples": [
+              "https://example.com/errors/example"
+            ],
+            "format": "uri",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "EventRef": {
+        "additionalProperties": false,
+        "properties": {
+          "account": {
+            "type": "string"
+          },
+          "conversation": {
+            "type": "string"
+          },
+          "locator": {
+            "$ref": "#/components/schemas/ProviderLocator"
+          },
+          "platform": {
+            "type": "string"
+          },
+          "source_event": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_event"
+        ],
+        "type": "object"
+      },
+      "Extension": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "contentEncoding": "base64",
+            "type": "string"
+          },
+          "media_type": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "namespace": {
+            "type": "string"
+          },
+          "version": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "namespace"
+        ],
+        "type": "object"
+      },
+      "Get-allowlistResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "chats": {
+            "items": {
+              "$ref": "#/components/schemas/ListedChat"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "chats"
+        ],
+        "type": "object"
+      },
+      "Get-traceResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "records": {
+            "items": {
+              "$ref": "#/components/schemas/Entry"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "records"
+        ],
+        "type": "object"
+      },
+      "Interactive": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "layout": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "List-chat-messagesResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/ChatMessage"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "more": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "messages",
+          "more"
+        ],
+        "type": "object"
+      },
+      "List-revisionsResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "more": {
+            "type": "boolean"
+          },
+          "revisions": {
+            "items": {
+              "$ref": "#/components/schemas/Revision"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "revisions",
+          "more"
+        ],
+        "type": "object"
+      },
+      "ListedChat": {
+        "additionalProperties": false,
+        "properties": {
+          "added_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "added_by": {
+            "type": "string"
+          },
+          "chat": {
+            "type": "string"
+          },
+          "directory": {
+            "$ref": "#/components/schemas/Chat",
+            "description": "The chat as the bot has seen it; absent for a chat it has not."
+          },
+          "list": {
+            "type": "string"
+          },
+          "module": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "module",
+          "list",
+          "chat",
+          "added_at",
+          "added_by"
+        ],
+        "type": "object"
+      },
+      "Location": {
+        "additionalProperties": false,
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "latitude": {
+            "format": "double",
+            "type": "number"
+          },
+          "longitude": {
+            "format": "double",
+            "type": "number"
+          }
+        },
+        "required": [
+          "latitude",
+          "longitude"
+        ],
+        "type": "object"
+      },
+      "Media": {
+        "additionalProperties": false,
+        "properties": {
+          "byte_size": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "duration": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "extensions": {
+            "items": {
+              "$ref": "#/components/schemas/Extension"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "filename": {
+            "type": "string"
+          },
+          "hashes": {
+            "items": {
+              "$ref": "#/components/schemas/MediaHash"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "height": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "media_type": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "source": {
+            "$ref": "#/components/schemas/MediaSource"
+          },
+          "width": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "source"
+        ],
+        "type": "object"
+      },
+      "MediaHash": {
+        "additionalProperties": false,
+        "properties": {
+          "algorithm": {
+            "type": "string"
+          },
+          "value": {
+            "contentEncoding": "base64",
+            "type": "string"
+          }
+        },
+        "required": [
+          "algorithm",
+          "value"
+        ],
+        "type": "object"
+      },
+      "MediaSource": {
+        "additionalProperties": false,
+        "properties": {
+          "extensions": {
+            "items": {
+              "$ref": "#/components/schemas/Extension"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "inline": {
+            "contentEncoding": "base64",
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "locator": {
+            "$ref": "#/components/schemas/ProviderLocator"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "type": "object"
+      },
+      "Message": {
+        "additionalProperties": false,
+        "properties": {
+          "extensions": {
+            "items": {
+              "$ref": "#/components/schemas/Extension"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "parts": {
+            "items": {
+              "$ref": "#/components/schemas/Part"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "relations": {
+            "items": {
+              "$ref": "#/components/schemas/Relation"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "roots": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "Module": {
+        "additionalProperties": false,
+        "properties": {
+          "allowlists": {
+            "items": {
+              "$ref": "#/components/schemas/Allowlist"
+            },
+            "type": "array"
+          },
+          "commands": {
+            "items": {
+              "$ref": "#/components/schemas/Command"
+            },
+            "type": "array"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/ModuleCounts",
+            "description": "Its deliveries since the process started."
+          },
+          "enabled": {
+            "description": "Whether its current revision turns it on.",
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string"
+          },
+          "problem": {
+            "description": "Why its current settings do not build, when they do not; its allowlists are then unknown.",
+            "type": "string"
+          },
+          "revision": {
+            "description": "Its current settings revision; 0 when never saved.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "running": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "enabled",
+          "running",
+          "revision",
+          "allowlists",
+          "commands",
+          "counts"
+        ],
+        "type": "object"
+      },
+      "ModuleCounts": {
+        "additionalProperties": false,
+        "properties": {
+          "completed": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "failed": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "panicked": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "slow": {
+            "description": "Completed, but past half the module's timeout.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "completed",
+          "slow",
+          "failed",
+          "panicked"
+        ],
+        "type": "object"
+      },
+      "Name-chatRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "maxLength": 200,
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "NewPasskey": {
+        "additionalProperties": false,
+        "properties": {
+          "credential": {
+            "description": "The result of navigator.credentials.create."
+          },
+          "name": {
+            "description": "What to call it, such as Tundra's iPhone.",
+            "maxLength": 100,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "credential"
+        ],
+        "type": "object"
+      },
+      "Page": {
+        "additionalProperties": false,
+        "properties": {
+          "more": {
+            "type": "boolean"
+          },
+          "oldest_retained": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "records": {
+            "items": {
+              "$ref": "#/components/schemas/Entry"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "records",
+          "more",
+          "oldest_retained"
+        ],
+        "type": "object"
+      },
+      "Part": {
+        "additionalProperties": false,
+        "properties": {
+          "annotations": {
+            "items": {
+              "$ref": "#/components/schemas/Annotation"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "children": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "contact": {
+            "$ref": "#/components/schemas/Contact"
+          },
+          "embedded": {
+            "$ref": "#/components/schemas/EmbeddedMessage"
+          },
+          "extensions": {
+            "items": {
+              "$ref": "#/components/schemas/Extension"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "interactive": {
+            "$ref": "#/components/schemas/Interactive"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "location": {
+            "$ref": "#/components/schemas/Location"
+          },
+          "media": {
+            "$ref": "#/components/schemas/Media"
+          },
+          "opaque": {
+            "$ref": "#/components/schemas/Extension"
+          },
+          "poll": {
+            "$ref": "#/components/schemas/Poll"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "PasskeyInfo": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "current": {
+            "description": "Whether this session signed in with it.",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "The credential ID, base64url.",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "used_at": {
+            "description": "When it last signed in.",
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "created_at",
+          "current"
+        ],
+        "type": "object"
+      },
+      "Poll": {
+        "additionalProperties": false,
+        "properties": {
+          "multiple": {
+            "type": "boolean"
+          },
+          "options": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "question": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "question"
+        ],
+        "type": "object"
+      },
+      "ProviderLocator": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "contentEncoding": "base64",
+            "type": "string"
+          },
+          "namespace": {
+            "type": "string"
+          },
+          "version": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "namespace"
+        ],
+        "type": "object"
+      },
+      "Relation": {
+        "additionalProperties": false,
+        "properties": {
+          "extensions": {
+            "items": {
+              "$ref": "#/components/schemas/Extension"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "key": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "target": {
+            "$ref": "#/components/schemas/EventRef"
+          }
+        },
+        "required": [
+          "kind",
+          "target"
+        ],
+        "type": "object"
+      },
+      "Revision": {
+        "additionalProperties": false,
+        "properties": {
+          "at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "by": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "module": {
+            "type": "string"
+          },
+          "revision": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "settings": {}
+        },
+        "required": [
+          "module",
+          "revision",
+          "enabled",
+          "settings"
+        ],
+        "type": "object"
+      },
+      "SeenChat": {
+        "additionalProperties": false,
+        "properties": {
+          "account": {
+            "type": "string"
+          },
+          "conversation": {
+            "type": "string"
+          },
+          "first_seen": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "description": "The chat as /whoami prints it.",
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "last_message": {
+            "$ref": "#/components/schemas/Entry"
+          },
+          "last_seen": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "lists": {
+            "description": "The allowlists it is on.",
+            "items": {
+              "$ref": "#/components/schemas/AllowedChat"
+            },
+            "type": "array"
+          },
+          "name": {
+            "type": "string"
+          },
+          "platform": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "lists",
+          "platform",
+          "conversation",
+          "account",
+          "first_seen",
+          "last_seen"
+        ],
+        "type": "object"
+      },
+      "SessionOutputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "passkey": {
+            "description": "The passkey this session signed in with.",
+            "type": "string"
+          },
+          "signed_in": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "signed_in"
+        ],
+        "type": "object"
+      },
+      "SettingsOutputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "by": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "module": {
+            "type": "string"
+          },
+          "revision": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "schema": {
+            "additionalProperties": {},
+            "description": "The JSON Schema of the settings.",
+            "type": "object"
+          },
+          "settings": {}
+        },
+        "required": [
+          "schema",
+          "module",
+          "revision",
+          "enabled",
+          "settings"
+        ],
+        "type": "object"
+      },
+      "SignedInOutputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "passkey": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "passkey"
+        ],
+        "type": "object"
+      },
+      "Switch-moduleRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "Ex-Otogi management API",
+    "version": "dev"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/auth/enroll/begin": {
+      "post": {
+        "description": "The link comes from otogi passkey enroll on the server and works once, for 10 minutes.",
+        "operationId": "begin-enrollment",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Begin-enrollmentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "The options for navigator.credentials, as go-webauthn writes them."
+                }
+              }
+            },
+            "description": "OK",
+            "headers": {
+              "Set-Cookie": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Start registering a passkey from an enrollment link",
+        "tags": [
+          "Sign-in"
+        ]
+      }
+    },
+    "/api/auth/enroll/finish": {
+      "post": {
+        "operationId": "finish-enrollment",
+        "parameters": [
+          {
+            "in": "cookie",
+            "name": "otogi_ceremony",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewPasskey"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content",
+            "headers": {
+              "Set-Cookie": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Register the passkey and sign in",
+        "tags": [
+          "Sign-in"
+        ]
+      }
+    },
+    "/api/auth/login/begin": {
+      "post": {
+        "operationId": "begin-sign-in",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "The options for navigator.credentials, as go-webauthn writes them."
+                }
+              }
+            },
+            "description": "OK",
+            "headers": {
+              "Set-Cookie": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Start signing in with a passkey",
+        "tags": [
+          "Sign-in"
+        ]
+      }
+    },
+    "/api/auth/login/finish": {
+      "post": {
+        "operationId": "finish-sign-in",
+        "parameters": [
+          {
+            "in": "cookie",
+            "name": "otogi_ceremony",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "description": "The result of navigator.credentials.get."
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignedInOutputBody"
+                }
+              }
+            },
+            "description": "OK",
+            "headers": {
+              "Set-Cookie": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Sign in with the passkey's answer",
+        "tags": [
+          "Sign-in"
+        ]
+      }
+    },
+    "/api/auth/logout": {
+      "post": {
+        "operationId": "sign-out",
+        "parameters": [
+          {
+            "in": "cookie",
+            "name": "otogi_session",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content",
+            "headers": {
+              "Set-Cookie": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Sign out",
+        "tags": [
+          "Sign-in"
+        ]
+      }
+    },
+    "/api/auth/passkeys": {
+      "get": {
+        "operationId": "list-passkeys",
+        "parameters": [
+          {
+            "in": "cookie",
+            "name": "otogi_session",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PasskeyInfo"
+                  },
+                  "type": [
+                    "array",
+                    "null"
+                  ]
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "The operator's passkeys",
+        "tags": [
+          "Sign-in"
+        ]
+      }
+    },
+    "/api/auth/passkeys/begin": {
+      "post": {
+        "operationId": "begin-passkey",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "The options for navigator.credentials, as go-webauthn writes them."
+                }
+              }
+            },
+            "description": "OK",
+            "headers": {
+              "Set-Cookie": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Start registering another passkey",
+        "tags": [
+          "Sign-in"
+        ]
+      }
+    },
+    "/api/auth/passkeys/finish": {
+      "post": {
+        "operationId": "finish-passkey",
+        "parameters": [
+          {
+            "in": "cookie",
+            "name": "otogi_ceremony",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewPasskey"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content",
+            "headers": {
+              "Set-Cookie": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Register another passkey",
+        "tags": [
+          "Sign-in"
+        ]
+      }
+    },
+    "/api/auth/passkeys/{id}": {
+      "delete": {
+        "description": "The last passkey cannot be removed: nobody could sign in.",
+        "operationId": "remove-passkey",
+        "parameters": [
+          {
+            "description": "The credential ID, base64url.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "The credential ID, base64url.",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Remove a passkey",
+        "tags": [
+          "Sign-in"
+        ]
+      }
+    },
+    "/api/auth/session": {
+      "get": {
+        "operationId": "get-session",
+        "parameters": [
+          {
+            "in": "cookie",
+            "name": "otogi_session",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionOutputBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Whether this browser is signed in",
+        "tags": [
+          "Sign-in"
+        ]
+      }
+    },
+    "/api/chats": {
+      "get": {
+        "operationId": "list-chats",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SeenChat"
+                  },
+                  "type": [
+                    "array",
+                    "null"
+                  ]
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Every chat the bot has seen, most recently seen first",
+        "tags": [
+          "Chats"
+        ]
+      }
+    },
+    "/api/chats/{chat}": {
+      "get": {
+        "operationId": "get-chat",
+        "parameters": [
+          {
+            "description": "The chat as /whoami prints it, such as telegram:channel:123.",
+            "in": "path",
+            "name": "chat",
+            "required": true,
+            "schema": {
+              "description": "The chat as /whoami prints it, such as telegram:channel:123.",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatOutputBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "One chat",
+        "tags": [
+          "Chats"
+        ]
+      },
+      "patch": {
+        "description": "The name wins over the platform's title; an empty name clears it.",
+        "operationId": "name-chat",
+        "parameters": [
+          {
+            "description": "The chat as /whoami prints it, such as telegram:channel:123.",
+            "in": "path",
+            "name": "chat",
+            "required": true,
+            "schema": {
+              "description": "The chat as /whoami prints it, such as telegram:channel:123.",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Name-chatRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatOutputBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Name a chat",
+        "tags": [
+          "Chats"
+        ]
+      }
+    },
+    "/api/chats/{chat}/media/{message}/{part}": {
+      "get": {
+        "description": "What the bot sent is served from the event log; what people sent is fetched through the platform, so it is gone once the platform drops it.",
+        "operationId": "get-chat-media",
+        "parameters": [
+          {
+            "description": "The chat as /whoami prints it, such as telegram:channel:123.",
+            "in": "path",
+            "name": "chat",
+            "required": true,
+            "schema": {
+              "description": "The chat as /whoami prints it, such as telegram:channel:123.",
+              "type": "string"
+            }
+          },
+          {
+            "description": "The message ID.",
+            "in": "path",
+            "name": "message",
+            "required": true,
+            "schema": {
+              "description": "The message ID.",
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "The media part's ID.",
+            "in": "path",
+            "name": "part",
+            "required": true,
+            "schema": {
+              "description": "The media part's ID.",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "An image or file in a chat's conversation",
+        "tags": [
+          "Chats"
+        ]
+      }
+    },
+    "/api/chats/{chat}/messages": {
+      "get": {
+        "description": "People's messages and the bot's, as long as the event log keeps them. Each of the bot's names the module that sent it and that module's records for the event it answered.",
+        "operationId": "list-chat-messages",
+        "parameters": [
+          {
+            "description": "The chat as /whoami prints it, such as telegram:channel:123.",
+            "in": "path",
+            "name": "chat",
+            "required": true,
+            "schema": {
+              "description": "The chat as /whoami prints it, such as telegram:channel:123.",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Messages older than this message ID.",
+            "explode": false,
+            "in": "query",
+            "name": "before",
+            "schema": {
+              "description": "Messages older than this message ID.",
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 50,
+              "format": "int64",
+              "maximum": 500,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/List-chat-messagesResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "A chat's conversation, newest first",
+        "tags": [
+          "Chats"
+        ]
+      }
+    },
+    "/api/events": {
+      "get": {
+        "operationId": "list-events",
+        "parameters": [
+          {
+            "explode": false,
+            "in": "query",
+            "name": "kind",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "component",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "event",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "platform",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "account",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "conversation",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "outcome",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Text in the payload.",
+            "explode": false,
+            "in": "query",
+            "name": "q",
+            "schema": {
+              "description": "Text in the payload.",
+              "type": "string"
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "since",
+            "schema": {
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "until",
+            "schema": {
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Records older than this record ID.",
+            "explode": false,
+            "in": "query",
+            "name": "before",
+            "schema": {
+              "description": "Records older than this record ID.",
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Records newer than this record ID, to poll.",
+            "explode": false,
+            "in": "query",
+            "name": "after",
+            "schema": {
+              "description": "Records newer than this record ID, to poll.",
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 100,
+              "format": "int64",
+              "maximum": 500,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Event log records, newest first",
+        "tags": [
+          "Event log"
+        ]
+      }
+    },
+    "/api/events/{id}/trace": {
+      "get": {
+        "operationId": "get-trace",
+        "parameters": [
+          {
+            "description": "The event ID.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "The event ID.",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Get-traceResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Every record of one event, in order",
+        "tags": [
+          "Event log"
+        ]
+      }
+    },
+    "/api/modules": {
+      "get": {
+        "operationId": "list-modules",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Module"
+                  },
+                  "type": [
+                    "array",
+                    "null"
+                  ]
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Every module compiled in",
+        "tags": [
+          "Modules"
+        ]
+      }
+    },
+    "/api/modules/{module}": {
+      "get": {
+        "operationId": "get-module",
+        "parameters": [
+          {
+            "description": "The module's ID.",
+            "in": "path",
+            "name": "module",
+            "required": true,
+            "schema": {
+              "description": "The module's ID.",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Module"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "One module",
+        "tags": [
+          "Modules"
+        ]
+      },
+      "patch": {
+        "description": "Saves a revision that changes only whether the module runs, and applies it.",
+        "operationId": "switch-module",
+        "parameters": [
+          {
+            "description": "The module's ID.",
+            "in": "path",
+            "name": "module",
+            "required": true,
+            "schema": {
+              "description": "The module's ID.",
+              "type": "string"
+            }
+          },
+          {
+            "description": "The ETag of the settings this changes; the current revision when absent.",
+            "in": "header",
+            "name": "If-Match",
+            "schema": {
+              "description": "The ETag of the settings this changes; the current revision when absent.",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Switch-moduleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Module"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Turn a module on or off",
+        "tags": [
+          "Modules"
+        ]
+      }
+    },
+    "/api/modules/{module}/allowlists/{list}": {
+      "get": {
+        "operationId": "get-allowlist",
+        "parameters": [
+          {
+            "description": "The module's ID.",
+            "in": "path",
+            "name": "module",
+            "required": true,
+            "schema": {
+              "description": "The module's ID.",
+              "type": "string"
+            }
+          },
+          {
+            "description": "The allowlist's name.",
+            "in": "path",
+            "name": "list",
+            "required": true,
+            "schema": {
+              "description": "The allowlist's name.",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Get-allowlistResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "The chats on an allowlist",
+        "tags": [
+          "Allowlists"
+        ]
+      }
+    },
+    "/api/modules/{module}/allowlists/{list}/chats/{chat}": {
+      "delete": {
+        "operationId": "disallow-chat",
+        "parameters": [
+          {
+            "description": "The module's ID.",
+            "in": "path",
+            "name": "module",
+            "required": true,
+            "schema": {
+              "description": "The module's ID.",
+              "type": "string"
+            }
+          },
+          {
+            "description": "The allowlist's name.",
+            "in": "path",
+            "name": "list",
+            "required": true,
+            "schema": {
+              "description": "The allowlist's name.",
+              "type": "string"
+            }
+          },
+          {
+            "description": "The chat as /whoami prints it, such as telegram:channel:123.",
+            "in": "path",
+            "name": "chat",
+            "required": true,
+            "schema": {
+              "description": "The chat as /whoami prints it, such as telegram:channel:123.",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Remove a chat from an allowlist",
+        "tags": [
+          "Allowlists"
+        ]
+      },
+      "put": {
+        "operationId": "allow-chat",
+        "parameters": [
+          {
+            "description": "The module's ID.",
+            "in": "path",
+            "name": "module",
+            "required": true,
+            "schema": {
+              "description": "The module's ID.",
+              "type": "string"
+            }
+          },
+          {
+            "description": "The allowlist's name.",
+            "in": "path",
+            "name": "list",
+            "required": true,
+            "schema": {
+              "description": "The allowlist's name.",
+              "type": "string"
+            }
+          },
+          {
+            "description": "The chat as /whoami prints it, such as telegram:channel:123.",
+            "in": "path",
+            "name": "chat",
+            "required": true,
+            "schema": {
+              "description": "The chat as /whoami prints it, such as telegram:channel:123.",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Add a chat to an allowlist",
+        "tags": [
+          "Allowlists"
+        ]
+      }
+    },
+    "/api/modules/{module}/settings": {
+      "get": {
+        "operationId": "get-settings",
+        "parameters": [
+          {
+            "description": "The module's ID.",
+            "in": "path",
+            "name": "module",
+            "required": true,
+            "schema": {
+              "description": "The module's ID.",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsOutputBody"
+                }
+              }
+            },
+            "description": "OK",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "A module's current settings and their schema",
+        "tags": [
+          "Settings"
+        ]
+      },
+      "put": {
+        "description": "Validates the settings against their schema, builds the module from them, swaps it in while it runs, and stores the revision. Nothing is stored if any step fails.",
+        "operationId": "put-settings",
+        "parameters": [
+          {
+            "description": "The module's ID.",
+            "in": "path",
+            "name": "module",
+            "required": true,
+            "schema": {
+              "description": "The module's ID.",
+              "type": "string"
+            }
+          },
+          {
+            "description": "The ETag of the settings this replaces.",
+            "in": "header",
+            "name": "If-Match",
+            "required": true,
+            "schema": {
+              "description": "The ETag of the settings this replaces.",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Revision"
+                }
+              }
+            },
+            "description": "OK",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Save and apply new settings",
+        "tags": [
+          "Settings"
+        ]
+      }
+    },
+    "/api/modules/{module}/settings/revisions": {
+      "get": {
+        "operationId": "list-revisions",
+        "parameters": [
+          {
+            "description": "The module's ID.",
+            "in": "path",
+            "name": "module",
+            "required": true,
+            "schema": {
+              "description": "The module's ID.",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Revisions older than this one.",
+            "explode": false,
+            "in": "query",
+            "name": "before",
+            "schema": {
+              "description": "Revisions older than this one.",
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 20,
+              "format": "int64",
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/List-revisionsResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "A module's settings history, newest first",
+        "tags": [
+          "Settings"
+        ]
+      }
+    },
+    "/api/modules/{module}/settings/revisions/{revision}/restore": {
+      "post": {
+        "description": "Saves the settings of an earlier revision as a new revision and applies them. Whether the module runs is left as it is.",
+        "operationId": "restore-revision",
+        "parameters": [
+          {
+            "description": "The module's ID.",
+            "in": "path",
+            "name": "module",
+            "required": true,
+            "schema": {
+              "description": "The module's ID.",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "revision",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "The ETag of the settings this replaces.",
+            "in": "header",
+            "name": "If-Match",
+            "required": true,
+            "schema": {
+              "description": "The ETag of the settings this replaces.",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Revision"
+                }
+              }
+            },
+            "description": "OK",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Restore earlier settings",
+        "tags": [
+          "Settings"
+        ]
+      }
+    },
+    "/api/shutdown": {
+      "post": {
+        "operationId": "shutdown",
+        "responses": {
+          "202": {
+            "description": "Accepted"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Shut the process down gracefully",
+        "tags": [
+          "Status"
+        ]
+      }
+    },
+    "/api/status": {
+      "get": {
+        "operationId": "get-status",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "The process's health",
+        "tags": [
+          "Status"
+        ]
+      }
+    }
+  }
+}

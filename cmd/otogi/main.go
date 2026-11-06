@@ -5,6 +5,7 @@
 //	otogi [-config otogi.yaml] login ACCOUNT  log a Telegram account in
 //	otogi [-config otogi.yaml] passkey enroll  print a link that registers a panel passkey
 //	otogi smoke                             offline smoke test
+//	otogi openapi                           print the management API's OpenAPI document
 package main
 
 import (
@@ -20,6 +21,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/TundraWork/Ex-Otogi/internal/adapter/management"
 	"github.com/TundraWork/Ex-Otogi/internal/adapter/management/panel"
 	"github.com/TundraWork/Ex-Otogi/internal/adapter/telegram"
 	"github.com/TundraWork/Ex-Otogi/pkg/otogi"
@@ -49,10 +51,15 @@ func mainExit() int {
 	switch command {
 	case "smoke":
 		err = smoke(ctx, os.Stdout)
+	case "openapi":
+		var doc []byte
+		if doc, err = management.OpenAPI(); err == nil {
+			_, err = fmt.Printf("%s\n", doc)
+		}
 	case "run", "validate", "login", "passkey":
 		err = withConfig(ctx, *configPath, command, args)
 	default:
-		err = fmt.Errorf("unknown command %q (want run, validate, login, passkey, or smoke)", command)
+		err = fmt.Errorf("unknown command %q (want run, validate, login, passkey, smoke, or openapi)", command)
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "otogi:", err)

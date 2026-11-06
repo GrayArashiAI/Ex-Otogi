@@ -58,8 +58,8 @@ type Module struct {
 	Running    bool         `json:"running"`
 	Revision   int64        `json:"revision" doc:"Its current settings revision; 0 when never saved."`
 	Problem    string       `json:"problem,omitempty" doc:"Why its current settings do not build, when they do not; its allowlists are then unknown."`
-	Allowlists []Allowlist  `json:"allowlists"`
-	Commands   []Command    `json:"commands"`
+	Allowlists []Allowlist  `json:"allowlists" nullable:"false"`
+	Commands   []Command    `json:"commands" nullable:"false"`
 	Counts     ModuleCounts `json:"counts" doc:"Its deliveries since the process started."`
 }
 
@@ -349,7 +349,7 @@ func registerAllowlists(api huma.API, modules Modules, events *EventLog) {
 	huma.Register(api, huma.Operation{OperationID: "get-allowlist", Method: http.MethodGet, Path: "/api/modules/{module}/allowlists/{list}", Summary: "The chats on an allowlist", Tags: []string{"Allowlists"}},
 		func(ctx context.Context, in *ListPath) (*struct {
 			Body struct {
-				Chats []ListedChat `json:"chats"`
+				Chats []ListedChat `json:"chats" nullable:"false"`
 			}
 		}, error,
 		) {
@@ -362,7 +362,7 @@ func registerAllowlists(api huma.API, modules Modules, events *EventLog) {
 			}
 			out := &struct {
 				Body struct {
-					Chats []ListedChat `json:"chats"`
+					Chats []ListedChat `json:"chats" nullable:"false"`
 				}
 			}{}
 			out.Body.Chats = []ListedChat{}
@@ -404,7 +404,7 @@ func registerAllowlists(api huma.API, modules Modules, events *EventLog) {
 type SeenChat struct {
 	Chat
 	ID    string        `json:"id" doc:"The chat as /whoami prints it."`
-	Lists []AllowedChat `json:"lists" doc:"The allowlists it is on."`
+	Lists []AllowedChat `json:"lists" nullable:"false" doc:"The allowlists it is on."`
 }
 
 // ChatPath names a chat in a route.

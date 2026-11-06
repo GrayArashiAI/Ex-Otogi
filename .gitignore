@@ -57,3 +57,4 @@ desktop.ini
 # The control panel build; the placeholder keeps go:embed working without one
 /web/dist/*
 !/web/dist/.gitkeep
+/web/node_modules/

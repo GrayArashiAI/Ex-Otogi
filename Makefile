@@ -11,15 +11,28 @@ DEPLOY_SERVICE ?= ex-otogi-next
 DEPLOY_READY_URL ?= http://127.0.0.1:8383/readyz
 DEPLOY_ENV := DEPLOY_HOST=$(DEPLOY_HOST) DEPLOY_DIR=$(DEPLOY_DIR) DEPLOY_SERVICE=$(DEPLOY_SERVICE) DEPLOY_READY_URL=$(DEPLOY_READY_URL)
 
-.PHONY: generate generated format lint test test-race test-fuzz-smoke smoke telegram-smoke quality deploy deploy-rollback
+.PHONY: generate generated web web-lint web-typecheck format lint test test-race test-fuzz-smoke smoke telegram-smoke quality deploy deploy-rollback
 
-# Go code for the SQL queries (sqlc.yaml).
+# Go code for the SQL queries (sqlc.yaml), and the panel's API types from
+# the OpenAPI document.
 generate:
 	$(SQLC) generate
+	cd web && pnpm gen:api
 
 # Generated code matches its sources.
 generated:
 	$(SQLC) diff
+	@$(GO) run ./cmd/otogi openapi | diff -q - web/openapi.json >/dev/null || { echo "web/openapi.json is stale: run make generate"; exit 1; }
+
+# The control panel, built into web/dist for the binary to embed.
+web:
+	cd web && pnpm install --frozen-lockfile && find dist -mindepth 1 ! -name .gitkeep -delete && pnpm build
+
+web-lint:
+	cd web && pnpm install --frozen-lockfile && pnpm lint
+
+web-typecheck:
+	cd web && pnpm install --frozen-lockfile && pnpm typecheck
 
 format:
 	$(LINT) fmt
@@ -45,7 +58,7 @@ smoke:
 telegram-smoke:
 	$(GO) run ./cmd/telegram-smoke
 
-quality: generated lint test-race test-fuzz-smoke smoke
+quality: generated lint web-lint web-typecheck web test-race test-fuzz-smoke smoke
 
 # Deploy the current checkout to the test host, or restore its previous binary.
 deploy:

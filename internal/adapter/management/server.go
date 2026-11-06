@@ -120,6 +120,35 @@ func newHandler(cfg ServerConfig) (http.Handler, error) {
 		}
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "not ready"})
 	})
+	var signIn *signIn
+	open := func(string) bool { return false }
+	if cfg.PublicURL != "" {
+		var err error
+		if signIn, err = newSignIn(cfg.Passkeys, cfg.PublicURL, cfg.Events); err != nil {
+			return nil, err
+		}
+		open = signInRoutes
+	}
+	apiMux, _ := newAPI(cfg, signIn, false)
+	mux.Handle("/api/", guard(cfg.Token, signIn, open, apiMux))
+	mux.Handle("/", spa(cfg.Panel))
+	return mux, nil
+}
+
+// OpenAPI returns the API's OpenAPI document with every route, for clients
+// to generate their types from.
+func OpenAPI() ([]byte, error) {
+	_, api := newAPI(ServerConfig{}, nil, true)
+	data, err := json.MarshalIndent(api.OpenAPI(), "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("management: encode OpenAPI: %w", err)
+	}
+	return data, nil
+}
+
+// newAPI registers the routes cfg and signIn serve, or with every, all of
+// them (for the document only).
+func newAPI(cfg ServerConfig, signIn *signIn, every bool) (*http.ServeMux, huma.API) {
 	apiMux := http.NewServeMux()
 	config := huma.DefaultConfig("Ex-Otogi management API", cmp.Or(cfg.Version, "dev"))
 	config.OpenAPIPath, config.SchemasPath, config.DocsPath = "/api/openapi", "/api/schemas", ""
@@ -170,24 +199,15 @@ func newHandler(cfg ServerConfig) (http.Handler, error) {
 			cfg.Shutdown()
 			return nil, nil
 		})
-	if cfg.Modules != nil {
+	if cfg.Modules != nil || every {
 		registerModules(api, cfg.Modules)
 		registerAllowlists(api, cfg.Modules, cfg.Events)
 		registerChats(api, cfg.Modules, cfg.Events, cfg.Media)
 	}
-	var signIn *signIn
-	open := func(string) bool { return false }
-	if cfg.PublicURL != "" {
-		var err error
-		if signIn, err = newSignIn(cfg.Passkeys, cfg.PublicURL, cfg.Events); err != nil {
-			return nil, err
-		}
+	if signIn != nil || every {
 		registerSignIn(api, signIn)
-		open = signInRoutes
 	}
-	mux.Handle("/api/", guard(cfg.Token, signIn, open, apiMux))
-	mux.Handle("/", spa(cfg.Panel))
-	return mux, nil
+	return apiMux, api
 }
 
 // eventsInput filters and pages event log records.

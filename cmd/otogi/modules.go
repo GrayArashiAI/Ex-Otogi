@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -62,6 +63,7 @@ func built[M otogi.Module](m M, err error) (otogi.Module, error) {
 // moduleKind is a module compiled into the binary: the JSON Schema of its
 // settings, generated from its Config type, and how to build it.
 type moduleKind struct {
+	config   reflect.Type
 	registry huma.Registry // the schema's $defs
 	schema   *huma.Schema
 	build    func(settings []byte, env moduleEnv) (otogi.Module, error)
@@ -71,7 +73,7 @@ func kind[C any](build func(C, moduleEnv) (otogi.Module, error)) moduleKind {
 	r := huma.NewMapRegistry("#/$defs/", huma.DefaultSchemaNamer)
 	r.RegisterTypeAlias(reflect.TypeFor[otogi.Duration](), reflect.TypeFor[durationSchema]())
 	r.RegisterTypeAlias(reflect.TypeFor[otogi.Secret](), reflect.TypeFor[secretSchema]())
-	return moduleKind{registry: r, schema: huma.SchemaFromType(r, reflect.TypeFor[C]()), build: func(settings []byte, env moduleEnv) (otogi.Module, error) {
+	return moduleKind{config: reflect.TypeFor[C](), registry: r, schema: huma.SchemaFromType(r, reflect.TypeFor[C]()), build: func(settings []byte, env moduleEnv) (otogi.Module, error) {
 		var cfg C
 		decoder := json.NewDecoder(bytes.NewReader(settings))
 		decoder.DisallowUnknownFields()
@@ -115,10 +117,45 @@ func (k moduleKind) schemaDocument() (map[string]any, error) {
 	if err := json.Unmarshal(data, &doc); err != nil {
 		return nil, fmt.Errorf("decode schema: %w", err)
 	}
+	doc["x-order"] = fieldOrder(k.config)
 	if defs := k.registry.Map(); len(defs) > 0 {
-		doc["$defs"] = defs
+		ordered := map[string]any{}
+		for name, def := range defs {
+			data, err := json.Marshal(def)
+			if err != nil {
+				return nil, fmt.Errorf("encode schema of %s: %w", name, err)
+			}
+			var d map[string]any
+			if err := json.Unmarshal(data, &d); err != nil {
+				return nil, fmt.Errorf("decode schema of %s: %w", name, err)
+			}
+			if t := k.registry.TypeFromRef("#/$defs/" + name); t != nil {
+				d["x-order"] = fieldOrder(t)
+			}
+			ordered[name] = d
+		}
+		doc["$defs"] = ordered
 	}
 	return doc, nil
+}
+
+// fieldOrder lists a struct's JSON field names in declaration order: the
+// schema's properties are a map, and forms follow the type.
+func fieldOrder(t reflect.Type) []string {
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	names := []string{}
+	if t.Kind() != reflect.Struct {
+		return names
+	}
+	for f := range t.Fields() {
+		name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
+		if f.IsExported() && name != "-" {
+			names = append(names, cmp.Or(name, f.Name))
+		}
+	}
+	return names
 }
 
 // invalidSettings is settings that break their schema, field by field

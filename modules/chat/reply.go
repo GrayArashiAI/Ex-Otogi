@@ -344,7 +344,7 @@ func (m *Module) record(ctx context.Context, e otogi.Event, p *profile, trigger 
 		}
 	}
 	payload := map[string]any{
-		"profile": p.Name, "trigger": trigger, "parent": parent, "turns": ids, "rounds": rounds,
+		"profile": p.Name, "provider": p.Provider, "model": p.Model, "trigger": trigger, "parent": parent, "turns": ids, "rounds": rounds,
 		"finish": out.Final.Finish, "reason": out.Final.Reason, "usage": out.Usage, "sources": out.Sources, "messages": refs,
 	}
 	outcome := "ok"
