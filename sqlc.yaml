@@ -1,0 +1,11 @@
+# Queries for the tables added since sqlc was adopted; `make generate`
+# writes the Go code next to them.
+version: "2"
+sql:
+  - engine: sqlite
+    schema: internal/adapter/modulestore/migrations
+    queries: internal/adapter/modulestore/queries
+    gen:
+      go:
+        package: queries
+        out: internal/adapter/modulestore/queries

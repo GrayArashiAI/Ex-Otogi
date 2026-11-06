@@ -112,6 +112,7 @@ type host struct {
 
 func (h *host) Logger() *slog.Logger                     { return slog.New(slog.DiscardHandler) }
 func (h *host) Record(_ context.Context, r otogi.Record) { h.records = append(h.records, r) }
+func (h *host) Allowed(l, chat string) bool              { return l == list && chat == "qq:group:G1" }
 
 type invocation struct {
 	otogi.Invocation
@@ -130,7 +131,7 @@ func newTestModule(t *testing.T, render func(context.Context, card) ([]byte, err
 	if err := os.WriteFile(chrome, []byte("#!/bin/sh\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	m, err := New(Config{Chats: []string{"qq:group:G1"}, Chrome: chrome})
+	m, err := New(Config{Chrome: chrome})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -218,10 +219,8 @@ func TestConfig(t *testing.T) {
 		cfg  Config
 		want string
 	}{
-		{Config{Chrome: "/bin/sh"}, "chats: at least one"},
-		{Config{Chats: []string{"G1"}, Chrome: "/bin/sh"}, `"G1": want <platform>:<chat id>`},
-		{Config{Chats: []string{"qq:group:G1"}}, "the path of chrome-headless-shell is required"},
-		{Config{Chats: []string{"qq:group:G1"}, Chrome: "/nonexistent/chrome"}, "no such file"},
+		{Config{}, "the path of chrome-headless-shell is required"},
+		{Config{Chrome: "/nonexistent/chrome"}, "no such file"},
 	} {
 		if _, err := New(c.cfg); err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%+v: %v, want %q", c.cfg, err, c.want)

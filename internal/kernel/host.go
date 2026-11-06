@@ -29,6 +29,10 @@ type ModuleStorage interface {
 	FinishTimer(ctx context.Context, module otogi.ModuleID, key string, at time.Time) error
 	// RetryTimer postpones the next attempt of a timer run.
 	RetryTimer(ctx context.Context, module otogi.ModuleID, key string, at, next time.Time) error
+	// Allowlists calls fn for every chat on every module's allowlists.
+	Allowlists(ctx context.Context, fn func(module otogi.ModuleID, list, chat string, at time.Time, by string)) error
+	// SetAllowed adds a chat to a module's allowlist, or removes it.
+	SetAllowed(ctx context.Context, module otogi.ModuleID, list, chat string, allowed bool, at time.Time, by string) error
 }
 
 // host is one module's otogi.Host.
@@ -41,15 +45,25 @@ type host struct {
 func (h *host) Module() otogi.ModuleID { return h.entry.descriptor.ID }
 func (h *host) Logger() *slog.Logger   { return h.log }
 
-func (h *host) Record(ctx context.Context, r otogi.Record) {
-	r.Component = "module:" + string(h.Module())
+func (h *host) Record(ctx context.Context, r otogi.Record) { h.kernel.recordFor(ctx, h.Module(), r) }
+
+// recordFor writes a record of module's. A record without an event, written
+// while handling one, joins that event's trace.
+func (k *Kernel) recordFor(ctx context.Context, module otogi.ModuleID, r otogi.Record) {
+	r.Component = "module:" + string(module)
 	if w, ok := otogi.WorkFrom(ctx); ok && r.Event == "" && w.Event != "" {
 		r.Event, r.Platform, r.Account, r.Conversation = w.Event, w.Destination.Platform, w.Destination.Account, w.Destination.Conversation
 	}
 	if r.At.IsZero() {
 		r.At = time.Now()
 	}
-	h.kernel.cfg.Recorder.Record(ctx, r)
+	k.cfg.Recorder.Record(ctx, r)
+}
+
+func (h *host) Allowed(list, chat string) bool { return h.kernel.allowed(h.Module(), list, chat) }
+
+func (h *host) SetAllowed(ctx context.Context, list, chat string, allowed bool, by string) error {
+	return h.kernel.SetAllowed(ctx, h.Module(), list, chat, allowed, by)
 }
 
 func (h *host) Store() otogi.Store {

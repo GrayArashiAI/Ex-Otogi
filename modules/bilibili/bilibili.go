@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/TundraWork/Ex-Otogi/pkg/cardimage"
@@ -17,16 +16,12 @@ import (
 
 // Config is the module's section of otogi.yaml.
 type Config struct {
-	// Chats lists where links get cards, as /whoami prints them
-	// ("telegram:channel:123", "qq:group:ABC").
-	Chats []string `yaml:"chats"`
 	// Chrome is the chrome-headless-shell binary that draws the cards.
 	Chrome string `yaml:"chrome"`
 }
 
 // Module is the bilibili module.
 type Module struct {
-	chats  map[string]bool
 	api    *client
 	render func(context.Context, card) ([]byte, error)
 	host   otogi.Host
@@ -35,26 +30,11 @@ type Module struct {
 
 // New validates cfg and returns the module.
 func New(cfg Config) (*Module, error) {
-	var errs []error
-	if len(cfg.Chats) == 0 {
-		errs = append(errs, errors.New("chats: at least one is required"))
-	}
-	chats := map[string]bool{}
-	for _, c := range cfg.Chats {
-		if platform, id, ok := strings.Cut(c, ":"); !ok || platform == "" || id == "" {
-			errs = append(errs, fmt.Errorf("chats: %q: want <platform>:<chat id>, as /whoami prints it", c))
-		}
-		chats[c] = true
-	}
 	if err := cardimage.Check(cfg.Chrome); err != nil {
-		errs = append(errs, err)
-	}
-	if err := errors.Join(errs...); err != nil {
 		return nil, fmt.Errorf("bilibili: %w", err)
 	}
 	return &Module{
-		chats: chats,
-		api:   &client{api: "https://api.bilibili.com", http: &http.Client{Timeout: 20 * time.Second}, now: time.Now},
+		api: &client{api: "https://api.bilibili.com", http: &http.Client{Timeout: 20 * time.Second}, now: time.Now},
 		render: func(ctx context.Context, c card) ([]byte, error) {
 			return render(ctx, cardimage.Renderer{Chrome: cfg.Chrome}, c)
 		},
@@ -62,15 +42,20 @@ func New(cfg Config) (*Module, error) {
 	}, nil
 }
 
-// Descriptor declares the module: people's new messages.
+// Descriptor declares the module: people's new messages, in the chats on
+// its allowlist.
 func (*Module) Descriptor() otogi.ModuleDescriptor {
 	return otogi.ModuleDescriptor{
 		ID:         "bilibili",
 		Subscribes: []otogi.EventAction{otogi.ActionMessageCreated},
 		Ordering:   otogi.OrderNone,
 		Timeout:    2 * time.Minute,
+		Allowlists: []otogi.AllowlistSpec{{Name: list, Title: "Bilibili", Description: "Links to Bilibili videos get a card."}},
 	}
 }
+
+// list is the module's allowlist.
+const list = "bilibili"
 
 // Start keeps the host for records.
 func (m *Module) Start(_ context.Context, host otogi.Host) error {
@@ -80,7 +65,7 @@ func (m *Module) Start(_ context.Context, host otogi.Host) error {
 
 // Handle answers each video a message names with its card, as a reply.
 func (m *Module) Handle(ctx context.Context, e otogi.Event, inv otogi.Invocation) error {
-	if e.Command != nil || !m.chats[string(e.Platform)+":"+string(e.Conversation.ID)] {
+	if e.Command != nil || !m.host.Allowed(list, e.ChatKey()) {
 		return nil
 	}
 	answered := map[string]bool{} // a short link may name a video linked too

@@ -19,9 +19,6 @@ import (
 
 // Config is the module's section of otogi.yaml.
 type Config struct {
-	// Chats lists where links get cards, as /whoami prints them; empty
-	// means nowhere yet.
-	Chats []string `yaml:"chats"`
 	// Chrome is the chrome-headless-shell binary that draws the cards.
 	Chrome string `yaml:"chrome"`
 	// Timezone is where the cards' times are read, an IANA name such as
@@ -34,7 +31,6 @@ type Config struct {
 
 // Module is the twitter module.
 type Module struct {
-	chats      map[string]bool
 	zone       *time.Location
 	api        *client
 	translator *translator // nil: no translated cards
@@ -47,13 +43,6 @@ type Module struct {
 // translation names.
 func New(cfg Config, providers func(string) (llm.Provider, error)) (*Module, error) {
 	var errs []error
-	chats := map[string]bool{}
-	for _, c := range cfg.Chats {
-		if platform, id, ok := strings.Cut(c, ":"); !ok || platform == "" || id == "" {
-			errs = append(errs, fmt.Errorf("chats: %q: want <platform>:<chat id>, as /whoami prints it", c))
-		}
-		chats[c] = true
-	}
 	if err := cardimage.Check(cfg.Chrome); err != nil {
 		errs = append(errs, err)
 	}
@@ -81,22 +70,27 @@ func New(cfg Config, providers func(string) (llm.Provider, error)) (*Module, err
 	}
 	renderer := cardimage.Renderer{Chrome: cfg.Chrome}
 	return &Module{
-		chats: chats, zone: zone, translator: tr,
+		zone: zone, translator: tr,
 		api:    &client{fx: "https://api.fxtwitter.com", syndication: "https://cdn.syndication.twimg.com", http: &http.Client{Timeout: 20 * time.Second}},
 		render: func(ctx context.Context, c card) ([]byte, error) { return render(ctx, renderer, c) },
 		now:    time.Now,
 	}, nil
 }
 
-// Descriptor declares the module: people's new messages.
+// Descriptor declares the module: people's new messages, in the chats on
+// its allowlist.
 func (*Module) Descriptor() otogi.ModuleDescriptor {
 	return otogi.ModuleDescriptor{
 		ID:         "twitter",
 		Subscribes: []otogi.EventAction{otogi.ActionMessageCreated},
 		Ordering:   otogi.OrderNone,
 		Timeout:    5 * time.Minute, // a translation waits on a language model
+		Allowlists: []otogi.AllowlistSpec{{Name: list, Title: "X", Description: "Links to posts on X get a card."}},
 	}
 }
+
+// list is the module's allowlist.
+const list = "twitter"
 
 // Start keeps the host for records.
 func (m *Module) Start(_ context.Context, host otogi.Host) error {
@@ -106,7 +100,7 @@ func (m *Module) Start(_ context.Context, host otogi.Host) error {
 
 // Handle answers each post a message links with its card, as a reply.
 func (m *Module) Handle(ctx context.Context, e otogi.Event, inv otogi.Invocation) error {
-	if e.Command != nil || !m.chats[string(e.Platform)+":"+string(e.Conversation.ID)] {
+	if e.Command != nil || !m.host.Allowed(list, e.ChatKey()) {
 		return nil
 	}
 	for _, id := range postsIn(e.Message) {

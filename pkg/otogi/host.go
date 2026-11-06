@@ -46,6 +46,14 @@ type Host interface {
 	// Service returns a service listed in the descriptor's Requires. Use
 	// Lookup for a typed result.
 	Service(name string) (any, bool)
+
+	// Allowed reports whether chat (see Event.ChatKey) is on the module's
+	// allowlist named list, one of the descriptor's Allowlists. The operator
+	// manages the lists; Allowed answers from memory.
+	Allowed(list, chat string) bool
+	// SetAllowed adds chat to the module's allowlist named list, or removes
+	// it, recording who did it (by, such as an actor key).
+	SetAllowed(ctx context.Context, list, chat string, allowed bool, by string) error
 }
 
 // Job is a scheduled unit of module work. inv has no event: reply with

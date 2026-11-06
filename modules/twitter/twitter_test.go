@@ -184,6 +184,7 @@ type host struct {
 
 func (h *host) Logger() *slog.Logger                     { return slog.New(slog.DiscardHandler) }
 func (h *host) Record(_ context.Context, r otogi.Record) { h.records = append(h.records, r) }
+func (h *host) Allowed(l, chat string) bool              { return l == list && chat == "qq:group:G1" }
 
 type invocation struct {
 	otogi.Invocation
@@ -209,7 +210,7 @@ func chrome(t *testing.T) string {
 // chat not listed is left alone.
 func TestCards(t *testing.T) {
 	t.Parallel()
-	m, err := New(Config{Chats: []string{"qq:group:G1"}, Chrome: chrome(t), Timezone: "Asia/Shanghai"}, nil)
+	m, err := New(Config{Chrome: chrome(t), Timezone: "Asia/Shanghai"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -284,7 +285,7 @@ func TestTranslatedCards(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			lm := &model{reply: c.reply}
-			m, err := New(Config{Chats: []string{"qq:group:G1"}, Chrome: chrome(t), Translate: &Translate{Provider: "gemini", Model: "gemini-4-argon", Thinking: "low"}},
+			m, err := New(Config{Chrome: chrome(t), Translate: &Translate{Provider: "gemini", Model: "gemini-4-argon", Thinking: "low"}},
 				func(string) (llm.Provider, error) { return lm, nil })
 			if err != nil {
 				t.Fatal(err)
@@ -329,14 +330,10 @@ func TestTranslatedCards(t *testing.T) {
 
 func TestConfig(t *testing.T) {
 	t.Parallel()
-	if _, err := New(Config{Chrome: chrome(t)}, nil); err != nil {
-		t.Fatalf("no chats yet: %v", err)
-	}
 	for _, c := range []struct {
 		cfg  Config
 		want string
 	}{
-		{Config{Chats: []string{"G1"}, Chrome: chrome(t)}, `"G1": want <platform>:<chat id>`},
 		{Config{Chrome: chrome(t), Timezone: "Mars/Olympus"}, "timezone: unknown time zone"},
 		{Config{}, "the path of chrome-headless-shell is required"},
 		{Config{Chrome: chrome(t), Translate: &Translate{Provider: "openai", Model: "m"}}, "translate.provider: no provider openai"},

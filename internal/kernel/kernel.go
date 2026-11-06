@@ -112,6 +112,9 @@ type Kernel struct {
 	sched    scheduler
 	workers  sync.WaitGroup
 	timers   map[string]bool // module/key of timers running now
+
+	listsMu sync.RWMutex
+	lists   map[allowKey]AllowedChat
 }
 
 // New validates the module set and returns a kernel that is not yet started.
@@ -129,6 +132,7 @@ func New(cfg Config, modules []otogi.Module, middleware []otogi.Middleware, effe
 		middleware: slices.Clone(middleware),
 		slots:      make(chan struct{}, cfg.MaxInFlight),
 		timers:     map[string]bool{},
+		lists:      map[allowKey]AllowedChat{},
 	}
 	k.sched.init(&k.mu)
 	entries := make([]*moduleEntry, 0, len(modules))
@@ -159,6 +163,9 @@ func (k *Kernel) Start(ctx context.Context) error {
 		return fmt.Errorf("start kernel: already started: %w", otogi.ErrUnavailable)
 	}
 	k.mu.Unlock()
+	if err := k.loadAllowlists(ctx); err != nil {
+		return err
+	}
 	if err := k.startModules(ctx, k.routes.startOrder); err != nil {
 		return err
 	}

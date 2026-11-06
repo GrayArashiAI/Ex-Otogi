@@ -42,6 +42,13 @@ func (k *Kernel) newEntry(module otogi.Module) (*moduleEntry, error) {
 	if d.Timeout != 0 {
 		entry.timeout = d.Timeout
 	}
+	lists := map[string]bool{}
+	for _, l := range d.Allowlists {
+		if l.Name == "" || lists[l.Name] {
+			return nil, fmt.Errorf("module %q: empty or duplicate allowlist name %q: %w", d.ID, l.Name, otogi.ErrInvalid)
+		}
+		lists[l.Name] = true
+	}
 	entry.host = &host{kernel: k, entry: entry, log: k.log.With("module", d.ID)}
 	return entry, nil
 }

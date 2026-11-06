@@ -72,11 +72,9 @@ modules:
   #   events: [comment, opened, closed, reopened, status_changed, assigned, spec_pushed, spec_review, question_answered, block_added, block_removed, block_cleared]
   #   max_body_chars: 800                # per collapsed quote; ~4 entries per 4096-unit message
   #   max_attempts: 60                   # tries, a minute apart, before a digest message is given up
-  # bilibili:             # cards for Bilibili video links (see docs/operations.md for Chrome and fonts)
-  #   chats: [telegram:channel:123]
+  # bilibili:             # cards for Bilibili video links, in the chats on its allowlist (see docs/operations.md for Chrome and fonts)
   #   chrome: /opt/chrome-headless-shell-157.0.8103.38/chrome-headless-shell
-  # twitter:              # cards for X posts, laid out like X's post page
-  #   chats: []
+  # twitter:              # cards for X posts, laid out like X's post page, in the chats on its allowlist
   #   chrome: /opt/chrome-headless-shell-157.0.8103.38/chrome-headless-shell
   #   timezone: Asia/Shanghai   # where the cards' times are read; default: the server's
   #   translate:                # a second card in Chinese for posts in other languages
@@ -91,9 +89,8 @@ modules:
   #       label: "🤖 Otogi"            # optional, bold at the start of replies
   #       keywords: [otogi]            # a message starting with one triggers it; so does replying to it
   #       mention: true                # so does an @ to the bot
-  #       chats: [telegram:channel:123]   # where it answers anyone: copy the Chat line of /whoami;
-  #                                       # operators can change it with /chat allow|deny <agent> [chat]
-  #                                       # (supergroups are channel:..., basic groups chat:...)
+  #                                    # it answers in the chats on its allowlist: operators
+  #                                    # change it with /chat allow|deny <agent> [chat]
   #       provider: gemini
   #       model: gemini-3.8-flash
   #       thinking: low                # minimal | low | medium | high

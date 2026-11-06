@@ -171,6 +171,13 @@ func (e Event) ActorKey() string {
 	return string(e.Platform) + ":" + string(e.Actor.ID)
 }
 
+// ChatKey is the platform-qualified conversation ID,
+// "<platform>:<conversation id>" (for example "telegram:channel:123"), as
+// /whoami prints it and allowlists name chats.
+func (e Event) ChatKey() string {
+	return string(e.Platform) + ":" + string(e.Conversation.ID)
+}
+
 // Ref returns a reference to the event's message, for replies, edits,
 // deletes, and reactions.
 func (e Event) Ref() EventRef {

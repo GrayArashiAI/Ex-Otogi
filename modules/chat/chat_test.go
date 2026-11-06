@@ -92,6 +92,21 @@ type host struct {
 	storage  *modulestore.Storage
 	records  []otogi.Record
 	services map[string]any
+	lists    map[[2]string]string // list, chat → who added it
+}
+
+func (h *host) Allowed(list, chat string) bool {
+	_, ok := h.lists[[2]string{list, chat}]
+	return ok
+}
+
+func (h *host) SetAllowed(_ context.Context, list, chat string, allowed bool, by string) error {
+	if allowed {
+		h.lists[[2]string{list, chat}] = by
+	} else {
+		delete(h.lists, [2]string{list, chat})
+	}
+	return nil
 }
 
 func (h *host) Service(name string) (any, bool) {
@@ -128,12 +143,13 @@ func newHarness(t *testing.T, profiles ...ProfileConfig) *harness {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = storage.Close() })
-	h := &harness{t: t, host: &host{storage: storage}, llm: map[string]*provider{}, now: time.Date(2026, 10, 31, 12, 0, 0, 0, time.UTC)}
+	h := &harness{t: t, host: &host{storage: storage, lists: map[[2]string]string{}}, llm: map[string]*provider{}, now: time.Date(2026, 10, 31, 12, 0, 0, 0, time.UTC)}
 	if len(profiles) == 0 {
-		profiles = []ProfileConfig{{Name: "otogi", Label: "Otogi", Keywords: []string{"otogi", "小鸟"}, Chats: []string{group}, Provider: "otogi", Model: "m", System: "Be kind."}}
+		profiles = []ProfileConfig{{Name: "otogi", Label: "Otogi", Keywords: []string{"otogi", "小鸟"}, Provider: "otogi", Model: "m", System: "Be kind."}}
 	}
 	for _, p := range profiles {
 		h.llm[p.Provider] = &provider{responses: []llm.Response{answer("hello")}}
+		h.host.lists[[2]string{p.Name, group}] = "test"
 	}
 	h.m, err = New(Config{Profiles: profiles}, func(name string) (llm.Provider, error) {
 		if p, ok := h.llm[name]; ok {
@@ -234,8 +250,8 @@ func TestKeywordStartsAThreadAndRepliesContinueIt(t *testing.T) {
 
 func TestBranchingAndAnotherAgentsKeyword(t *testing.T) {
 	h := newHarness(t,
-		ProfileConfig{Name: "a", Keywords: []string{"alpha"}, Chats: []string{group}, Provider: "a", Model: "m"},
-		ProfileConfig{Name: "b", Keywords: []string{"beta"}, Chats: []string{group}, Provider: "b", Model: "m"},
+		ProfileConfig{Name: "a", Keywords: []string{"alpha"}, Provider: "a", Model: "m"},
+		ProfileConfig{Name: "b", Keywords: []string{"beta"}, Provider: "b", Model: "m"},
 	)
 	h.mustHandle(h.message("Alice", "alpha one"))                  // agent-1
 	h.mustHandle(h.message("Alice", "two", replyingTo("agent-1"))) // agent-2
@@ -359,21 +375,20 @@ func TestConfigErrors(t *testing.T) {
 		}
 		return nil, errors.New("not configured")
 	}
-	base := ProfileConfig{Name: "a", Keywords: []string{"a"}, Chats: []string{group}, Provider: "gemini", Model: "m"}
+	base := ProfileConfig{Name: "a", Keywords: []string{"a"}, Provider: "gemini", Model: "m"}
 	for name, c := range map[string]struct {
 		profiles []ProfileConfig
 		want     string
 	}{
 		"no profiles":     {nil, "at least one"},
-		"shared keyword":  {[]ProfileConfig{base, {Name: "b", Keywords: []string{"A"}, Chats: []string{group}, Provider: "gemini", Model: "m"}}, `"A" also belongs to profile "a"`},
-		"bad tool":        {[]ProfileConfig{{Name: "a", Keywords: []string{"a"}, Chats: []string{group}, Provider: "gemini", Model: "m", Tools: []string{"a b"}}}, `"a b": want a built-in`},
-		"no provider":     {[]ProfileConfig{{Name: "a", Keywords: []string{"a"}, Chats: []string{group}, Provider: "openai", Model: "m"}}, "not configured"},
-		"bad chat":        {[]ProfileConfig{{Name: "a", Keywords: []string{"a"}, Chats: []string{"123"}, Provider: "gemini", Model: "m"}}, "<platform>:<chat id>"},
-		"bad thinking":    {[]ProfileConfig{{Name: "a", Keywords: []string{"a"}, Chats: []string{group}, Provider: "gemini", Model: "m", Thinking: "max"}}, "thinking"},
-		"duplicate names": {[]ProfileConfig{base, {Name: "a", Keywords: []string{"b"}, Chats: []string{group}, Provider: "gemini", Model: "m"}}, "used twice"},
-		"hot":             {[]ProfileConfig{{Name: "a", Keywords: []string{"a"}, Chats: []string{group}, Provider: "gemini", Model: "m", Temperature: ptr(2.5)}}, "temperature 2.5: want 0 to 2"},
-		"two prompts":     {[]ProfileConfig{{Name: "a", Keywords: []string{"a"}, Chats: []string{group}, Provider: "gemini", Model: "m", System: "x", SystemFile: "card.md"}}, "use one"},
-		"missing card":    {[]ProfileConfig{{Name: "a", Keywords: []string{"a"}, Chats: []string{group}, Provider: "gemini", Model: "m", SystemFile: "/nonexistent/card.md"}}, "system_file: open /nonexistent/card.md"},
+		"shared keyword":  {[]ProfileConfig{base, {Name: "b", Keywords: []string{"A"}, Provider: "gemini", Model: "m"}}, `"A" also belongs to profile "a"`},
+		"bad tool":        {[]ProfileConfig{{Name: "a", Keywords: []string{"a"}, Provider: "gemini", Model: "m", Tools: []string{"a b"}}}, `"a b": want a built-in`},
+		"no provider":     {[]ProfileConfig{{Name: "a", Keywords: []string{"a"}, Provider: "openai", Model: "m"}}, "not configured"},
+		"bad thinking":    {[]ProfileConfig{{Name: "a", Keywords: []string{"a"}, Provider: "gemini", Model: "m", Thinking: "max"}}, "thinking"},
+		"duplicate names": {[]ProfileConfig{base, {Name: "a", Keywords: []string{"b"}, Provider: "gemini", Model: "m"}}, "used twice"},
+		"hot":             {[]ProfileConfig{{Name: "a", Keywords: []string{"a"}, Provider: "gemini", Model: "m", Temperature: ptr(2.5)}}, "temperature 2.5: want 0 to 2"},
+		"two prompts":     {[]ProfileConfig{{Name: "a", Keywords: []string{"a"}, Provider: "gemini", Model: "m", System: "x", SystemFile: "card.md"}}, "use one"},
+		"missing card":    {[]ProfileConfig{{Name: "a", Keywords: []string{"a"}, Provider: "gemini", Model: "m", SystemFile: "/nonexistent/card.md"}}, "system_file: open /nonexistent/card.md"},
 	} {
 		if _, err := New(Config{Profiles: c.profiles}, providers, nil); err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: err %v, want %q", name, err, c.want)
@@ -382,7 +397,8 @@ func TestConfigErrors(t *testing.T) {
 }
 
 func TestPrivateChatsAndDeletedMessages(t *testing.T) {
-	h := newHarness(t, ProfileConfig{Name: "otogi", Keywords: []string{"otogi"}, Chats: []string{"telegram:user:7"}, Provider: "p", Model: "m"})
+	h := newHarness(t, ProfileConfig{Name: "otogi", Keywords: []string{"otogi"}, Provider: "p", Model: "m"})
+	h.host.lists = map[[2]string]string{{"otogi", "telegram:user:7"}: "test"}
 	private := func(e *otogi.Event) {
 		e.Conversation = otogi.Conversation{ID: "user:7", Kind: otogi.ConversationDirect}
 	}
@@ -407,13 +423,13 @@ func TestToolGroups(t *testing.T) {
 		seen = e
 		return strings.ToUpper(string(args)), nil
 	})
-	h := &harness{t: t, host: &host{storage: storage, services: map[string]any{"llm.tools/fun": []llm.Tool{echo}}}, llm: map[string]*provider{}, now: time.Date(2026, 10, 31, 12, 0, 0, 0, time.UTC)}
+	h := &harness{t: t, host: &host{storage: storage, services: map[string]any{"llm.tools/fun": []llm.Tool{echo}}, lists: map[[2]string]string{{"otogi", group}: "test"}}, llm: map[string]*provider{}, now: time.Date(2026, 10, 31, 12, 0, 0, 0, time.UTC)}
 	p := &provider{responses: []llm.Response{
 		{Turn: llm.Turn{Role: llm.RoleModel, Calls: []llm.Call{{ID: "c1", Name: "shout", Args: json.RawMessage(`"hi"`)}}}, Finish: llm.FinishToolCalls},
 		answer("Shouted."),
 	}}
 	h.llm["p"] = p
-	h.m, err = New(Config{Profiles: []ProfileConfig{{Name: "otogi", Keywords: []string{"otogi"}, Chats: []string{group}, Provider: "p", Model: "m", Tools: []string{"google_search", "fun"}}}},
+	h.m, err = New(Config{Profiles: []ProfileConfig{{Name: "otogi", Keywords: []string{"otogi"}, Provider: "p", Model: "m", Tools: []string{"google_search", "fun"}}}},
 		func(string) (llm.Provider, error) { return p, nil }, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -452,8 +468,8 @@ func TestToolGroups(t *testing.T) {
 // does not trigger.
 func TestMentionTrigger(t *testing.T) {
 	h := newHarness(t,
-		ProfileConfig{Name: "luna", Keywords: []string{"luna"}, Mention: true, Chats: []string{group}, Provider: "luna", Model: "m"},
-		ProfileConfig{Name: "otogi", Keywords: []string{"otogi"}, Chats: []string{group}, Provider: "otogi", Model: "m"})
+		ProfileConfig{Name: "luna", Keywords: []string{"luna"}, Mention: true, Provider: "luna", Model: "m"},
+		ProfileConfig{Name: "otogi", Keywords: []string{"otogi"}, Provider: "otogi", Model: "m"})
 	p := h.llm["luna"]
 	p.responses = []llm.Response{answer("Meow.")}
 	mentioned := func(e *otogi.Event) {
@@ -482,7 +498,7 @@ func TestCharacterCardAndTemperature(t *testing.T) {
 	if err := os.WriteFile(card, []byte("# Role: 水月\n\n称呼你为「博士」。\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	h := newHarness(t, ProfileConfig{Name: "Mizuki", Keywords: []string{"水月"}, Chats: []string{group}, Provider: "mizuki", Model: "m", SystemFile: card, Temperature: ptr(1.2)})
+	h := newHarness(t, ProfileConfig{Name: "Mizuki", Keywords: []string{"水月"}, Provider: "mizuki", Model: "m", SystemFile: card, Temperature: ptr(1.2)})
 	p := h.llm["mizuki"]
 	p.responses = []llm.Response{answer("博士！")}
 	h.mustHandle(h.message("Alice", "水月，你好"))
@@ -492,11 +508,12 @@ func TestCharacterCardAndTemperature(t *testing.T) {
 	}
 }
 
-// Operators change where agents answer with /chat; the change outlasts a
-// restart and wins over the config, and anyone can see the list.
+// Operators change where agents answer with /chat, and anyone can see the
+// list.
 func TestChatAllowAndDeny(t *testing.T) {
-	h := newHarness(t, ProfileConfig{Name: "Luna", Keywords: []string{"luna"}, Chats: []string{group}, Provider: "luna", Model: "m"},
+	h := newHarness(t, ProfileConfig{Name: "Luna", Keywords: []string{"luna"}, Provider: "luna", Model: "m"},
 		ProfileConfig{Name: "Mizuki", Keywords: []string{"水月"}, Provider: "mizuki", Model: "m"})
+	delete(h.host.lists, [2]string{"Mizuki", group})
 	command := func(actor, args string) string {
 		e := h.message(actor, "/chat "+args)
 		e.Command = &otogi.Command{Name: "chat", Args: args, Argv: strings.Fields(args)}
@@ -525,19 +542,7 @@ func TestChatAllowAndDeny(t *testing.T) {
 	if len(h.llm["mizuki"].requests) != 1 || len(h.llm["luna"].requests) != 0 {
 		t.Fatalf("mizuki %d, luna %d requests", len(h.llm["mizuki"].requests), len(h.llm["luna"].requests))
 	}
-	if r := h.host.records[0]; r.Kind != "chat.access" || r.Payload.(map[string]any)["by"] != "telegram:user:op" {
-		t.Fatalf("record %+v", r)
-	}
-
-	// The changes are stored: a restarted module keeps them.
-	again, err := New(h.m.cfg, func(string) (llm.Provider, error) { return &provider{}, nil }, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := again.Start(context.Background(), h.host); err != nil {
-		t.Fatal(err)
-	}
-	if !again.answers(again.byName["Mizuki"], group) || again.answers(again.byName["Luna"], group) {
-		t.Fatal("access lost on restart")
+	if by := h.host.lists[[2]string{"Mizuki", group}]; by != "telegram:user:op" {
+		t.Fatalf("Mizuki allowed by %q", by)
 	}
 }

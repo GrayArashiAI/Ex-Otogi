@@ -32,7 +32,7 @@ func TestLiveConversation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := newHarness(t, ProfileConfig{Name: "otogi", Label: "🤖 Otogi", Keywords: []string{"otogi"}, Chats: []string{group}, Provider: "gemini", Model: "gemini-3.8-flash", Thinking: "low",
+	h := newHarness(t, ProfileConfig{Name: "otogi", Label: "🤖 Otogi", Keywords: []string{"otogi"}, Provider: "gemini", Model: "gemini-3.8-flash", Thinking: "low",
 		System: "You are Otogi, a cheerful member of this chat. Answer in one or two short sentences."})
 	h.m.profiles[0].provider = g
 
@@ -99,7 +99,7 @@ func TestLiveTools(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = storage.Close() })
 	h := &harness{t: t, host: &host{storage: storage, services: reminderHost.provided}, llm: map[string]*provider{}, now: time.Now()}
-	h.m, err = New(Config{Profiles: []ProfileConfig{{Name: "otogi", Label: "🤖 Otogi", Keywords: []string{"otogi"}, Chats: []string{group}, Provider: "gemini", Model: "gemini-3.8-flash", Thinking: "low",
+	h.m, err = New(Config{Profiles: []ProfileConfig{{Name: "otogi", Label: "🤖 Otogi", Keywords: []string{"otogi"}, Provider: "gemini", Model: "gemini-3.8-flash", Thinking: "low",
 		System: "You are Otogi, a helpful member of this chat. Answer briefly.", Tools: []string{"google_search", "reminders"}}}}, func(string) (llm.Provider, error) { return g, nil }, nil)
 	if err != nil {
 		t.Fatal(err)

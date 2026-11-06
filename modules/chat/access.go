@@ -9,16 +9,9 @@ import (
 	"github.com/TundraWork/Ex-Otogi/pkg/otogi"
 )
 
-// answers reports whether p answers in chat: as /chat last set it there,
-// or else as the config lists it.
-func (m *Module) answers(p *profile, chat string) bool {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	if allowed, ok := m.access[p.Name][chat]; ok {
-		return allowed
-	}
-	return p.chats[chat]
-}
+// answers reports whether p answers in chat: whether chat is on p's
+// allowlist.
+func (m *Module) answers(p *profile, chat string) bool { return m.host.Allowed(p.Name, chat) }
 
 // command runs /chat: list shows which agents answer in a chat, and allow
 // and deny, for operators, change it. The chat defaults to this one; another
@@ -88,16 +81,9 @@ func (m *Module) change(ctx context.Context, e otogi.Event, allow bool, argv []s
 		}
 		return p.Name + " does not answer in " + chat + ".", nil
 	}
-	if err := m.store.setAccess(ctx, p.Name, chat, allow, e.ActorKey(), m.now()); err != nil {
+	if err := m.host.SetAllowed(ctx, p.Name, chat, allow, e.ActorKey()); err != nil {
 		return "", err
 	}
-	m.mu.Lock()
-	if m.access[p.Name] == nil {
-		m.access[p.Name] = map[string]bool{}
-	}
-	m.access[p.Name][chat] = allow
-	m.mu.Unlock()
-	m.host.Record(ctx, otogi.Record{Kind: "chat.access", Outcome: "ok", Payload: map[string]any{"profile": p.Name, "chat": chat, "allowed": allow, "by": e.ActorKey()}})
 	if allow {
 		return p.Name + " now answers in " + chat + ".", nil
 	}
@@ -118,12 +104,12 @@ func (m *Module) profileNamed(name string) *profile {
 func chatArg(e otogi.Event, argv []string) (chat, problem string) {
 	switch {
 	case len(argv) == 0:
-		return chatKey(e), ""
+		return e.ChatKey(), ""
 	case len(argv) > 1:
 		return "", "Name one chat, as /whoami prints it."
 	}
 	if platform, id, ok := strings.Cut(argv[0], ":"); !ok || platform == "" || id == "" {
-		return "", fmt.Sprintf("%q is not a chat; name it as /whoami prints it, like %s.", argv[0], chatKey(e))
+		return "", fmt.Sprintf("%q is not a chat; name it as /whoami prints it, like %s.", argv[0], e.ChatKey())
 	}
 	return argv[0], ""
 }

@@ -1,15 +1,15 @@
 // Package chat answers people in chats with language model agents. Each
-// agent profile answers in the chats it lists (or operators allow with
-// /chat) when a message starts with one of its keywords, mentions the
-// account, or replies to a message it sent.
+// agent profile answers in the chats on its allowlist when a message starts
+// with one of its keywords, mentions the account, or replies to a message it
+// sent.
 package chat
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/TundraWork/Ex-Otogi/pkg/llm"
@@ -26,9 +26,6 @@ type Module struct {
 	host      otogi.Host
 	store     *store
 	now       func() time.Time
-
-	mu     sync.RWMutex
-	access map[string]map[string]bool // profile → chat → allowed, set with /chat; overrides the config
 }
 
 // New validates the configuration; providers finds the providers profiles
@@ -38,7 +35,7 @@ func New(cfg Config, providers func(string) (llm.Provider, error), operators []s
 	if err != nil {
 		return nil, err
 	}
-	m := &Module{cfg: cfg, profiles: profiles, byName: map[string]*profile{}, operators: operators, now: time.Now, access: map[string]map[string]bool{}}
+	m := &Module{cfg: cfg, profiles: profiles, byName: map[string]*profile{}, operators: operators, now: time.Now}
 	for _, p := range profiles {
 		m.byName[p.Name] = p
 	}
@@ -47,10 +44,13 @@ func New(cfg Config, providers func(string) (llm.Provider, error), operators []s
 
 // Descriptor declares the module. It sees every message of every direction,
 // to keep the transcript of the chats it serves; only people's new messages
-// trigger agents.
+// trigger agents. Each profile has an allowlist, named as the profile.
 func (m *Module) Descriptor() otogi.ModuleDescriptor {
 	var requires []string
+	var lists []otogi.AllowlistSpec
 	for _, p := range m.profiles {
+		title := cmp.Or(p.Label, p.Name)
+		lists = append(lists, otogi.AllowlistSpec{Name: p.Name, Title: title, Description: title + " answers here."})
 		for _, g := range p.groups {
 			if s := llm.ToolsService(g); !slices.Contains(requires, s) {
 				requires = append(requires, s)
@@ -68,6 +68,7 @@ func (m *Module) Descriptor() otogi.ModuleDescriptor {
 		Ordering:   otogi.OrderNone,
 		Timeout:    m.cfg.Timeout,
 		Filter:     otogi.Filter{Directions: []otogi.Direction{otogi.DirectionIncoming, otogi.DirectionOutgoing, otogi.DirectionSystem}},
+		Allowlists: lists,
 	}
 }
 
@@ -78,9 +79,6 @@ func (m *Module) Start(ctx context.Context, host otogi.Host) error {
 		return err
 	}
 	if m.store, err = openStore(ctx, db); err != nil {
-		return err
-	}
-	if m.access, err = m.store.access(ctx); err != nil {
 		return err
 	}
 	m.host = host
@@ -120,7 +118,7 @@ func (m *Module) Handle(ctx context.Context, e otogi.Event, inv otogi.Invocation
 	if e.Action == otogi.ActionMessageDeleted {
 		return m.store.forget(ctx, e.Platform, e.Account, string(e.SourceID))
 	}
-	if !m.serves(chatKey(e)) {
+	if !m.serves(e.ChatKey()) {
 		return nil
 	}
 	if err := m.store.record(ctx, e.Destination(), transcriptLine(e)); err != nil {
@@ -150,7 +148,7 @@ func (m *Module) serves(chat string) bool {
 // (0 for a new thread). A reply to an agent continues its thread, unless the
 // message starts with another agent's keyword, which starts a new one.
 func (m *Module) route(ctx context.Context, e otogi.Event) (*profile, int64, string, error) {
-	chat, text := chatKey(e), firstText(e.Message)
+	chat, text := e.ChatKey(), firstText(e.Message)
 	var named *profile
 	for _, p := range m.profiles {
 		if m.answers(p, chat) && p.keyword(text) {
@@ -179,8 +177,6 @@ func (m *Module) route(ctx context.Context, e otogi.Event) (*profile, int64, str
 	}
 	return nil, 0, "", nil
 }
-
-func chatKey(e otogi.Event) string { return string(e.Platform) + ":" + string(e.Conversation.ID) }
 
 func firstText(msg otogi.Message) string {
 	for _, p := range msg.Parts {

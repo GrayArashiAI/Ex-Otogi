@@ -37,10 +37,6 @@ type ProfileConfig struct {
 	// people address a bot in a QQ group. When several profiles in a chat
 	// set it, the first one answers.
 	Mention bool `yaml:"mention"`
-	// Chats lists where the agent answers, as /whoami prints them
-	// ("telegram:chat:123"). Operators can change it at runtime with
-	// /chat allow and /chat deny, which take precedence.
-	Chats []string `yaml:"chats"`
 	// Provider names a provider configured under llm.
 	Provider string `yaml:"provider"`
 	// Model is the provider's model ID.
@@ -74,7 +70,6 @@ type ProfileConfig struct {
 type profile struct {
 	ProfileConfig
 	keywords []string
-	chats    map[string]bool
 	context  int
 	builtins []llm.ToolSpec
 	groups   []otogi.ModuleID    // tool groups, by the module offering them
@@ -103,7 +98,7 @@ func (c *Config) profiles(providers func(string) (llm.Provider, error)) ([]*prof
 	names, keywords := map[string]bool{}, map[string]string{}
 	for i, pc := range c.Profiles {
 		field := fmt.Sprintf("profiles[%d]", i)
-		p := &profile{ProfileConfig: pc, chats: map[string]bool{}, context: 30}
+		p := &profile{ProfileConfig: pc, context: 30}
 		if pc.Context != nil {
 			p.context = *pc.Context
 		}
@@ -134,12 +129,6 @@ func (c *Config) profiles(providers func(string) (llm.Provider, error)) ([]*prof
 			}
 			keywords[folded] = pc.Name
 			p.keywords = append(p.keywords, k)
-		}
-		for _, chat := range pc.Chats {
-			if platform, id, ok := strings.Cut(chat, ":"); !ok || platform == "" || id == "" {
-				errs = append(errs, fmt.Errorf("%s.chats: %q: want <platform>:<chat id>, as /whoami prints it", field, chat))
-			}
-			p.chats[chat] = true
 		}
 		if pc.Model == "" {
 			errs = append(errs, fmt.Errorf("%s.model is required", field))

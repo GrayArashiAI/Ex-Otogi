@@ -41,6 +41,19 @@ type ModuleDescriptor struct {
 	// Requires lists the services the module uses. Modules start after the
 	// providers of what they require.
 	Requires []string
+	// Allowlists are the lists of chats the module answers in, which the
+	// operator manages; the module asks Host.Allowed.
+	Allowlists []AllowlistSpec
+}
+
+// AllowlistSpec declares an allowlist of a module.
+type AllowlistSpec struct {
+	// Name identifies the list within the module, for example "luna".
+	Name string
+	// Title names the list for the operator, for example "Luna".
+	Title string
+	// Description says in one line what a chat on the list gets.
+	Description string
 }
 
 // CommandSpec declares a command a module handles.

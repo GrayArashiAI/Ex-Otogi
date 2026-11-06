@@ -108,6 +108,7 @@ func TestNewRejectsInvalidModuleSets(t *testing.T) {
 		"empty ID":       {module("", ok)},
 		"duplicate ID":   {module("a", ok), module("a", ok)},
 		"invalid action": {moduleFunc{descriptor: otogi.ModuleDescriptor{ID: "a", Subscribes: []otogi.EventAction{"relative"}}, handle: ok}},
+		"duplicate list": {moduleFunc{descriptor: otogi.ModuleDescriptor{ID: "a", Allowlists: []otogi.AllowlistSpec{{Name: "x"}, {Name: "x"}}}, handle: ok}},
 	}
 	for name, modules := range tests {
 		t.Run(name, func(t *testing.T) {

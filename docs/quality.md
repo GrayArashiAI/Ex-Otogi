@@ -2,19 +2,21 @@
 
 ## Toolchain
 
-The `go` directive in `go.mod` pins the Go toolchain (currently 1.27.0); an older local Go switches to it automatically. golangci-lint is pinned in `tools/go.mod` and runs through `go tool -modfile=tools/go.mod golangci-lint`, so its dependencies stay out of the main module. Upgrade Go before the pinned release leaves upstream security support.
+The `go` directive in `go.mod` pins the Go toolchain (currently 1.27.0); an older local Go switches to it automatically. golangci-lint and sqlc are pinned in `tools/go.mod` and run through `go tool -modfile=tools/go.mod`, so their dependencies stay out of the main module. Upgrade Go before the pinned release leaves upstream security support.
 
 ## Gates
 
 | Command | What it does |
 | --- | --- |
+| `make generate` | Write the Go code for SQL queries with sqlc (`sqlc.yaml`); used for tables added since sqlc was adopted |
+| `make generated` | Check that the generated code matches its queries and schema |
 | `make format` | Apply formatting (`golangci-lint fmt`, gofmt) |
 | `make lint` | golangci-lint: formatting, static analysis, Godoc (`revive`), and import boundaries (`depguard`) |
 | `make test` | All tests, including goroutine leak checks (`goleak`) and the cross-protocol corpus |
 | `make test-race` | All tests under the race detector |
 | `make test-fuzz-smoke` | Short runs of the fuzz targets |
 | `make smoke` | Run the offline smoke binary and check its output |
-| `make quality` | `lint`, `test-race`, `test-fuzz-smoke`, `smoke` |
+| `make quality` | `generated`, `lint`, `test-race`, `test-fuzz-smoke`, `smoke` |
 | `make telegram-smoke` | Opt-in live Telegram check; never part of `quality` |
 
 `make quality` must pass before a change is complete. It never contacts Telegram.
