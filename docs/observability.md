@@ -41,7 +41,9 @@ What gets recorded:
 
 Records are written synchronously by the component that produces them. Bot traffic is low enough that a SQLite append per record is cheap, and this avoids a background queue that could drop records. If a write fails, the failure is printed to stdout and shown in status; event processing continues.
 
-The log is `<data_dir>/eventlog.sqlite`. Retention is `eventlog.retention` (default 7 days); an hourly prune deletes older records, and the management plane reports the oldest record still available. Writers use the `otogi.Recorder` contract; exposing it to modules through `Invocation` is part of the module SDK milestone.
+The log is `<data_dir>/eventlog.sqlite`. Retention is `eventlog.retention` (default 30 days); an hourly prune deletes older records, and the management plane reports the oldest record still available.
+
+Next to the records, the event log keeps a directory of every chat the bot has seen, updated in the same transaction as each `event.received`: platform, conversation, the account that saw it last, its kind, its title as the platform gives it (Telegram's from the entities its updates carry; QQ gives only a private chat's user name), a name the operator may set, when it was first and last seen, its latest new message, and its new messages per day (UTC). Chats outlive the retention; the daily counts and messages do not. Writers use the `otogi.Recorder` contract; exposing it to modules through `Invocation` is part of the module SDK milestone.
 
 ## Process logs
 

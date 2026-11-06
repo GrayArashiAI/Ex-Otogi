@@ -26,7 +26,7 @@ commands:
   prefixes: ["/"]         # "/name args" in a message invokes a module's command
 
 eventlog:
-  retention: 168h         # how long event log records are kept
+  retention: 720h         # how long event log records are kept (and chat history with them)
 
 telegram:
   - account: main         # becomes the event account ID; log in with: otogi login main

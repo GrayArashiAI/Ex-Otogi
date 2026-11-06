@@ -60,7 +60,7 @@ type CommandsConfig struct {
 
 // EventLogConfig configures the structured event log.
 type EventLogConfig struct {
-	// Retention is how long records are kept; default 7 days.
+	// Retention is how long records are kept; default 30 days.
 	Retention time.Duration `yaml:"retention"`
 }
 
@@ -131,7 +131,7 @@ func (c *Config) applyDefaults() {
 		c.Commands.Prefixes = []string{"/"}
 	}
 	if c.EventLog.Retention == 0 {
-		c.EventLog.Retention = 7 * 24 * time.Hour
+		c.EventLog.Retention = 30 * 24 * time.Hour
 	}
 	for i := range c.Telegram {
 		a := &c.Telegram[i]

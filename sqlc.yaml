@@ -9,3 +9,17 @@ sql:
       go:
         package: queries
         out: internal/adapter/modulestore/queries
+  - engine: sqlite
+    schema: internal/adapter/telegram/store/migrations
+    queries: internal/adapter/telegram/store/queries
+    gen:
+      go:
+        package: queries
+        out: internal/adapter/telegram/store/queries
+  - engine: sqlite
+    schema: internal/adapter/management/migrations
+    queries: internal/adapter/management/queries
+    gen:
+      go:
+        package: queries
+        out: internal/adapter/management/queries

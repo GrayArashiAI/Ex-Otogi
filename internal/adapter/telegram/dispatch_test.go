@@ -147,3 +147,23 @@ func TestDispatcherStopsQuietlyWhenKernelRefuses(t *testing.T) {
 		t.Fatal("refused row was not left pending")
 	}
 }
+
+// Names come from the entities an update arrives with: the group's title and
+// the sender's name label the event.
+func TestEventsCarryNames(t *testing.T) {
+	h := newDispatchHarness(t)
+	inbox := &inboxHandler{store: h.store, guard: &positionGuard{StateStorage: h.store}, wake: h.wake, log: quiet, now: time.Now, fail: func(err error) { t.Error(err) }}
+	batch := &tg.Updates{
+		Updates: []tg.UpdateClass{&tg.UpdateNewMessage{Message: newMessage(1, &tg.PeerChat{ChatID: 3}, "hi"), Pts: 1, PtsCount: 1}},
+		Users:   []tg.UserClass{&tg.User{ID: 5, FirstName: "Alice", LastName: "Liddell"}},
+		Chats:   []tg.ChatClass{&tg.Chat{ID: 3, Title: "Wonderland"}},
+	}
+	if err := inbox.Handle(context.Background(), batch); err != nil {
+		t.Fatal(err)
+	}
+	stop := h.run(t)
+	defer stop()
+	if e := h.kernel.next(t); e.Conversation.Title != "Wonderland" || e.Actor.Name != "Alice Liddell" {
+		t.Fatalf("conversation %+v, actor %+v", e.Conversation, e.Actor)
+	}
+}

@@ -20,6 +20,7 @@ import (
 	"github.com/pressly/goose/v3"
 	_ "modernc.org/sqlite" // database/sql driver "sqlite"
 
+	"github.com/TundraWork/Ex-Otogi/internal/adapter/management/queries"
 	"github.com/TundraWork/Ex-Otogi/pkg/otogi"
 )
 
@@ -72,15 +73,41 @@ func (l *EventLog) Record(ctx context.Context, r otogi.Record) {
 	if err != nil {
 		payload, _ = json.Marshal(map[string]string{"unencodable_payload": fmt.Sprintf("%+v", r.Payload), "error": err.Error()})
 	}
-	_, err = l.db.ExecContext(ctx, `INSERT INTO records (at, kind, component, event, platform, account, conversation, outcome, duration_ms, payload)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		r.At.UnixMilli(), r.Kind, r.Component, r.Event, r.Platform, r.Account, r.Conversation, r.Outcome, r.Duration.Milliseconds(), string(payload))
-	if err != nil {
+	if err = l.write(ctx, r, payload); err != nil {
 		l.log.Error("event log: write failed", "kind", r.Kind, "event", r.Event, "error", err)
 		l.mu.Lock()
 		l.lastError, l.errorAt = err, time.Now()
 		l.mu.Unlock()
 	}
+}
+
+// write inserts a record. A received event also updates its chat in the
+// directory, in the same transaction.
+func (l *EventLog) write(ctx context.Context, r otogi.Record, payload []byte) error {
+	tx, err := l.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	res, err := tx.ExecContext(ctx, `INSERT INTO records (at, kind, component, event, platform, account, conversation, outcome, duration_ms, payload)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		r.At.UnixMilli(), r.Kind, r.Component, r.Event, r.Platform, r.Account, r.Conversation, r.Outcome, r.Duration.Milliseconds(), string(payload))
+	if err != nil {
+		return fmt.Errorf("insert: %w", err)
+	}
+	if e, ok := r.Payload.(otogi.Event); ok && r.Kind == "event.received" {
+		id, err := res.LastInsertId()
+		if err != nil {
+			return fmt.Errorf("record ID: %w", err)
+		}
+		if err := seeChat(ctx, queries.New(tx), e, r.At, id); err != nil {
+			return err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit: %w", err)
+	}
+	return nil
 }
 
 // Entry is a stored record as the API returns it.
@@ -217,10 +244,14 @@ func (l *EventLog) oldest(ctx context.Context) (int64, error) {
 	return id.Int64, nil
 }
 
-// Prune deletes records older than before.
+// Prune deletes records, and chats' daily counts, older than before. The
+// chats themselves stay.
 func (l *EventLog) Prune(ctx context.Context, before time.Time) error {
 	if _, err := l.db.ExecContext(ctx, "DELETE FROM records WHERE at < ?", before.UnixMilli()); err != nil {
 		return fmt.Errorf("event log: prune: %w", err)
+	}
+	if err := queries.New(l.db).PruneChatDays(ctx, day(before)); err != nil {
+		return fmt.Errorf("event log: prune chat days: %w", err)
 	}
 	return nil
 }

@@ -99,6 +99,8 @@ func TestGotdSavesPositionOnlyAfterHandlerReturns(t *testing.T) {
 
 type failingInbox struct{}
 
+func (failingInbox) SaveNames(context.Context, map[string]string) error { return nil }
+
 func (failingInbox) InsertInbox(context.Context, string, []byte, time.Time) (bool, error) {
 	return false, errors.New("disk full")
 }

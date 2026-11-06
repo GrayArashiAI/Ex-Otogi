@@ -21,6 +21,7 @@ var errInboxFailed = errors.New("telegram: inbox write failed earlier; restart r
 
 type inboxStore interface {
 	InsertInbox(context.Context, string, []byte, time.Time) (bool, error)
+	SaveNames(context.Context, map[string]string) error
 }
 
 // inboxHandler is the update manager's handler. gotd saves its position only
@@ -62,6 +63,10 @@ func (h *inboxHandler) Handle(ctx context.Context, u tg.UpdatesClass) error {
 		if err := h.peers.Apply(ctx, users, chats); err != nil {
 			h.log.Warn("telegram: save peers", "error", err)
 		}
+	}
+	// Names only label events; one not saved leaves a title empty.
+	if err := h.store.SaveNames(ctx, mapper.Names(users, chats)); err != nil {
+		h.log.Warn("telegram: save names", "error", err)
 	}
 	for _, update := range batch {
 		box, pts, ok := mapper.Routed(update)

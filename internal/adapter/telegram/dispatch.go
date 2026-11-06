@@ -29,6 +29,7 @@ type dispatchStore interface {
 	MarkInboxFailed(context.Context, int64, string, time.Time) error
 	PutLocator(context.Context, string, int, string, time.Time) error
 	FindLocator(context.Context, string, int) (string, bool, error)
+	Name(context.Context, string) (string, error)
 }
 
 const dispatchBatch = 100
@@ -156,12 +157,31 @@ func (d *dispatcher) mapRow(ctx context.Context, row telegramstore.InboxRow) ([]
 		}
 		events = append(events, d.mapper.MapDeletion(del, conversation))
 	}
-	for _, event := range events {
-		if err := event.Validate(); err != nil {
+	for i := range events {
+		if err := d.name(ctx, &events[i]); err != nil {
+			return nil, err
+		}
+		if err := events[i].Validate(); err != nil {
 			return nil, err
 		}
 	}
 	return events, nil
+}
+
+// name fills in the conversation's title and the sender's name, as the
+// inbox last saw them.
+func (d *dispatcher) name(ctx context.Context, e *otogi.Event) error {
+	title, err := d.store.Name(ctx, string(e.Conversation.ID))
+	if err != nil {
+		return err
+	}
+	e.Conversation.Title = title
+	if e.Actor.ID != "" {
+		if e.Actor.Name, err = d.store.Name(ctx, string(e.Actor.ID)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // finish runs on a kernel goroutine when one event of a row completes.
