@@ -16,10 +16,9 @@ import (
 	"github.com/TundraWork/Ex-Otogi/pkg/otogi"
 )
 
-// Config configures the module.
+// Config is the module's settings.
 type Config struct {
-	// MaxDelay caps how far ahead a reminder may be set; default 30 days.
-	MaxDelay time.Duration `yaml:"max_delay"`
+	MaxDelay otogi.Duration `json:"max_delay,omitempty" doc:"How far ahead a reminder may be set; default 720h (30 days)."`
 }
 
 // Module handles /remind and offers set_reminder to agents.
@@ -31,9 +30,9 @@ type Module struct {
 // New returns the module.
 func New(cfg Config) *Module {
 	if cfg.MaxDelay <= 0 {
-		cfg.MaxDelay = 30 * 24 * time.Hour
+		cfg.MaxDelay = otogi.Duration(30 * 24 * time.Hour)
 	}
-	return &Module{max: cfg.MaxDelay}
+	return &Module{max: time.Duration(cfg.MaxDelay)}
 }
 
 // Descriptor declares the /remind command.

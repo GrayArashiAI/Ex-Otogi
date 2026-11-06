@@ -47,7 +47,7 @@ func (i *invocation) SendTo(_ context.Context, _ string, to otogi.Destination, m
 }
 
 func TestRemind(t *testing.T) {
-	m := New(Config{MaxDelay: time.Hour})
+	m := New(Config{MaxDelay: otogi.Duration(time.Hour)})
 	h := &timerHost{timers: map[string]otogi.Timer{}}
 	remind := func(args string) string {
 		inv := &invocation{host: h}
@@ -95,7 +95,7 @@ func (h provideHost) Provide(name string, service any) error {
 }
 
 func TestSetReminderTool(t *testing.T) {
-	m := New(Config{MaxDelay: time.Hour})
+	m := New(Config{MaxDelay: otogi.Duration(time.Hour)})
 	h := provideHost{timerHost: &timerHost{timers: map[string]otogi.Timer{}}, provided: map[string]any{}}
 	if err := m.Start(context.Background(), h); err != nil {
 		t.Fatal(err)

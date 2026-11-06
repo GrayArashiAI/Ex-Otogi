@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -20,6 +21,14 @@ import (
 	"github.com/TundraWork/Ex-Otogi/pkg/llm"
 	"github.com/TundraWork/Ex-Otogi/pkg/otogi"
 )
+
+// The agents' tokens in these tests are ${TODOU_TOKEN}.
+func TestMain(m *testing.M) {
+	if err := os.Setenv("TODOU_TOKEN", "todou_pat_x"); err != nil {
+		panic(err)
+	}
+	os.Exit(m.Run())
+}
 
 // fakeCLI answers one-shot CLI calls and keeps them, with their stdin.
 // Project "web" has prefix WEB and "api" API; cards up to 100 exist.
@@ -236,7 +245,7 @@ func startHarness(t *testing.T, storage *modulestore.Storage, cfg Config, stream
 	t.Helper()
 	cfg.CLI = "todou"
 	if cfg.Agents == nil {
-		cfg.Agents = map[string]AgentConfig{"neptune": {Server: "https://todou.test", Token: "todou_pat_x"}}
+		cfg.Agents = map[string]AgentConfig{"neptune": {Server: "https://todou.test", Token: "${TODOU_TOKEN}"}}
 	}
 	m, err := New(cfg, []string{"telegram:user:1"})
 	if err != nil {
@@ -639,8 +648,8 @@ func TestDurationsReadNaturally(t *testing.T) {
 
 func TestAgentsAndSilentLinks(t *testing.T) {
 	h := newHarness(t, Config{Agents: map[string]AgentConfig{
-		"neptune": {Server: "https://todou.test", Token: "a"},
-		"akarin":  {Server: "https://other.test", Token: "b", LinkBase: "https://web.other.test/"},
+		"neptune": {Server: "https://todou.test", Token: "${TODOU_TOKEN}"},
+		"akarin":  {Server: "https://other.test", Token: "${TODOU_TOKEN}", LinkBase: "https://web.other.test/"},
 	}}, idle)
 	h.command(t, "chat:a", "user:1", otogi.DirectionIncoming, "link neptune web")
 	h.command(t, "chat:b", "user:1", otogi.DirectionIncoming, "link akarin web")
@@ -718,8 +727,8 @@ func TestReadsLeaveNoReadMarks(t *testing.T) {
 
 func TestLinksFromBeforeAgents(t *testing.T) {
 	for name, agents := range map[string]map[string]AgentConfig{
-		"one agent adopts them":      {"neptune": {Server: "https://todou.test", Token: "a"}},
-		"several agents refuse them": {"neptune": {Server: "https://todou.test", Token: "a"}, "akarin": {Server: "https://o.test", Token: "b"}},
+		"one agent adopts them":      {"neptune": {Server: "https://todou.test", Token: "${TODOU_TOKEN}"}},
+		"several agents refuse them": {"neptune": {Server: "https://todou.test", Token: "${TODOU_TOKEN}"}, "akarin": {Server: "https://o.test", Token: "${TODOU_TOKEN}"}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			storage, err := modulestore.Open(context.Background(), t.TempDir())

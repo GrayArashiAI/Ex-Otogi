@@ -24,43 +24,23 @@ import (
 	"github.com/TundraWork/Ex-Otogi/pkg/otogi"
 )
 
-// Config configures the module; see otogi.example.yaml.
+// Config is the module's settings.
 type Config struct {
-	// CLI is the path of the todou CLI binary.
-	CLI string `yaml:"cli"`
-	// Agents are the todou accounts chats can link projects through, by
-	// name.
-	Agents map[string]AgentConfig `yaml:"agents"`
-	// MinInterval is the least time between two digests to one chat;
-	// activity meanwhile waits and goes out together. Default 5m. A chat can
-	// set its own with /todou cooldown.
-	MinInterval time.Duration `yaml:"min_interval"`
-	// Debounce holds a burst of activity together for this long after its
-	// first entry before the watcher hands it over; default 10s.
-	Debounce time.Duration `yaml:"debounce"`
-	// CLITimeout bounds each one-shot CLI call; default 60s.
-	CLITimeout time.Duration `yaml:"cli_timeout"`
-	// Events lists the activity types to notify; nil means DefaultEvents, an
-	// empty list means every type.
-	Events []string `yaml:"events"`
-	// MaxBodyChars cuts each quoted body; default 800, at most 3000. Quotes
-	// are collapsed, so they cost little room on screen, but they count
-	// toward a digest message's 4000 characters: 800 keeps about four
-	// entries in one message.
-	MaxBodyChars int `yaml:"max_body_chars"`
-	// MaxAttempts is how many times a digest message is tried, a minute
-	// apart, before it is marked failed; default 60.
-	MaxAttempts int `yaml:"max_attempts"`
+	CLI          string                 `json:"cli" minLength:"1" doc:"The path of the todou CLI binary."`
+	Agents       map[string]AgentConfig `json:"agents" minProperties:"1" doc:"The todou accounts chats can link projects through, by name: lowercase letters, digits, - and _."`
+	MinInterval  otogi.Duration         `json:"min_interval,omitempty" doc:"The least time between two digests to one chat; activity meanwhile waits and goes out together. Default 5m. A chat can set its own with /todou cooldown."`
+	Debounce     otogi.Duration         `json:"debounce,omitempty" doc:"How long a burst of activity is held together after its first entry; default 10s."`
+	CLITimeout   otogi.Duration         `json:"cli_timeout,omitempty" doc:"The longest one CLI call may take; default 60s."`
+	Events       []string               `json:"events,omitempty" doc:"The activity types to notify; unset is the default set, an empty list every type."`
+	MaxBodyChars int                    `json:"max_body_chars,omitempty" minimum:"0" maximum:"3000" doc:"Where each quoted body is cut; default 800, at most 3000. A digest message holds 4000 characters, so 800 keeps about four entries in one."`
+	MaxAttempts  int                    `json:"max_attempts,omitempty" minimum:"0" doc:"How many times a digest message is tried, a minute apart, before it is marked failed; default 60."`
 }
 
 // AgentConfig is one todou account.
 type AgentConfig struct {
-	// Server is the todou server URL.
-	Server string `yaml:"server"`
-	// Token is the account's personal access token (todou_pat_…).
-	Token string `yaml:"token"`
-	// LinkBase is the web URL issue links point to; default Server.
-	LinkBase string `yaml:"link_base"`
+	Server   string       `json:"server" minLength:"1" doc:"The todou server URL."`
+	Token    otogi.Secret `json:"token" doc:"The account's personal access token (todou_pat_...)."`
+	LinkBase string       `json:"link_base,omitempty" doc:"The web URL issue links point to; default the server URL."`
 }
 
 // DefaultEvents are the activity types notified when Config.Events is unset.
@@ -122,13 +102,18 @@ func New(cfg Config, operators []string) (*Module, error) {
 	if len(cfg.Agents) == 0 {
 		errs = append(errs, errors.New("agents: at least one is required"))
 	}
+	tokens := map[string]string{}
 	for name, a := range cfg.Agents {
+		token, err := a.Token.Value()
 		switch {
 		case !agentName.MatchString(name):
 			errs = append(errs, fmt.Errorf("agents.%s: names are lowercase letters, digits, - and _", name))
-		case a.Server == "" || a.Token == "":
-			errs = append(errs, fmt.Errorf("agents.%s: server and token are required", name))
+		case a.Server == "":
+			errs = append(errs, fmt.Errorf("agents.%s: server is required", name))
+		case err != nil:
+			errs = append(errs, fmt.Errorf("agents.%s.token: %w", name, err))
 		}
+		tokens[name] = token
 	}
 	if cfg.MaxBodyChars < 0 || cfg.MaxBodyChars > 3000 {
 		errs = append(errs, errors.New("max_body_chars must be between 1 and 3000"))
@@ -140,13 +125,13 @@ func New(cfg Config, operators []string) (*Module, error) {
 		return nil, err
 	}
 	if cfg.MinInterval == 0 {
-		cfg.MinInterval = 5 * time.Minute
+		cfg.MinInterval = otogi.Duration(5 * time.Minute)
 	}
 	if cfg.Debounce == 0 {
-		cfg.Debounce = 10 * time.Second
+		cfg.Debounce = otogi.Duration(10 * time.Second)
 	}
 	if cfg.CLITimeout == 0 {
-		cfg.CLITimeout = 60 * time.Second
+		cfg.CLITimeout = otogi.Duration(60 * time.Second)
 	}
 	if cfg.Events == nil {
 		cfg.Events = DefaultEvents
@@ -164,7 +149,7 @@ func New(cfg Config, operators []string) (*Module, error) {
 			base = strings.TrimSuffix(a.Server, "/")
 		}
 		m.agents[name] = &agent{name: name, cfg: a, linkBase: base,
-			cli: client{run: m.recorded(name, execRunner(cfg.CLI, a.Server, a.Token, cfg.CLITimeout)), stream: execStreamer(cfg.CLI, a.Server, a.Token)}}
+			cli: client{run: m.recorded(name, execRunner(cfg.CLI, a.Server, tokens[name], time.Duration(cfg.CLITimeout))), stream: execStreamer(cfg.CLI, a.Server, tokens[name])}}
 		m.render.links[name] = base
 		m.names = append(m.names, name)
 	}
@@ -291,7 +276,7 @@ func (m *Module) runWatcher(ctx context.Context, a *agent) (err error) {
 	a.mu.Lock()
 	a.watcher.since = m.now()
 	a.mu.Unlock()
-	return a.cli.follow(ctx, cursor, m.cfg.Events, m.cfg.Debounce,
+	return a.cli.follow(ctx, cursor, m.cfg.Events, time.Duration(m.cfg.Debounce),
 		func(line string) { m.watchSaid(ctx, a, line) },
 		func(entries []entry, cursor string) error { return m.ingest(ctx, a, entries, cursor) })
 }
@@ -541,7 +526,7 @@ func (m *Module) Handle(ctx context.Context, e otogi.Event, inv otogi.Invocation
 func (m *Module) cooldown(ctx context.Context, to otogi.Destination) (time.Duration, bool, error) {
 	d, set, err := m.store.cooldown(ctx, to)
 	if err != nil || !set {
-		return m.cfg.MinInterval, false, err
+		return time.Duration(m.cfg.MinInterval), false, err
 	}
 	return d, true, nil
 }
@@ -569,7 +554,7 @@ func (m *Module) setCooldown(ctx context.Context, e otogi.Event, arg string) (st
 		if err := m.store.clearCooldown(ctx, to); err != nil {
 			return "", err
 		}
-		reply = "Cooldown reset to the default, " + cooldownText(m.cfg.MinInterval) + "."
+		reply = "Cooldown reset to the default, " + cooldownText(time.Duration(m.cfg.MinInterval)) + "."
 	} else {
 		d, err := time.ParseDuration(arg)
 		if err != nil || d < 0 {

@@ -29,8 +29,6 @@ telegram:
   - account: main
     app_id: 1
     app_hash: ${TEST_APP_HASH}   # ${UNSET_IN_COMMENT} is not expanded
-modules:
-  echo:
 `))
 	if err != nil {
 		t.Fatal(err)
@@ -41,9 +39,6 @@ modules:
 	}
 	if cfg.ShutdownTimeout != 30*time.Second || cfg.Log.Level != "info" || cfg.Log.Format != "json" {
 		t.Fatalf("defaults = %+v", cfg)
-	}
-	if _, err := buildModules(cfg.Modules, moduleEnv{}); err != nil {
-		t.Fatal(err)
 	}
 }
 
@@ -71,7 +66,6 @@ func TestLoadConfigRejections(t *testing.T) {
 		"unset variable":     {"telegram:\n  - account: a\n    app_id: 1\n    app_hash: ${OTOGI_TEST_UNSET}\n", "OTOGI_TEST_UNSET"},
 		"duplicate":          {"telegram:\n  - {account: a, app_id: 1, app_hash: h}\n  - {account: a, app_id: 1, app_hash: h}\n", "used twice"},
 		"missing app hash":   {"telegram:\n  - {account: a, app_id: 1}\n", "app_hash"},
-		"unknown module":     {"modules:\n  ehco: {}\n", "unknown module"},
 		"bad level":          {"log: {level: loud}\n", "log.level"},
 		"bad duration":       {"shutdown_timeout: soon\n", "line 1"},
 		"bad operator":       {"operators: [\"123\"]\n", "<platform>:<actor id>"},
@@ -85,16 +79,6 @@ func TestLoadConfigRejections(t *testing.T) {
 				t.Fatalf("loadConfig error = %v, want it to mention %q", err, test.want)
 			}
 		})
-	}
-}
-
-func TestModuleSectionsAreStrict(t *testing.T) {
-	cfg, err := loadConfig(writeConfig(t, "modules:\n  echo: {prefix: hi}\n"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := buildModules(cfg.Modules, moduleEnv{}); err == nil || !strings.Contains(err.Error(), "prefix") {
-		t.Fatalf("buildModules error = %v, want unknown field prefix", err)
 	}
 }
 

@@ -49,54 +49,6 @@ telegram:
 #     api_key: ${OTOGI_GEMINI_API_KEY}
 #     # base_url: https://generativelanguage.googleapis.com/v1beta   # the default; or a proxy/gateway speaking the Gemini API
 
-modules:
-  utility: {}             # /whoami, /ping, /status, /help
-  echo: {}                # replies "echo: <text>" to every text message
-  notes:                  # /note <text>, /note, /note clear
-    max_notes: 50
-  reminders:              # /remind 10m tea  (survives restarts)
-    max_delay: 720h
-  # todou:                # todou trackers, through your todou agent accounts. Link with
-  #                       # /todou link <agent> <project> [silent]; silent links get no digests.
-  #                       # Anyone in a linked chat may /todou view|new|comment|move|assign|block its cards
-  #   cli: /usr/local/bin/todou          # todou CLI v0.6.7+ (github.com/orzFly/todou/releases)
-  #   agents:                            # the accounts chats can link projects through
-  #     neptune:
-  #       server: https://todou.example.com
-  #       token: ${OTOGI_TODOU_TOKEN}    # the agent account's todou_pat_… token; it needs
-  #                                      # reader access to linked projects (writer to work them)
-  #       link_base: ""                  # web URL for issue links; default: server
-  #   min_interval: 5m                   # default cooldown between digests per chat (/todou cooldown overrides); activity meanwhile is aggregated
-  #   debounce: 10s                      # hold a burst together this long after its first entry
-  #   cli_timeout: 60s                   # per one-shot CLI call (the watchers themselves are resident)
-  #   events: [comment, opened, closed, reopened, status_changed, assigned, spec_pushed, spec_review, question_answered, block_added, block_removed, block_cleared]
-  #   max_body_chars: 800                # per collapsed quote; ~4 entries per 4096-unit message
-  #   max_attempts: 60                   # tries, a minute apart, before a digest message is given up
-  # bilibili:             # cards for Bilibili video links, in the chats on its allowlist (see docs/operations.md for Chrome and fonts)
-  #   chrome: /opt/chrome-headless-shell-157.0.8103.38/chrome-headless-shell
-  # twitter:              # cards for X posts, laid out like X's post page, in the chats on its allowlist
-  #   chrome: /opt/chrome-headless-shell-157.0.8103.38/chrome-headless-shell
-  #   timezone: Asia/Shanghai   # where the cards' times are read; default: the server's
-  #   translate:                # a second card in Chinese for posts in other languages
-  #     provider: gemini
-  #     model: gemini-flash-latest
-  #     thinking: low
-  # chat:                 # language model agents; needs a provider under llm
-  #   retention: 720h      # threads and chat transcript kept this long
-  #   timeout: 5m          # one reply, tool calls included
-  #   profiles:
-  #     - name: otogi
-  #       label: "🤖 Otogi"            # optional, bold at the start of replies
-  #       keywords: [otogi]            # a message starting with one triggers it; so does replying to it
-  #       mention: true                # so does an @ to the bot
-  #                                    # it answers in the chats on its allowlist: operators
-  #                                    # change it with /chat allow|deny <agent> [chat]
-  #       provider: gemini
-  #       model: gemini-3.8-flash
-  #       thinking: low                # minimal | low | medium | high
-  #       # temperature: 1.2             # 0 to 2; default: the model's (1 for Gemini)
-  #       system: |
-  #         You are Otogi, a helpful member of this chat.
-  #       # system_file: agents/otogi.md # or the prompt from a Markdown file, such as a character card
-  #       context: 30                  # recent chat messages it sees
-  #       tools: [google_search, url_context, reminders, notes, todou]   # built-ins, and tool groups of enabled modules
+# Modules are not set up here. Which modules run, their settings, and where
+# they answer are runtime data, changed through the management API and kept
+# as revisions (see docs/operations.md).

@@ -19,6 +19,15 @@ type Kv struct {
 	UpdatedAt int64
 }
 
+type ModuleSetting struct {
+	Module   string
+	Revision int64
+	Enabled  bool
+	Settings string
+	By       string
+	At       int64
+}
+
 type Timer struct {
 	Module    string
 	Key       string

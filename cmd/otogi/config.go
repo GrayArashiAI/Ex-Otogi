@@ -18,18 +18,17 @@ import (
 
 // Config is the otogi.yaml file. See docs/operations.md.
 type Config struct {
-	DataDir         string               `yaml:"data_dir"`
-	ShutdownTimeout time.Duration        `yaml:"shutdown_timeout"`
-	Log             LogConfig            `yaml:"log"`
-	Kernel          KernelConfig         `yaml:"kernel"`
-	Management      ManagementConfig     `yaml:"management"`
-	EventLog        EventLogConfig       `yaml:"eventlog"`
-	Commands        CommandsConfig       `yaml:"commands"`
-	Operators       []string             `yaml:"operators"`
-	Telegram        []TelegramAccount    `yaml:"telegram"`
-	QQ              []QQAccount          `yaml:"qq"`
-	LLM             LLMConfig            `yaml:"llm"`
-	Modules         map[string]yaml.Node `yaml:"modules"`
+	DataDir         string            `yaml:"data_dir"`
+	ShutdownTimeout time.Duration     `yaml:"shutdown_timeout"`
+	Log             LogConfig         `yaml:"log"`
+	Kernel          KernelConfig      `yaml:"kernel"`
+	Management      ManagementConfig  `yaml:"management"`
+	EventLog        EventLogConfig    `yaml:"eventlog"`
+	Commands        CommandsConfig    `yaml:"commands"`
+	Operators       []string          `yaml:"operators"`
+	Telegram        []TelegramAccount `yaml:"telegram"`
+	QQ              []QQAccount       `yaml:"qq"`
+	LLM             LLMConfig         `yaml:"llm"`
 }
 
 // LogConfig selects process log verbosity and format.
@@ -199,11 +198,6 @@ func (c Config) validate() error {
 	for _, op := range c.Operators {
 		if platform, actor, ok := strings.Cut(op, ":"); !ok || platform == "" || actor == "" {
 			errs = append(errs, fmt.Errorf("operators: %q: want <platform>:<actor id>, as /whoami prints it", op))
-		}
-	}
-	for id := range c.Modules {
-		if _, ok := moduleRegistry[id]; !ok {
-			errs = append(errs, fmt.Errorf("modules.%s: unknown module", id))
 		}
 	}
 	return errors.Join(errs...)

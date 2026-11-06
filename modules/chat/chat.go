@@ -66,7 +66,7 @@ func (m *Module) Descriptor() otogi.ModuleDescriptor {
 		}},
 		Subscribes: []otogi.EventAction{otogi.ActionMessageCreated, otogi.ActionMessageEdited, otogi.ActionMessageDeleted},
 		Ordering:   otogi.OrderNone,
-		Timeout:    m.cfg.Timeout,
+		Timeout:    time.Duration(m.cfg.Timeout),
 		Filter:     otogi.Filter{Directions: []otogi.Direction{otogi.DirectionIncoming, otogi.DirectionOutgoing, otogi.DirectionSystem}},
 		Allowlists: lists,
 	}
@@ -102,7 +102,7 @@ func (m *Module) Start(ctx context.Context, host otogi.Host) error {
 }
 
 func (m *Module) prune(ctx context.Context, _ otogi.Invocation) error {
-	n, err := m.store.prune(ctx, m.now().Add(-m.cfg.Retention))
+	n, err := m.store.prune(ctx, m.now().Add(-time.Duration(m.cfg.Retention)))
 	if err != nil {
 		return err
 	}

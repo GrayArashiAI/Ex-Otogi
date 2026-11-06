@@ -275,3 +275,15 @@ func ids(entries []*moduleEntry) []otogi.ModuleID {
 	}
 	return out
 }
+
+// Descriptors returns the descriptors of the running modules, by module ID.
+func (k *Kernel) Descriptors() []otogi.ModuleDescriptor {
+	k.mu.Lock()
+	r := k.routes
+	k.mu.Unlock()
+	out := make([]otogi.ModuleDescriptor, len(r.modules))
+	for i, entry := range r.modules {
+		out[i] = entry.descriptor
+	}
+	return out
+}

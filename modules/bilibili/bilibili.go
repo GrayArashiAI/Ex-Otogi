@@ -14,10 +14,9 @@ import (
 	"github.com/TundraWork/Ex-Otogi/pkg/otogi"
 )
 
-// Config is the module's section of otogi.yaml.
+// Config is the module's settings.
 type Config struct {
-	// Chrome is the chrome-headless-shell binary that draws the cards.
-	Chrome string `yaml:"chrome"`
+	Chrome string `json:"chrome" minLength:"1" doc:"The path of the chrome-headless-shell binary that draws the cards."`
 }
 
 // Module is the bilibili module.

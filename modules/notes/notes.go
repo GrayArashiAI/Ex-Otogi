@@ -17,10 +17,9 @@ import (
 	"github.com/TundraWork/Ex-Otogi/pkg/otogi"
 )
 
-// Config configures the module.
+// Config is the module's settings.
 type Config struct {
-	// MaxNotes caps notes per conversation; default 50.
-	MaxNotes int `yaml:"max_notes"`
+	MaxNotes int `json:"max_notes,omitempty" minimum:"0" doc:"The most notes one chat may keep; default 50."`
 }
 
 // Module handles /note and offers agents its tools.

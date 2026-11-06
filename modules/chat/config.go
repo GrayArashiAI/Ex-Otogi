@@ -3,7 +3,6 @@ package chat
 import (
 	"errors"
 	"fmt"
-	"os"
 	"slices"
 	"strings"
 	"time"
@@ -14,56 +13,29 @@ import (
 	"github.com/TundraWork/Ex-Otogi/pkg/otogi"
 )
 
-// Config is the module's section of otogi.yaml.
+// Config is the module's settings.
 type Config struct {
-	// Retention is how long threads and the chat transcript are kept;
-	// default 30 days.
-	Retention time.Duration `yaml:"retention"`
-	// Timeout bounds one reply, tool calls included; default 5 minutes.
-	Timeout time.Duration `yaml:"timeout"`
-	// Profiles are the agents.
-	Profiles []ProfileConfig `yaml:"profiles"`
+	Retention otogi.Duration  `json:"retention,omitempty" doc:"How long threads and the chat transcript are kept; default 720h (30 days)."`
+	Timeout   otogi.Duration  `json:"timeout,omitempty" doc:"The longest one reply may take, tool calls included; default 5m."`
+	Profiles  []ProfileConfig `json:"profiles" minItems:"1" doc:"The agents. Each answers in the chats on its allowlist."`
 }
 
 // ProfileConfig configures one agent.
 type ProfileConfig struct {
-	// Name identifies the agent; it is stored with its threads.
-	Name string `yaml:"name"`
-	// Label, if set, starts each reply in bold.
-	Label string `yaml:"label"`
-	// Keywords trigger the agent when a message starts with one.
-	Keywords []string `yaml:"keywords"`
-	// Mention triggers the agent when a message mentions the account, as
-	// people address a bot in a QQ group. When several profiles in a chat
-	// set it, the first one answers.
-	Mention bool `yaml:"mention"`
-	// Provider names a provider configured under llm.
-	Provider string `yaml:"provider"`
-	// Model is the provider's model ID.
-	Model string `yaml:"model"`
-	// Thinking is minimal, low, medium, or high; empty is the model default.
-	Thinking string `yaml:"thinking"`
-	// MaxOutput limits reply tokens; zero is the model default.
-	MaxOutput int `yaml:"max_output"`
-	// Temperature is the sampling temperature, 0 to 2; empty is the model
-	// default (1 for Gemini). Higher is livelier, lower more predictable.
-	Temperature *float64 `yaml:"temperature"`
-	// System is the system prompt.
-	System string `yaml:"system"`
-	// SystemFile is a Markdown file holding the system prompt instead, such
-	// as a long character card; read once at startup. A relative path is
-	// from the working directory, like data_dir.
-	SystemFile string `yaml:"system_file"`
-	// Context is how many recent chat messages the agent sees; default 30,
-	// zero for none.
-	Context *int `yaml:"context"`
-	// MaxTurns is how many thread turns are sent, newest kept; default 40.
-	MaxTurns int `yaml:"max_turns"`
-	// Tools are built-ins (google_search, url_context, code_execution) and
-	// tool groups, by module ID.
-	Tools []string `yaml:"tools"`
-	// MaxToolRounds bounds rounds of function calls per reply; default 8.
-	MaxToolRounds int `yaml:"max_tool_rounds"`
+	Name          string   `json:"name" minLength:"1" doc:"Identifies the agent and names its allowlist. Its threads are stored under it: keep it stable."`
+	Label         string   `json:"label,omitempty" doc:"When set, starts each reply in bold."`
+	Keywords      []string `json:"keywords,omitempty" doc:"A message starting with one of them triggers the agent; so does replying to it."`
+	Mention       bool     `json:"mention,omitempty" doc:"A message mentioning the bot triggers the agent too, as people address a bot in a QQ group. When several agents in a chat set it, the first answers."`
+	Provider      string   `json:"provider" minLength:"1" doc:"A language model provider configured under llm in otogi.yaml, such as gemini."`
+	Model         string   `json:"model" minLength:"1" doc:"The provider's model ID."`
+	Thinking      string   `json:"thinking,omitempty" enum:"minimal,low,medium,high" doc:"How much the model thinks before answering; unset is the model's default."`
+	MaxOutput     int      `json:"max_output,omitempty" minimum:"0" doc:"The most tokens a reply may have; 0 is the model's default."`
+	Temperature   *float64 `json:"temperature,omitempty" minimum:"0" maximum:"2" doc:"Sampling temperature, 0 to 2; unset is the model's default (1 for Gemini). Higher is livelier, lower more predictable."`
+	System        string   `json:"system,omitempty" format:"markdown" doc:"The system prompt: who the agent is and how it talks, in Markdown."`
+	Context       *int     `json:"context,omitempty" minimum:"0" doc:"How many recent chat messages the agent sees; default 30, 0 for none."`
+	MaxTurns      int      `json:"max_turns,omitempty" minimum:"0" doc:"How many turns of a thread are sent, newest kept; default 40."`
+	Tools         []string `json:"tools,omitempty" doc:"Built-in tools (google_search, url_context, code_execution) and the tools of modules, by module ID (notes, reminders, todou)."`
+	MaxToolRounds int      `json:"max_tool_rounds,omitempty" minimum:"0" doc:"The most rounds of tool calls in one reply; default 8."`
 }
 
 // profile is a validated agent.
@@ -82,10 +54,10 @@ var builtinTools = []string{llm.BuiltinGoogleSearch, llm.BuiltinURLContext, llm.
 // profiles validates the configuration and resolves providers.
 func (c *Config) profiles(providers func(string) (llm.Provider, error)) ([]*profile, error) {
 	if c.Retention == 0 {
-		c.Retention = 30 * 24 * time.Hour
+		c.Retention = otogi.Duration(30 * 24 * time.Hour)
 	}
 	if c.Timeout == 0 {
-		c.Timeout = 5 * time.Minute
+		c.Timeout = otogi.Duration(5 * time.Minute)
 	}
 	var errs []error
 	if c.Retention < 0 || c.Timeout < 0 {
@@ -135,15 +107,6 @@ func (c *Config) profiles(providers func(string) (llm.Provider, error)) ([]*prof
 		}
 		if pc.Temperature != nil && (*pc.Temperature < 0 || *pc.Temperature > 2) {
 			errs = append(errs, fmt.Errorf("%s.temperature %v: want 0 to 2", field, *pc.Temperature))
-		}
-		if pc.SystemFile != "" {
-			if pc.System != "" {
-				errs = append(errs, fmt.Errorf("%s: system and system_file are both set; use one", field))
-			} else if card, err := os.ReadFile(pc.SystemFile); err != nil {
-				errs = append(errs, fmt.Errorf("%s.system_file: %w", field, err))
-			} else {
-				p.System = strings.TrimSpace(string(card))
-			}
 		}
 		if !slices.Contains([]string{"", "minimal", "low", "medium", "high"}, pc.Thinking) {
 			errs = append(errs, fmt.Errorf("%s.thinking %q: want minimal, low, medium, or high", field, pc.Thinking))

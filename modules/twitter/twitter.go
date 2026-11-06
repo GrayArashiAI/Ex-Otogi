@@ -17,16 +17,11 @@ import (
 	"github.com/TundraWork/Ex-Otogi/pkg/otogi"
 )
 
-// Config is the module's section of otogi.yaml.
+// Config is the module's settings.
 type Config struct {
-	// Chrome is the chrome-headless-shell binary that draws the cards.
-	Chrome string `yaml:"chrome"`
-	// Timezone is where the cards' times are read, an IANA name such as
-	// "Asia/Shanghai"; default the process's local time zone.
-	Timezone string `yaml:"timezone"`
-	// Translate, when set, follows the card of a post not in Chinese with a
-	// second card, the post translated by a language model.
-	Translate *Translate `yaml:"translate"`
+	Chrome    string     `json:"chrome" minLength:"1" doc:"The path of the chrome-headless-shell binary that draws the cards."`
+	Timezone  string     `json:"timezone,omitempty" doc:"Where the cards' times are read, an IANA time zone such as Asia/Shanghai; default the server's."`
+	Translate *Translate `json:"translate,omitempty" doc:"When set, the card of a post not in Chinese is followed by a second card, the post translated by a language model."`
 }
 
 // Module is the twitter module.

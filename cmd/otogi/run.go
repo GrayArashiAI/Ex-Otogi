@@ -67,19 +67,6 @@ func run(ctx context.Context, cfg Config, log *slog.Logger) (failure error) {
 	if err != nil {
 		return err
 	}
-	// Module factories get views of the runtime built below; status is only
-	// called once the process runs.
-	var status func(context.Context) utility.Status
-	var modules []otogi.Module
-	modules, err = buildModules(cfg.Modules, moduleEnv{
-		operators: cfg.Operators,
-		llm:       providerLookup(providers),
-		status:    func(ctx context.Context) utility.Status { return status(ctx) },
-		commands:  func() []utility.CommandInfo { return commandsOf(modules) },
-	})
-	if err != nil {
-		return err
-	}
 	storage, err := modulestore.Open(ctx, cfg.DataDir)
 	if err != nil {
 		return err
@@ -89,6 +76,20 @@ func run(ctx context.Context, cfg Config, log *slog.Logger) (failure error) {
 			failure = err
 		}
 	}()
+	// Modules get views of the runtime built below; status and commands are
+	// only called once the process runs.
+	var status func(context.Context) utility.Status
+	var k *kernel.Kernel
+	settings := &moduleSettings{store: storage, kinds: moduleKinds, recorder: events, log: log, env: moduleEnv{
+		operators: cfg.Operators,
+		llm:       providerLookup(providers),
+		status:    func(ctx context.Context) utility.Status { return status(ctx) },
+		commands:  func() []utility.CommandInfo { return commandsOf(k.Descriptors()) },
+	}}
+	modules, err := settings.enabled(ctx)
+	if err != nil {
+		return err
+	}
 	routes := router{}
 	kernelConfig := cfg.Kernel.kernel()
 	kernelConfig.Recorder, kernelConfig.Storage = events, storage
@@ -96,10 +97,11 @@ func run(ctx context.Context, cfg Config, log *slog.Logger) (failure error) {
 	if len(cfg.Commands.Prefixes) > 0 {
 		middleware = append(middleware, kernel.CommandParser(cfg.Commands.Prefixes))
 	}
-	k, err := kernel.New(kernelConfig, modules, middleware, routes, log)
+	k, err = kernel.New(kernelConfig, modules, middleware, routes, log)
 	if err != nil {
 		return err
 	}
+	settings.kernel = k
 	var drivers []driver
 	var statuses []func(context.Context) any
 	var telegramDrivers []*telegram.Driver

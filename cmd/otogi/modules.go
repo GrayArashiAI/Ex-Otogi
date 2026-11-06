@@ -1,11 +1,15 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
-	"slices"
+	"reflect"
+	"strings"
 
-	"go.yaml.in/yaml/v3"
+	"github.com/danielgtaylor/huma/v2"
 
 	"github.com/TundraWork/Ex-Otogi/modules/bilibili"
 	"github.com/TundraWork/Ex-Otogi/modules/chat"
@@ -19,8 +23,8 @@ import (
 	"github.com/TundraWork/Ex-Otogi/pkg/otogi"
 )
 
-// moduleEnv is what the composition root offers module factories beyond
-// their own config section. Status is only valid once the process runs.
+// moduleEnv is what the composition root offers modules beyond their
+// settings. Status and commands are only valid once the process runs.
 type moduleEnv struct {
 	operators []string
 	llm       func(name string) (llm.Provider, error)
@@ -28,92 +32,129 @@ type moduleEnv struct {
 	commands  func() []utility.CommandInfo
 }
 
-// moduleFactory builds a module from its config section, decoded strictly
-// into the module's own config type with decodeSection.
-type moduleFactory func(config *yaml.Node, env moduleEnv) (otogi.Module, error)
+// moduleKinds lists every module compiled into the binary, by module ID.
+var moduleKinds = map[otogi.ModuleID]moduleKind{
+	"bilibili": kind(func(c bilibili.Config, _ moduleEnv) (otogi.Module, error) { return built(bilibili.New(c)) }),
+	"chat": kind(func(c chat.Config, env moduleEnv) (otogi.Module, error) {
+		return built(chat.New(c, env.llm, env.operators))
+	}),
+	"echo":      kind(func(struct{}, moduleEnv) (otogi.Module, error) { return echo.New(), nil }),
+	"notes":     kind(func(c notes.Config, _ moduleEnv) (otogi.Module, error) { return notes.New(c), nil }),
+	"reminders": kind(func(c reminders.Config, _ moduleEnv) (otogi.Module, error) { return reminders.New(c), nil }),
+	"todou": kind(func(c todou.Config, env moduleEnv) (otogi.Module, error) {
+		return built(todou.New(c, env.operators))
+	}),
+	"twitter": kind(func(c twitter.Config, env moduleEnv) (otogi.Module, error) { return built(twitter.New(c, env.llm)) }),
+	"utility": kind(func(c utility.Config, env moduleEnv) (otogi.Module, error) {
+		return utility.New(c, utility.Deps{Operators: env.operators, Status: env.status, Commands: env.commands}), nil
+	}),
+}
 
-// configured adapts a module constructor taking only its typed config.
-func configured[C any, M otogi.Module](build func(C) M) moduleFactory {
-	return func(config *yaml.Node, _ moduleEnv) (otogi.Module, error) {
+// built keeps a failed constructor's nil module from becoming a non-nil
+// interface.
+func built[M otogi.Module](m M, err error) (otogi.Module, error) {
+	if err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+// moduleKind is a module compiled into the binary: the JSON Schema of its
+// settings, generated from its Config type, and how to build it.
+type moduleKind struct {
+	registry huma.Registry // the schema's $defs
+	schema   *huma.Schema
+	build    func(settings []byte, env moduleEnv) (otogi.Module, error)
+}
+
+func kind[C any](build func(C, moduleEnv) (otogi.Module, error)) moduleKind {
+	r := huma.NewMapRegistry("#/$defs/", huma.DefaultSchemaNamer)
+	r.RegisterTypeAlias(reflect.TypeFor[otogi.Duration](), reflect.TypeFor[durationSchema]())
+	r.RegisterTypeAlias(reflect.TypeFor[otogi.Secret](), reflect.TypeFor[secretSchema]())
+	return moduleKind{registry: r, schema: huma.SchemaFromType(r, reflect.TypeFor[C]()), build: func(settings []byte, env moduleEnv) (otogi.Module, error) {
 		var cfg C
-		if err := decodeSection(config, &cfg); err != nil {
-			return nil, err
+		decoder := json.NewDecoder(bytes.NewReader(settings))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&cfg); err != nil {
+			return nil, fmt.Errorf("decode settings: %w", err)
 		}
-		return build(cfg), nil
-	}
+		return build(cfg, env)
+	}}
 }
 
-// moduleRegistry lists every module compiled into the binary, by the ID used
-// under `modules:` in the config file.
-var moduleRegistry = map[string]moduleFactory{
-	"bilibili": func(config *yaml.Node, _ moduleEnv) (otogi.Module, error) {
-		var cfg bilibili.Config
-		if err := decodeSection(config, &cfg); err != nil {
-			return nil, err
+// instance validates settings against the schema and builds the module from
+// them. It does no I/O: starting the module is the kernel's.
+func (k moduleKind) instance(settings []byte, env moduleEnv) (otogi.Module, error) {
+	var v any
+	if err := json.Unmarshal(settings, &v); err != nil {
+		return nil, fmt.Errorf("settings are not JSON: %w: %w", otogi.ErrInvalid, err)
+	}
+	res := &huma.ValidateResult{}
+	huma.Validate(k.registry, k.schema, huma.NewPathBuffer(nil, 0), huma.ModeWriteToServer, v, res)
+	if len(res.Errors) > 0 {
+		// The values stay out: one may be a secret typed in by mistake, and
+		// the caller has them.
+		for _, err := range res.Errors {
+			if d := (*huma.ErrorDetail)(nil); errors.As(err, &d) {
+				d.Value = nil
+			}
 		}
-		return bilibili.New(cfg)
-	},
-	"chat": func(config *yaml.Node, env moduleEnv) (otogi.Module, error) {
-		var cfg chat.Config
-		if err := decodeSection(config, &cfg); err != nil {
-			return nil, err
-		}
-		return chat.New(cfg, env.llm, env.operators)
-	},
-	"echo":      configured(func(struct{}) *echo.Module { return echo.New() }),
-	"notes":     configured(notes.New),
-	"reminders": configured(reminders.New),
-	"twitter": func(config *yaml.Node, env moduleEnv) (otogi.Module, error) {
-		var cfg twitter.Config
-		if err := decodeSection(config, &cfg); err != nil {
-			return nil, err
-		}
-		return twitter.New(cfg, env.llm)
-	},
-	"todou": func(config *yaml.Node, env moduleEnv) (otogi.Module, error) {
-		var cfg todou.Config
-		if err := decodeSection(config, &cfg); err != nil {
-			return nil, err
-		}
-		return todou.New(cfg, env.operators)
-	},
-	"utility": func(config *yaml.Node, env moduleEnv) (otogi.Module, error) {
-		var cfg utility.Config
-		if err := decodeSection(config, &cfg); err != nil {
-			return nil, err
-		}
-		return utility.New(cfg, utility.Deps{Operators: env.operators, Status: env.status, Commands: env.commands}), nil
-	},
+		return nil, &invalidSettings{details: res.Errors}
+	}
+	return k.build(settings, env)
 }
 
-// buildModules constructs the modules enabled in the config.
-func buildModules(sections map[string]yaml.Node, env moduleEnv) ([]otogi.Module, error) {
-	ids := make([]string, 0, len(sections))
-	for id := range sections {
-		ids = append(ids, id)
+// schemaDocument is the settings' JSON Schema with the types it refers to
+// under $defs, as one document.
+func (k moduleKind) schemaDocument() (map[string]any, error) {
+	data, err := json.Marshal(k.schema)
+	if err != nil {
+		return nil, fmt.Errorf("encode schema: %w", err)
 	}
-	slices.Sort(ids)
-	modules := make([]otogi.Module, 0, len(ids))
-	for _, id := range ids {
-		factory, ok := moduleRegistry[id]
-		if !ok {
-			return nil, fmt.Errorf("modules.%s: unknown module", id)
-		}
-		section := sections[id]
-		module, err := factory(&section, env)
-		if err != nil {
-			return nil, fmt.Errorf("modules.%s: %w", id, err)
-		}
-		modules = append(modules, module)
+	var doc map[string]any
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return nil, fmt.Errorf("decode schema: %w", err)
 	}
-	return modules, nil
+	if defs := k.registry.Map(); len(defs) > 0 {
+		doc["$defs"] = defs
+	}
+	return doc, nil
 }
 
-// commandsOf lists the commands every module declares, for /help.
-func commandsOf(modules []otogi.Module) []utility.CommandInfo {
+// invalidSettings is settings that break their schema, field by field
+// (huma.ErrorDetail).
+type invalidSettings struct{ details []error }
+
+func (e *invalidSettings) Error() string {
+	var msgs []string
+	for _, err := range e.details {
+		if d := (*huma.ErrorDetail)(nil); errors.As(err, &d) {
+			msgs = append(msgs, d.Location+": "+d.Message)
+		}
+	}
+	return "invalid settings: " + strings.Join(msgs, "; ")
+}
+
+func (e *invalidSettings) Unwrap() error { return otogi.ErrInvalid }
+
+// durationSchema describes an otogi.Duration.
+type durationSchema struct{}
+
+func (durationSchema) Schema(huma.Registry) *huma.Schema {
+	return &huma.Schema{Type: huma.TypeString, Format: "duration", Pattern: `^([0-9]+(\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$`, PatternDescription: "a duration such as 90s, 5m, or 720h"}
+}
+
+// secretSchema describes an otogi.Secret.
+type secretSchema struct{}
+
+func (secretSchema) Schema(huma.Registry) *huma.Schema {
+	return &huma.Schema{Type: huma.TypeString, Format: "secret", Pattern: otogi.SecretReference.String(), PatternDescription: "a reference to an environment variable, ${NAME}"}
+}
+
+// commandsOf lists the commands the modules declare, for /help.
+func commandsOf(descriptors []otogi.ModuleDescriptor) []utility.CommandInfo {
 	var out []utility.CommandInfo
-	for _, m := range modules {
-		d := m.Descriptor()
+	for _, d := range descriptors {
 		for _, c := range d.Commands {
 			out = append(out, utility.CommandInfo{Module: d.ID, Spec: c})
 		}
@@ -121,11 +162,4 @@ func commandsOf(modules []otogi.Module) []utility.CommandInfo {
 	return out
 }
 
-// decodeSection strictly decodes a module section; an empty or null section
-// leaves v at its zero value.
-func decodeSection(n *yaml.Node, v any) error {
-	if n.Kind == 0 || n.Tag == "!!null" {
-		return nil
-	}
-	return decodeStrict(n, v)
-}
+var errUnknownModule = errors.New("no such module")

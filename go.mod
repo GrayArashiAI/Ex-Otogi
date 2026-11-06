@@ -3,7 +3,10 @@ module github.com/TundraWork/Ex-Otogi
 go 1.27.0
 
 require (
+	github.com/chromedp/cdproto v0.159.0
+	github.com/chromedp/chromedp v0.23.0
 	github.com/coder/websocket v1.8.15
+	github.com/danielgtaylor/huma/v2 v2.40.0
 	github.com/google/uuid v1.6.0
 	github.com/gotd/td v0.161.0
 	github.com/pressly/goose/v3 v3.29.0
@@ -27,8 +30,6 @@ require (
 	github.com/andybalholm/brotli v1.2.6 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
-	github.com/chromedp/cdproto v0.159.0 // indirect
-	github.com/chromedp/chromedp v0.23.0 // indirect
 	github.com/dlclark/regexp2 v1.12.0 // indirect
 	github.com/dustin/go-humanize v1.1.0 // indirect
 	github.com/fatih/color v1.19.0 // indirect
@@ -49,8 +50,8 @@ require (
 	github.com/gotd/ige v0.3.0 // indirect
 	github.com/gotd/log v0.1.0 // indirect
 	github.com/gotd/neo v0.1.5 // indirect
-	github.com/klauspost/compress v1.20.1 // indirect
-	github.com/mattn/go-colorable v0.1.14 // indirect
+	github.com/klauspost/compress v1.20.3 // indirect
+	github.com/mattn/go-colorable v0.1.16 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/mfridman/interpolate v0.0.2 // indirect
 	github.com/ncruces/go-strftime v1.1.0 // indirect

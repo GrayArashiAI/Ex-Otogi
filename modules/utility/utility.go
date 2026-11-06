@@ -12,7 +12,7 @@ import (
 	"github.com/TundraWork/Ex-Otogi/pkg/otogi"
 )
 
-// Config configures the module.
+// Config is the module's settings: it has none.
 type Config struct{}
 
 // Status is the runtime summary /status shows; the composition root fills it.

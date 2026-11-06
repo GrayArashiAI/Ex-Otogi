@@ -12,12 +12,9 @@ import (
 
 // Translate configures the translated cards.
 type Translate struct {
-	// Provider names a provider configured under llm.
-	Provider string `yaml:"provider"`
-	// Model is the provider's model ID.
-	Model string `yaml:"model"`
-	// Thinking is minimal, low, medium, or high; empty is the model default.
-	Thinking string `yaml:"thinking"`
+	Provider string `json:"provider" minLength:"1" doc:"A language model provider configured under llm in otogi.yaml, such as gemini."`
+	Model    string `json:"model" minLength:"1" doc:"The provider's model ID."`
+	Thinking string `json:"thinking,omitempty" enum:"minimal,low,medium,high" doc:"How much the model thinks before answering; unset is the model's default."`
 }
 
 // translator asks a language model what language a post is in and, unless
