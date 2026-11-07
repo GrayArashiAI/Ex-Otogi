@@ -50,7 +50,7 @@ func (*Module) Descriptor() otogi.ModuleDescriptor {
 		Subscribes: []otogi.EventAction{otogi.ActionMessageCreated},
 		Ordering:   otogi.OrderNone,
 		Timeout:    2 * time.Minute,
-		Allowlists: []otogi.AllowlistSpec{{Name: list, Title: "Booth", Description: "Links to Booth items get a card."}},
+		Allowlists: []otogi.AllowlistSpec{{Name: list, Title: "BOOTH", Description: "Links to BOOTH items get a card."}},
 	}
 }
 

@@ -6,6 +6,7 @@ const tones: Record<Tone, string> = {
   emerald: "from-emerald-50 to-emerald-100/80 border-emerald-200/90 text-emerald-600",
   violet: "from-violet-50 to-violet-100/80 border-violet-200/90 text-violet-600",
   rose: "from-rose-50 to-rose-100/80 border-rose-200/90 text-rose-600",
+  red: "from-red-50 to-red-100/80 border-red-200/90 text-red-500",
   zinc: "from-zinc-50 to-zinc-100/90 border-zinc-300/80 text-zinc-900",
   sky: "from-sky-50 to-sky-100/80 border-sky-200/90 text-sky-600",
   orange: "from-orange-50 to-orange-100/80 border-orange-200/90 text-orange-600",
