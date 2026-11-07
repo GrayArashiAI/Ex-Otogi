@@ -646,3 +646,27 @@ func TestKernelRecordsSlowModule(t *testing.T) {
 		t.Errorf("counts = %+v", c)
 	}
 }
+
+// A delivery shows as running while its module handles it, and not after.
+func TestRunningShowsDeliveriesInProgress(t *testing.T) {
+	entered, release := make(chan struct{}), make(chan struct{})
+	busy := module("busy", func(context.Context, otogi.Event, otogi.Invocation) error {
+		close(entered)
+		<-release
+		return nil
+	})
+	k := start(t, Config{}, []otogi.Module{busy}, nil, nil)
+	e := event("c", "hi")
+	e.ID = "e1"
+	outcome := submit(t, k, e)
+	<-entered
+	running := k.Running()
+	if len(running) != 1 || running[0].Module != "busy" || running[0].Event != "e1" || running[0].Origin != "e1" || running[0].Conversation != "c" || running[0].Started.IsZero() {
+		t.Fatalf("running = %+v", running)
+	}
+	close(release)
+	await(t, outcome)
+	if running := k.Running(); len(running) != 0 {
+		t.Fatalf("running after completion = %+v", running)
+	}
+}

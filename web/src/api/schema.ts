@@ -355,6 +355,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/tasks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Events modules did something about, newest first, each with its records taken together */
+        get: operations["list-tasks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -591,9 +608,6 @@ export interface components {
         "Get-allowlistResponse": {
             chats: components["schemas"]["ListedChat"][];
         };
-        "Get-traceResponse": {
-            records: components["schemas"]["Entry"][];
-        };
         Interactive: {
             action_id?: string;
             label?: string;
@@ -761,6 +775,17 @@ export interface components {
             revision: number;
             settings: unknown;
         };
+        Running: {
+            account?: string;
+            conversation?: string;
+            event?: string;
+            module: string;
+            /** @description The event ID, or the run ID of a job or timer. */
+            origin: string;
+            platform?: string;
+            /** Format: date-time */
+            started: string;
+        };
         SeenChat: {
             account: string;
             conversation: string;
@@ -820,12 +845,61 @@ export interface components {
             kernel: components["schemas"]["KernelStatus"];
             /** @description Whether every driver is ready. */
             ready: boolean;
+            /** @description Deliveries modules are handling now, longest running first. */
+            running: components["schemas"]["Running"][];
             /** Format: date-time */
             started_at: string;
             version: string;
         };
         "Switch-moduleRequest": {
             enabled: boolean;
+        };
+        Task: {
+            account?: string;
+            /** @description The event's action, such as message.created. */
+            action?: string;
+            /** @description Who the event is from, by name. */
+            actor?: string;
+            /** @description The components that did something for it. */
+            components: string[];
+            conversation?: string;
+            /**
+             * Format: int64
+             * @description Pass as before for the tasks older than this one.
+             */
+            cursor: number;
+            /**
+             * Format: date-time
+             * @description When its last record was written.
+             */
+            ended: string;
+            event: string;
+            /**
+             * @description running while a module handles it; otherwise the worst outcome among its records.
+             * @enum {string}
+             */
+            outcome: "running" | "error" | "slow" | "degraded" | "ok";
+            platform?: string;
+            /** Format: int64 */
+            records: number;
+            /** @description Its deliveries running now. */
+            running: components["schemas"]["Running"][];
+            /**
+             * Format: date-time
+             * @description When the work of its first record began.
+             */
+            started: string;
+            /** @description The event's message as plain text. */
+            text?: string;
+        };
+        TaskPage: {
+            more: boolean;
+            tasks: components["schemas"]["Task"][];
+        };
+        Trace: {
+            records: components["schemas"]["Entry"][];
+            /** @description Its deliveries running now; the event is finished when there are none. */
+            running: components["schemas"]["Running"][];
         };
     };
     responses: never;
@@ -1198,7 +1272,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Get-traceResponse"];
+                    "application/json": components["schemas"]["Trace"];
                 };
             };
             /** @description Error */
@@ -1603,6 +1677,45 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Status"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "list-tasks": {
+        parameters: {
+            query?: {
+                platform?: string;
+                conversation?: string;
+                /** @description running, or the worst outcome among a task's records. */
+                outcome?: "running" | "error" | "slow" | "degraded" | "ok";
+                /** @description Text in the payload of any of a task's records. */
+                q?: string;
+                /** @description A task's cursor, for the tasks older than it. */
+                before?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskPage"];
                 };
             };
             /** @description Error */

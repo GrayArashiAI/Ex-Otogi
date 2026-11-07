@@ -575,6 +575,7 @@ type Status struct {
 	Drivers   []DriverStatus `json:"drivers" nullable:"false"`
 	Kernel    KernelStatus   `json:"kernel"`
 	EventLog  EventLogStatus `json:"event_log"`
+	Running   []Running      `json:"running" nullable:"false" doc:"Deliveries modules are handling now, longest running first."`
 }
 
 // DriverStatus is one platform account's driver.

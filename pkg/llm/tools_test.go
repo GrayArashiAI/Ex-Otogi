@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/TundraWork/Ex-Otogi/pkg/otogi"
 )
@@ -119,9 +120,37 @@ func TestRunLimitsRounds(t *testing.T) {
 	if !errors.Is(err, otogi.ErrUnavailable) || runs != 2 || len(p.requests) != 4 {
 		t.Fatalf("err %v, runs %d, requests %d", err, runs, len(p.requests))
 	}
-	if last := out.Turns[len(out.Turns)-2]; !strings.Contains(last.Results[0].Error, "too many") {
+	if last := out.Turns[len(out.Turns)-2]; !strings.Contains(last.Results[0].Error, "too many") || out.WrappedUp != WrapUpRounds {
 		t.Fatalf("over-limit calls answered %+v", last.Results)
 	}
+}
+
+// A reply near its deadline gets no more calls: the model answers with
+// what it has while there is time.
+func TestRunWrapsUpBeforeTheDeadline(t *testing.T) {
+	t.Parallel()
+	runs := 0
+	counting := toolFunc(func(json.RawMessage) (any, error) { runs++; return "ok", nil })
+	p := &script{responses: []Response{say("", Call{ID: "c", Name: "add"}), say("Here is what I found.")}}
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	slow := providerFunc(func(ctx context.Context, req Request, partial func(otogi.Message) error) (Response, error) {
+		time.Sleep(30 * time.Millisecond)
+		return p.Generate(ctx, req, partial)
+	})
+	out, err := Run(ctx, slow, Request{}, map[string]Tool{"add": counting}, otogi.Event{}, 8, nil, nil)
+	if err != nil || runs != 0 || out.WrappedUp != WrapUpTime || out.Reply.PlainText() != "Here is what I found." {
+		t.Fatalf("err %v, runs %d, wrapped up %q, reply %q", err, runs, out.WrappedUp, out.Reply.PlainText())
+	}
+	if res := out.Turns[1].Results[0]; !strings.Contains(res.Error, "no time") {
+		t.Fatalf("call answered %+v", res)
+	}
+}
+
+type providerFunc func(context.Context, Request, func(otogi.Message) error) (Response, error)
+
+func (f providerFunc) Generate(ctx context.Context, req Request, partial func(otogi.Message) error) (Response, error) {
+	return f(ctx, req, partial)
 }
 
 func TestRunStopsWhenPartialFails(t *testing.T) {

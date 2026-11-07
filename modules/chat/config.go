@@ -16,7 +16,7 @@ import (
 // Config is the module's settings.
 type Config struct {
 	Retention otogi.Duration  `json:"retention,omitempty" doc:"How long threads and the chat transcript are kept; default 720h (30 days)."`
-	Timeout   otogi.Duration  `json:"timeout,omitempty" doc:"The longest one reply may take, tool calls included; default 5m."`
+	Timeout   otogi.Duration  `json:"timeout,omitempty" doc:"The longest one reply may take, tool calls included; default 5m. When less is left than two of its slowest model rounds, the agent stops calling tools and answers with what it has found."`
 	Profiles  []ProfileConfig `json:"profiles" minItems:"1" doc:"The agents. Each answers in the chats on its allowlist."`
 }
 

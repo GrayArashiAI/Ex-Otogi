@@ -621,21 +621,6 @@
         ],
         "type": "object"
       },
-      "Get-traceResponse": {
-        "additionalProperties": false,
-        "properties": {
-          "records": {
-            "items": {
-              "$ref": "#/components/schemas/Entry"
-            },
-            "type": "array"
-          }
-        },
-        "required": [
-          "records"
-        ],
-        "type": "object"
-      },
       "Interactive": {
         "additionalProperties": false,
         "properties": {
@@ -1239,6 +1224,40 @@
         ],
         "type": "object"
       },
+      "Running": {
+        "additionalProperties": false,
+        "properties": {
+          "account": {
+            "type": "string"
+          },
+          "conversation": {
+            "type": "string"
+          },
+          "event": {
+            "type": "string"
+          },
+          "module": {
+            "type": "string"
+          },
+          "origin": {
+            "description": "The event ID, or the run ID of a job or timer.",
+            "type": "string"
+          },
+          "platform": {
+            "type": "string"
+          },
+          "started": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "module",
+          "origin",
+          "started"
+        ],
+        "type": "object"
+      },
       "SeenChat": {
         "additionalProperties": false,
         "properties": {
@@ -1399,6 +1418,13 @@
             "description": "Whether every driver is ready.",
             "type": "boolean"
           },
+          "running": {
+            "description": "Deliveries modules are handling now, longest running first.",
+            "items": {
+              "$ref": "#/components/schemas/Running"
+            },
+            "type": "array"
+          },
           "started_at": {
             "format": "date-time",
             "type": "string"
@@ -1413,7 +1439,8 @@
           "ready",
           "drivers",
           "kernel",
-          "event_log"
+          "event_log",
+          "running"
         ],
         "type": "object"
       },
@@ -1426,6 +1453,132 @@
         },
         "required": [
           "enabled"
+        ],
+        "type": "object"
+      },
+      "Task": {
+        "additionalProperties": false,
+        "properties": {
+          "account": {
+            "type": "string"
+          },
+          "action": {
+            "description": "The event's action, such as message.created.",
+            "type": "string"
+          },
+          "actor": {
+            "description": "Who the event is from, by name.",
+            "type": "string"
+          },
+          "components": {
+            "description": "The components that did something for it.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "conversation": {
+            "type": "string"
+          },
+          "cursor": {
+            "description": "Pass as before for the tasks older than this one.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "ended": {
+            "description": "When its last record was written.",
+            "format": "date-time",
+            "type": "string"
+          },
+          "event": {
+            "type": "string"
+          },
+          "outcome": {
+            "description": "running while a module handles it; otherwise the worst outcome among its records.",
+            "enum": [
+              "running",
+              "error",
+              "slow",
+              "degraded",
+              "ok"
+            ],
+            "type": "string"
+          },
+          "platform": {
+            "type": "string"
+          },
+          "records": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "running": {
+            "description": "Its deliveries running now.",
+            "items": {
+              "$ref": "#/components/schemas/Running"
+            },
+            "type": "array"
+          },
+          "started": {
+            "description": "When the work of its first record began.",
+            "format": "date-time",
+            "type": "string"
+          },
+          "text": {
+            "description": "The event's message as plain text.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "event",
+          "started",
+          "ended",
+          "records",
+          "outcome",
+          "components",
+          "running",
+          "cursor"
+        ],
+        "type": "object"
+      },
+      "TaskPage": {
+        "additionalProperties": false,
+        "properties": {
+          "more": {
+            "type": "boolean"
+          },
+          "tasks": {
+            "items": {
+              "$ref": "#/components/schemas/Task"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "tasks",
+          "more"
+        ],
+        "type": "object"
+      },
+      "Trace": {
+        "additionalProperties": false,
+        "properties": {
+          "records": {
+            "items": {
+              "$ref": "#/components/schemas/Entry"
+            },
+            "type": "array"
+          },
+          "running": {
+            "description": "Its deliveries running now; the event is finished when there are none.",
+            "items": {
+              "$ref": "#/components/schemas/Running"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "records",
+          "running"
         ],
         "type": "object"
       }
@@ -2082,7 +2235,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Get-traceResponse"
+                  "$ref": "#/components/schemas/Trace"
                 }
               }
             },
@@ -2715,6 +2868,106 @@
         "summary": "The process's health",
         "tags": [
           "Status"
+        ]
+      }
+    },
+    "/api/tasks": {
+      "get": {
+        "operationId": "list-tasks",
+        "parameters": [
+          {
+            "explode": false,
+            "in": "query",
+            "name": "platform",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "conversation",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "running, or the worst outcome among a task's records.",
+            "explode": false,
+            "in": "query",
+            "name": "outcome",
+            "schema": {
+              "description": "running, or the worst outcome among a task's records.",
+              "enum": [
+                "running",
+                "error",
+                "slow",
+                "degraded",
+                "ok"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Text in the payload of any of a task's records.",
+            "explode": false,
+            "in": "query",
+            "name": "q",
+            "schema": {
+              "description": "Text in the payload of any of a task's records.",
+              "type": "string"
+            }
+          },
+          {
+            "description": "A task's cursor, for the tasks older than it.",
+            "explode": false,
+            "in": "query",
+            "name": "before",
+            "schema": {
+              "description": "A task's cursor, for the tasks older than it.",
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 50,
+              "format": "int64",
+              "maximum": 500,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskPage"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Events modules did something about, newest first, each with its records taken together",
+        "tags": [
+          "Event log"
         ]
       }
     }

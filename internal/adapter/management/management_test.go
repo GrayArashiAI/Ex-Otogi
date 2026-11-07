@@ -118,7 +118,10 @@ func TestHandler(t *testing.T) {
 	ready := false
 	handler, err := newHandler(ServerConfig{
 		Events: l, Token: "secret",
-		Status:   func(context.Context) Status { return Status{Version: "test"} },
+		Status: func(context.Context) Status { return Status{Version: "test"} },
+		Running: func() []Running {
+			return []Running{{Module: "chat", Origin: "ea", Event: "ea", Started: time.Unix(1000, 0)}}
+		},
 		Ready:    func() bool { return ready },
 		Shutdown: func() { shutdown <- struct{}{} },
 	})
@@ -143,12 +146,15 @@ func TestHandler(t *testing.T) {
 		{"GET", "/readyz", "", 503, "not ready"},
 		{"GET", "/api/status", "", 401, "send the management token"},
 		{"GET", "/api/status", "wrong", 401, "send the management token"},
-		{"GET", "/api/status", "secret", 200, `"version":"test"`},
+		{"GET", "/api/status", "secret", 200, `"running":[{"module":"chat"`},
 		{"GET", "/api/events?kind=k0&limit=1", "secret", 200, `"more":true`},
 		{"GET", "/api/events?before=x", "secret", 422, `"location":"query.before"`},
 		{"GET", "/api/events?before=2&after=1", "secret", 400, "exclusive"},
 		{"GET", "/api/events?since=yesterday", "secret", 422, `"location":"query.since"`},
-		{"GET", "/api/events/ea/trace", "secret", 200, `"kind":"k0"`},
+		{"GET", "/api/events/ea/trace", "secret", 200, `"running":[{"module":"chat"`},
+		{"GET", "/api/events/eb/trace", "secret", 200, `"running":[]`},
+		{"GET", "/api/tasks?outcome=running", "secret", 200, `"outcome":"running"`},
+		{"GET", "/api/tasks?outcome=stuck", "secret", 422, `"location":"query.outcome"`},
 		{"POST", "/api/shutdown", "secret", 202, ""},
 	}
 	for _, test := range tests {

@@ -7,10 +7,11 @@ import type { Schemas } from "@/api/client";
 import { outcomeTone, StatusDot } from "@/components/status-dot";
 import { Tile } from "@/components/tile";
 import { moduleMeta, platformMeta } from "@/lib/meta";
-import { ago } from "@/lib/time";
+import { ago, took, useNow } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import { failuresQuery } from "@/queries/events";
 import { modulesQuery } from "@/queries/modules";
+import { useChatNames } from "@/queries/names";
 import { statusQuery } from "@/queries/status";
 
 export const Route = createFileRoute("/_app/status")({
@@ -53,6 +54,7 @@ function StatusPage() {
           <Modules />
         </div>
         <div className="flex flex-col gap-4">
+          <Working running={status.running} />
           <Failures />
           <Card title="Runtime">
             <Fact icon={<Tile tone="slate" icon={Activity} size="sm" />} label="Kernel" value={status.kernel.state}>
@@ -186,6 +188,38 @@ function Modules() {
   );
 }
 
+/** Working lists what modules are handling now, each running for a time
+ * that ticks, and opens its task. */
+function Working({ running }: { running: Schemas["Running"][] }) {
+  const now = useNow(running.length > 0);
+  const chatName = useChatNames();
+  return (
+    <Card title="Working now" note={running.length ? `${running.length} running` : undefined}>
+      {running.map((r) => (
+        <li key={`${r.module}/${r.origin}`}>
+          <Link
+            to="/events"
+            search={r.event ? { view: "tasks", event: r.event } : { view: "records", q: r.origin }}
+            className="flex items-center gap-2.5 py-2.5 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <StatusDot tone="running" />
+            <span className="min-w-0 flex-1">
+              <span className="block truncate font-mono text-xs">{r.module}</span>
+              <span className="block truncate text-muted-foreground text-xs">
+                {r.event ? chatName(r.platform, r.conversation) : "A job or timer"}
+              </span>
+            </span>
+            <span className="font-medium text-sky-700 text-xs tabular">
+              {took(now - new Date(r.started).getTime())}
+            </span>
+          </Link>
+        </li>
+      ))}
+      {running.length === 0 && <Empty>No module is handling anything right now.</Empty>}
+    </Card>
+  );
+}
+
 function Failures() {
   const { data } = useQuery(failuresQuery);
   const records = data?.records ?? [];
@@ -195,7 +229,7 @@ function Failures() {
         <li key={r.id}>
           <Link
             to="/events"
-            search={{ record: r.id }}
+            search={{ view: "records", record: r.id }}
             className="flex items-center gap-2.5 py-2.5 outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <StatusDot tone={outcomeTone(r.outcome)} />

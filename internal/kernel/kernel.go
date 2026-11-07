@@ -115,6 +115,9 @@ type Kernel struct {
 
 	listsMu sync.RWMutex
 	lists   map[allowKey]AllowedChat
+
+	runningMu sync.Mutex
+	running   map[*delivery]time.Time // deliveries being handled -> started
 }
 
 // New validates the module set and returns a kernel that is not yet started.
@@ -132,6 +135,7 @@ func New(cfg Config, modules []otogi.Module, middleware []otogi.Middleware, effe
 		middleware: slices.Clone(middleware),
 		slots:      make(chan struct{}, cfg.MaxInFlight),
 		timers:     map[string]bool{},
+		running:    map[*delivery]time.Time{},
 		lists:      map[allowKey]AllowedChat{},
 	}
 	k.sched.init(&k.mu)
@@ -390,7 +394,13 @@ func eventDelivery(t *tracked, entry *moduleEntry) *delivery {
 // run executes one delivery on a worker goroutine.
 func (k *Kernel) run(d *delivery) {
 	started := time.Now()
+	k.runningMu.Lock()
+	k.running[d] = started
+	k.runningMu.Unlock()
 	err := k.invoke(d)
+	k.runningMu.Lock()
+	delete(k.running, d)
+	k.runningMu.Unlock()
 	outcome := otogi.ModuleOutcome{Module: d.module.descriptor.ID, Err: err, Duration: time.Since(started)}
 	component := "module:" + string(outcome.Module)
 	var panicked *panicError
@@ -493,6 +503,35 @@ func (k *Kernel) Stats() Stats {
 		State:    [...]string{stateNew: "new", stateReady: "ready", stateDraining: "draining", stateStopped: "stopped"}[state],
 		InFlight: len(k.slots), MaxInFlight: k.cfg.MaxInFlight, Workers: k.cfg.Workers, Modules: modules,
 	}
+}
+
+// Running is a delivery a module is handling now.
+type Running struct {
+	Module otogi.ModuleID
+	// Origin is the event ID, or the run ID of a job or timer.
+	Origin string
+	// Event is the event handled; zero for jobs and timers.
+	Event        otogi.EventID
+	Platform     otogi.PlatformID
+	Account      otogi.AccountID
+	Conversation otogi.ConversationID
+	Started      time.Time
+}
+
+// Running returns the deliveries modules are handling now, longest running
+// first.
+func (k *Kernel) Running() []Running {
+	k.runningMu.Lock()
+	defer k.runningMu.Unlock()
+	out := make([]Running, 0, len(k.running))
+	for d, started := range k.running {
+		out = append(out, Running{
+			Module: d.module.descriptor.ID, Origin: d.originID, Event: d.scope.ID,
+			Platform: d.scope.Platform, Account: d.scope.Account, Conversation: d.scope.Conversation.ID, Started: started,
+		})
+	}
+	slices.SortFunc(out, func(a, b Running) int { return a.Started.Compare(b.Started) })
+	return out
 }
 
 // recipients returns the modules an event goes to. A command declared by a

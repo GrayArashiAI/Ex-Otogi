@@ -29,6 +29,9 @@ type ServerConfig struct {
 	Events *EventLog
 	// Status returns the process's health for GET /api/status.
 	Status func(ctx context.Context) Status
+	// Running returns the deliveries modules are handling now, longest
+	// running first.
+	Running func() []Running
 	// Ready reports whether the process should receive work (GET /readyz).
 	Ready func() bool
 	// Shutdown starts a graceful shutdown (POST /api/shutdown).
@@ -139,6 +142,28 @@ func newHandler(cfg ServerConfig) (http.Handler, error) {
 	return mux, nil
 }
 
+// trace is every record of one event, and its deliveries running now.
+type trace struct {
+	Records []Entry   `json:"records" nullable:"false"`
+	Running []Running `json:"running" nullable:"false" doc:"Its deliveries running now; the event is finished when there are none."`
+}
+
+type tasksInput struct {
+	Platform     string `query:"platform"`
+	Conversation string `query:"conversation"`
+	Outcome      string `query:"outcome" enum:"running,error,slow,degraded,ok" doc:"running, or the worst outcome among a task's records."`
+	Text         string `query:"q" doc:"Text in the payload of any of a task's records."`
+	Before       int64  `query:"before" minimum:"1" doc:"A task's cursor, for the tasks older than it."`
+	Limit        int    `query:"limit" minimum:"1" maximum:"500" default:"50"`
+}
+
+func running(cfg ServerConfig) []Running {
+	if cfg.Running == nil {
+		return []Running{}
+	}
+	return cfg.Running()
+}
+
 // OpenAPI returns the API's OpenAPI document with every route, for clients
 // to generate their types from.
 func OpenAPI() ([]byte, error) {
@@ -160,7 +185,9 @@ func newAPI(cfg ServerConfig, signIn *signIn, every bool) (*http.ServeMux, huma.
 	api := humago.New(apiMux, config)
 	huma.Register(api, huma.Operation{OperationID: "get-status", Method: http.MethodGet, Path: "/api/status", Summary: "The process's health", Tags: []string{"Status"}},
 		func(ctx context.Context, _ *struct{}) (*struct{ Body Status }, error) {
-			return &struct{ Body Status }{cfg.Status(ctx)}, nil
+			s := cfg.Status(ctx)
+			s.Running = running(cfg)
+			return &struct{ Body Status }{s}, nil
 		})
 	huma.Register(api, huma.Operation{OperationID: "list-events", Method: http.MethodGet, Path: "/api/events", Summary: "Event log records, newest first", Tags: []string{"Event log"}},
 		func(ctx context.Context, in *eventsInput) (*struct{ Body Page }, error) {
@@ -181,22 +208,30 @@ func newAPI(cfg ServerConfig, signIn *signIn, every bool) (*http.ServeMux, huma.
 			ID string `path:"id" doc:"The event ID."`
 		},
 		) (*struct {
-			Body struct {
-				Records []Entry `json:"records" nullable:"false"`
-			}
+			Body trace
 		}, error,
 		) {
 			entries, err := cfg.Events.Trace(ctx, in.ID)
 			if err != nil {
 				return nil, problem(err)
 			}
-			out := &struct {
-				Body struct {
-					Records []Entry `json:"records" nullable:"false"`
+			out := &struct{ Body trace }{trace{Records: entries, Running: []Running{}}}
+			for _, r := range running(cfg) {
+				if r.Event == in.ID {
+					out.Body.Running = append(out.Body.Running, r)
 				}
-			}{}
-			out.Body.Records = entries
+			}
 			return out, nil
+		})
+	huma.Register(api, huma.Operation{OperationID: "list-tasks", Method: http.MethodGet, Path: "/api/tasks", Summary: "Events modules did something about, newest first, each with its records taken together", Tags: []string{"Event log"}},
+		func(ctx context.Context, in *tasksInput) (*struct{ Body TaskPage }, error) {
+			page, err := cfg.Events.Tasks(ctx, TaskQuery{
+				Platform: in.Platform, Conversation: in.Conversation, Outcome: in.Outcome, Text: in.Text, Before: in.Before, Limit: in.Limit,
+			}, running(cfg))
+			if err != nil {
+				return nil, problem(err)
+			}
+			return &struct{ Body TaskPage }{page}, nil
 		})
 	huma.Register(api, huma.Operation{OperationID: "shutdown", Method: http.MethodPost, Path: "/api/shutdown", Summary: "Shut the process down gracefully", DefaultStatus: http.StatusAccepted, Tags: []string{"Status"}},
 		func(context.Context, *struct{}) (*struct{}, error) {

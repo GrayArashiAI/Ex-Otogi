@@ -5,7 +5,7 @@ The control panel is the bot's own web app: Status, Modules, Chats, and the Even
 ## Set it up
 
 1. Build the panel into the binary: `make web` before `go build` (`make deploy` does both). A binary built without it answers the panel's pages with 503.
-2. Set where it is reached, the origin passkeys are bound to:
+2. Set where it is reached, the origin the identity provider sends browsers back to:
 
    ```yaml
    management:
@@ -66,6 +66,12 @@ Modules come with no settings. In Modules, pick one, fill in its Configuration (
 A secret, such as a todou token, goes in the environment (`otogi.env`); the setting holds the reference, `${OTOGI_TODOU_TOKEN}`.
 
 Where a module answers: Add chats on its page, picking from the chats the bot has seen, or the module switches on a chat's page in Chats.
+
+## Follow what the bot does
+
+- Status, Working now: what modules are handling at this moment, and for how long.
+- Event log, Tasks: one row for each event a module did something about, newest first; a running one has a pulsing dot and a ticking time. Open it for its message and its trace: every record of it in order, with the step still running at the end. While it runs, the trace follows it, and says how long ago the last record came: a model round in a chat reply often takes 10 to 45 seconds.
+- Event log, Records: every record as written, for what is not a task (driver states, process events, watcher problems). A record's Event opens its task.
 
 ## From a script
 

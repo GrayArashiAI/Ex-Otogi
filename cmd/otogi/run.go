@@ -174,6 +174,16 @@ func run(ctx context.Context, cfg Config, log *slog.Logger) (failure error) {
 			Addr: addr, Token: cfg.Management.Token, Events: events, Logger: log,
 			Shutdown: requestShutdown, Modules: moduleAPI{settings}, Media: routes.FetchMedia, Version: version(),
 			Ready: func() bool { return allReady(drivers) },
+			Running: func() []management.Running {
+				out := []management.Running{}
+				for _, r := range k.Running() {
+					out = append(out, management.Running{
+						Module: string(r.Module), Origin: r.Origin, Event: string(r.Event),
+						Platform: string(r.Platform), Account: string(r.Account), Conversation: string(r.Conversation), Started: r.Started,
+					})
+				}
+				return out
+			},
 			Status: func(ctx context.Context) management.Status {
 				stats := k.Stats()
 				s := management.Status{
