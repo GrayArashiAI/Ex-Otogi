@@ -47,7 +47,11 @@ var passiveRefused = []int{40034005, 304103, 40034024, 40034025, 40034026, 40034
 // QQ codes for a refusal that retrying does not change: no permission to
 // send proactively, the user rejects the bot, the bot is muted or not in
 // the group, or the message is not allowed.
-var refused = []int{40034100, 40034102, 40034105, 40034122, 40054013, 40054002, 40054003, 40034101, 40034006, 40054010, 40064004, 304023, 304024}
+var refused = []int{40034100, 40034102, 40034105, 40034122, 40054013, 40054002, 40054003, 40034101, 40054010, 40064004, 304023, 304024}
+
+// codeContentRefused is QQ's moderation refusing a message for what it
+// shows or says (消息内容违规).
+const codeContentRefused = 40034006
 
 // QQ codes for a failure QQ asks to retry.
 var transient = []int{11242, 11252, 11263, 11281, 50055001, 50055002, 40034004}
@@ -230,11 +234,14 @@ func (x *effects) retry(ctx context.Context, call func(context.Context) error) e
 	})
 }
 
-// classify wraps QQ's refusals in otogi.ErrUnavailable, keeping QQ's code
-// and message.
+// classify wraps QQ's refusals in otogi.ErrUnavailable, and its
+// moderation's in otogi.ErrRefused, keeping QQ's code and message.
 func classify(err error) error {
 	var e *apiError
-	if errors.As(err, &e) && (slices.Contains(refused, e.Code) || slices.Contains(passiveRefused, e.Code)) {
+	switch {
+	case errors.As(err, &e) && e.Code == codeContentRefused:
+		return fmt.Errorf("%w: %w", err, otogi.ErrRefused)
+	case errors.As(err, &e) && (slices.Contains(refused, e.Code) || slices.Contains(passiveRefused, e.Code)):
 		return fmt.Errorf("%w: %w", err, otogi.ErrUnavailable)
 	}
 	return err

@@ -101,11 +101,35 @@ func (m *Module) answer(ctx context.Context, e otogi.Event, inv otogi.Invocation
 		m.host.Logger().Warn("booth: picture not downloaded", "item", id, "error", err)
 		payload["picture_error"] = err.Error()
 	}
-	png, err := m.render(ctx, newCard(it, picture, icon))
+	c := newCard(it, picture, icon)
+	msg := m.message(ctx, e, it, c, picture, payload)
 	payload["rendered"] = m.now().Sub(fetched).String()
+	_, err = inv.Send(ctx, "card:"+id, msg)
+	if errors.Is(err, otogi.ErrRefused) && payload["render_error"] == nil && c.Picture != "" {
+		// The platform refused what the picture shows: it goes out covered.
+		m.host.Logger().Warn("booth: card refused; sending it with its picture covered", "item", id, "error", err)
+		payload["refused"] = err.Error()
+		c.Cover = cardimage.Cover()
+		_, err = inv.Send(ctx, "card:"+id+":covered", m.message(ctx, e, it, c, picture, payload))
+	}
+	if err != nil {
+		return err
+	}
+	outcome := "ok"
+	if payload["render_error"] != nil || payload["refused"] != nil {
+		outcome = "degraded"
+	}
+	m.host.Record(ctx, otogi.Record{Kind: "booth.card", Outcome: outcome, Duration: m.now().Sub(started), Payload: payload})
+	return nil
+}
+
+// message is the card drawn as a reply to e, or the item in words when it
+// cannot be drawn, which payload notes.
+func (m *Module) message(ctx context.Context, e otogi.Event, it item, c card, picture image, payload map[string]any) otogi.Message {
+	png, err := m.render(ctx, c)
 	var msg otogi.Message
 	if err != nil {
-		m.host.Logger().Warn("booth: card not rendered; sending text", "item", id, "error", err)
+		m.host.Logger().Warn("booth: card not rendered; sending text", "item", it.ID, "error", err)
 		payload["render_error"] = err.Error()
 		msg = textCard(it, picture)
 	} else {
@@ -113,15 +137,7 @@ func (m *Module) answer(ctx context.Context, e otogi.Event, inv otogi.Invocation
 		msg = imageMessage(png, "image/png")
 	}
 	msg.Relations = []otogi.Relation{{Kind: otogi.RelationReply, Target: e.Ref()}}
-	if _, err := inv.Send(ctx, "card:"+id, msg); err != nil {
-		return err
-	}
-	outcome := "ok"
-	if payload["render_error"] != nil {
-		outcome = "degraded"
-	}
-	m.host.Record(ctx, otogi.Record{Kind: "booth.card", Outcome: outcome, Duration: m.now().Sub(started), Payload: payload})
-	return nil
+	return msg
 }
 
 func imageMessage(data []byte, mime string) otogi.Message {

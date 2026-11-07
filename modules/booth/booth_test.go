@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -104,12 +105,17 @@ func (h *host) Allowed(l, chat string) bool              { return l == list && c
 
 type invocation struct {
 	otogi.Invocation
-	sent []otogi.Message
-	keys []string
+	sent    []otogi.Message
+	keys    []string
+	refused map[string]bool // slots the platform refuses for their content
 }
 
 func (i *invocation) Send(_ context.Context, slot string, msg otogi.Message) (otogi.EventRef, error) {
-	i.sent, i.keys = append(i.sent, msg), append(i.keys, slot)
+	i.keys = append(i.keys, slot)
+	if i.refused[slot] {
+		return otogi.EventRef{}, fmt.Errorf("qq POST /v2/groups/G1/messages: HTTP 400, code 40034006: 消息内容违规: %w", otogi.ErrRefused)
+	}
+	i.sent = append(i.sent, msg)
 	return otogi.EventRef{}, nil
 }
 
@@ -209,6 +215,30 @@ func TestCardInWordsWhenRenderingFails(t *testing.T) {
 	}
 	if msg := inv.sent[0]; len(msg.Parts) != 1 || !strings.HasSuffix(msg.PlainText(), " · R-18") {
 		t.Fatalf("adult fallback %q %+v", msg.PlainText(), msg.Parts)
+	}
+}
+
+// A card the platform refuses for what it shows goes out again with its
+// picture covered.
+func TestRefusedCardGoesOutCovered(t *testing.T) {
+	t.Parallel()
+	var drawn []card
+	m, _, h := newTestModule(t, func(_ context.Context, c card) ([]byte, error) {
+		drawn = append(drawn, c)
+		return []byte("PNG"), nil
+	})
+	inv := &invocation{refused: map[string]bool{"card:9111596": true}}
+	if err := m.Handle(context.Background(), message("group:G1", "booth.pm/ja/items/9111596"), inv); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(inv.keys, []string{"card:9111596", "card:9111596:covered"}) || len(inv.sent) != 1 {
+		t.Fatalf("sends %v, %d delivered", inv.keys, len(inv.sent))
+	}
+	if drawn[0].Cover != "" || drawn[1].Cover == "" || drawn[1].Picture == "" {
+		t.Fatalf("covers %q then %q", drawn[0].Cover, drawn[1].Cover)
+	}
+	if r := h.records[len(h.records)-1]; r.Outcome != "degraded" || r.Payload.(map[string]any)["refused"] == nil {
+		t.Fatalf("record %+v", r)
 	}
 }
 

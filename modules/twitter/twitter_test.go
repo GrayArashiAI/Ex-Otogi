@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -188,12 +189,17 @@ func (h *host) Allowed(l, chat string) bool              { return l == list && c
 
 type invocation struct {
 	otogi.Invocation
-	sent []otogi.Message
-	keys []string
+	sent    []otogi.Message
+	keys    []string
+	refused map[string]bool // slots the platform refuses for their content
 }
 
 func (i *invocation) Send(_ context.Context, slot string, msg otogi.Message) (otogi.EventRef, error) {
-	i.sent, i.keys = append(i.sent, msg), append(i.keys, slot)
+	i.keys = append(i.keys, slot)
+	if i.refused[slot] {
+		return otogi.EventRef{}, fmt.Errorf("qq POST /v2/groups/G1/messages: HTTP 400, code 40034006: 消息内容违规: %w", otogi.ErrRefused)
+	}
+	i.sent = append(i.sent, msg)
 	return otogi.EventRef{}, nil
 }
 
@@ -379,5 +385,43 @@ func TestTextCardCarriesTheTranslation(t *testing.T) {
 	msg := textCard(tw, &translatedText{By: "由 Gemini 翻译自英语", Plain: "财报已发布 → https://ir.spacex.com/q3-2026-results"})
 	if got := msg.PlainText(); got != "SpaceX @SpaceX\nEarnings are out → https://ir.spacex.com/q3-2026-results\n\n由 Gemini 翻译自英语：\n财报已发布 → https://ir.spacex.com/q3-2026-results" {
 		t.Fatalf("text card %q", got)
+	}
+}
+
+// A card the platform refuses for what it shows goes out again with its
+// pictures covered; one with no pictures to cover fails as it was.
+func TestRefusedCardGoesOutCovered(t *testing.T) {
+	t.Parallel()
+	m, err := New(Config{Chrome: chrome(t)}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture := "fx-video.json"
+	m.api, _ = newClient(t, func(string) (int, string) { return 200, fixture })
+	var drawn []card
+	m.render = func(_ context.Context, c card) ([]byte, error) { drawn = append(drawn, c); return []byte("PNG"), nil }
+	h := &host{}
+	_ = m.Start(context.Background(), h)
+	e := otogi.Event{Platform: "qq", Conversation: otogi.Conversation{ID: "group:G1"}, SourceID: "m1", Action: otogi.ActionMessageCreated,
+		Message: otogi.TextMessage("x.com/a/status/2118034216503955710")}
+	inv := &invocation{refused: map[string]bool{"card:2118034216503955710": true}}
+	if err := m.Handle(context.Background(), e, inv); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(inv.keys, []string{"card:2118034216503955710", "card:2118034216503955710:covered"}) || len(inv.sent) != 1 {
+		t.Fatalf("sends %v, %d delivered", inv.keys, len(inv.sent))
+	}
+	if drawn[0].Media.Cover != "" || drawn[1].Media.Cover == "" {
+		t.Fatalf("covers %q then %q", drawn[0].Media.Cover, drawn[1].Media.Cover)
+	}
+	if r := h.records[len(h.records)-1]; r.Outcome != "degraded" || !strings.Contains(r.Payload.(map[string]any)["refused"].(string), "40034006") {
+		t.Fatalf("record %+v", r)
+	}
+
+	fixture = "fx-quote.json"
+	inv = &invocation{refused: map[string]bool{"card:2112637394654822514": true}}
+	e.Message = otogi.TextMessage("x.com/SpaceX/status/2112637394654822514")
+	if err := m.Handle(context.Background(), e, inv); !errors.Is(err, otogi.ErrRefused) || len(inv.keys) != 1 {
+		t.Fatalf("a card with nothing to cover: %v, sends %v", err, inv.keys)
 	}
 }

@@ -22,6 +22,7 @@ var cardTemplate = template.Must(template.New("card").Parse(cardHTML))
 type card struct {
 	Title, Shop, Category, Price, Published, Wishes, Desc, ID string
 	Picture, Icon                                             template.URL // data: URIs
+	Cover                                                     template.URL // over the picture, blurred, when the platform refused it
 	Adult, SoldOut, EndOfSale                                 bool
 	Options                                                   []option
 	More                                                      int // options left out

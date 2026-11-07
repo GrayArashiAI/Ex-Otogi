@@ -38,6 +38,9 @@
   .item img { display: block; width: 100%; height: 100%; object-fit: cover; }
   .sensitive .item img { filter: blur(30px) brightness(.85); transform: scale(1.15); }
   .sensitive .play, .sensitive .length, .sensitive .gif { display: none; }
+  .covered .item img { filter: blur(30px) brightness(.9); transform: scale(1.15); }
+  .covered .item img.cover { position: absolute; inset: 0; margin: auto; width: 72%; height: 72%; object-fit: contain; filter: none; transform: none; }
+  .covered .play, .covered .length, .covered .gif, .covered .warning { display: none; }
   .warning { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(15, 20, 25, .62); color: #fff; font-size: 15px; font-weight: 700; text-align: center; }
   .play { position: absolute; left: 50%; top: 50%; width: 52px; height: 52px; margin: -26px 0 0 -26px; border: 3px solid #fff; border-radius: 50%; background: #1d9bf0; }
   .play::after { content: ""; position: absolute; left: 19px; top: 13px; border-style: solid; border-width: 10px 0 10px 16px; border-color: transparent transparent transparent #fff; }
@@ -108,7 +111,7 @@
 </div>
 </body>
 </html>
-{{define "media"}}{{if .Items}}<div class="media n{{len .Items}}{{if .Sensitive}} sensitive{{end}}"{{if eq (len .Items) 1}} style="aspect-ratio: {{.Ratio}}"{{end}}>
-  {{range .Items}}<div class="item"><img src="{{.Image}}" alt="">{{if .Video}}<div class="play"></div>{{if .Length}}<span class="length">{{.Length}}</span>{{end}}{{end}}{{if .GIF}}<span class="gif">GIF</span>{{end}}</div>{{end}}
+{{define "media"}}{{if .Items}}<div class="media n{{len .Items}}{{if .Sensitive}} sensitive{{end}}{{if .Cover}} covered{{end}}"{{if eq (len .Items) 1}} style="aspect-ratio: {{.Ratio}}"{{end}}>
+  {{$cover := .Cover}}{{range .Items}}<div class="item"><img src="{{.Image}}" alt="">{{if $cover}}<img class="cover" src="{{$cover}}" alt="">{{end}}{{if .Video}}<div class="play"></div>{{if .Length}}<span class="length">{{.Length}}</span>{{end}}{{end}}{{if .GIF}}<span class="gif">GIF</span>{{end}}</div>{{end}}
   {{if .Sensitive}}<div class="warning">内容警告：此帖子可能包含敏感内容</div>{{end}}
 </div>{{end}}{{end}}

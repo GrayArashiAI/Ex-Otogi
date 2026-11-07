@@ -11,6 +11,7 @@ package cardimage
 
 import (
 	"context"
+	_ "embed"
 	"encoding/base64"
 	"fmt"
 	"html/template"
@@ -91,3 +92,10 @@ func DataURI(data []byte, mime string) template.URL {
 	}
 	return template.URL("data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(data))
 }
+
+//go:embed cover.webp
+var cover []byte
+
+// Cover is the sticker a card puts over its pictures, blurred, when the
+// platform refused the card for what they show (otogi.ErrRefused).
+func Cover() template.URL { return DataURI(cover, "image/webp") }

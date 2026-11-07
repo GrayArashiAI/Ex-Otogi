@@ -30,7 +30,7 @@ The module SDK is delivered in steps:
 - `modules/chat`: language model agents that answer keyword-led messages and replies to them in allowlisted chats, with the recent chat as context;
 - formatted text: `otogi.RichText` builds annotated text, and `pkg/markdown` converts Markdown into it (see `modules/todou`) and back, for handing chat text to a language model.
 
-Every effect names a slot; the kernel derives its idempotency key from the unit of work (event, job run, or timer run), the module, and the slot, so replays never repeat effects. Drivers receive effects through `otogi.Effector` and return `ErrUnsupported` for kinds they do not implement.
+Every effect names a slot; the kernel derives its idempotency key from the unit of work (event, job run, or timer run), the module, and the slot, so replays never repeat effects. Drivers receive effects through `otogi.Effector` and return `ErrUnsupported` for kinds they do not implement, and `ErrRefused` when the platform refuses the content for what it shows or says (QQ's moderation, code 40034006). The card modules (`twitter`, `booth`) answer a refused card by sending it once more with its pictures blurred under a cover sticker (`cardimage.Cover`); a card with no pictures is not sent again.
 
 ## Drivers
 

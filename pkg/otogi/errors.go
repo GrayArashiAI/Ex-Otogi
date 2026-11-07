@@ -12,4 +12,8 @@ var (
 	// ErrUnsupported reports valid content that a driver cannot represent on
 	// its platform.
 	ErrUnsupported = errors.New("unsupported")
+	// ErrRefused reports content the platform refused for what it shows or
+	// says, such as a moderation filter's verdict. The same content is
+	// refused again; changed content may pass.
+	ErrRefused = errors.New("refused")
 )

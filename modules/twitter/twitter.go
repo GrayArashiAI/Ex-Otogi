@@ -134,11 +134,33 @@ func (m *Module) answer(ctx context.Context, e otogi.Event, inv otogi.Invocation
 		m.translate(ctx, t, &c)
 	}
 	drawing := m.now()
-	png, err := m.render(ctx, c)
+	msg := m.message(ctx, e, t, c, payload)
 	payload["rendered"] = m.now().Sub(drawing).String()
+	_, err = inv.Send(ctx, "card:"+id, msg)
+	if errors.Is(err, otogi.ErrRefused) && payload["render_error"] == nil && c.cover() {
+		// The platform refused what the pictures show: they go out covered.
+		m.host.Logger().Warn("twitter: card refused; sending it with its pictures covered", "post", id, "error", err)
+		payload["refused"] = err.Error()
+		_, err = inv.Send(ctx, "card:"+id+":covered", m.message(ctx, e, t, c, payload))
+	}
+	if err != nil {
+		return err
+	}
+	outcome := "ok"
+	if payload["render_error"] != nil || payload["refused"] != nil {
+		outcome = "degraded"
+	}
+	m.host.Record(ctx, otogi.Record{Kind: "twitter.card", Outcome: outcome, Duration: m.now().Sub(started), Payload: payload})
+	return nil
+}
+
+// message is the card drawn as a reply to e, or the post in words when it
+// cannot be drawn, which payload notes.
+func (m *Module) message(ctx context.Context, e otogi.Event, t tweet, c card, payload map[string]any) otogi.Message {
+	png, err := m.render(ctx, c)
 	var msg otogi.Message
 	if err != nil {
-		m.host.Logger().Warn("twitter: card not rendered; sending text", "post", id, "error", err)
+		m.host.Logger().Warn("twitter: card not rendered; sending text", "post", t.ID, "error", err)
 		payload["render_error"] = err.Error()
 		msg = textCard(t, c.Translation)
 	} else {
@@ -147,15 +169,7 @@ func (m *Module) answer(ctx context.Context, e otogi.Event, inv otogi.Invocation
 			Media: &otogi.Media{Role: otogi.MediaImage, MediaType: "image/png", ByteSize: int64(len(png)), Source: otogi.MediaSource{Kind: otogi.MediaSourceInline, Inline: png}}}}}
 	}
 	msg.Relations = []otogi.Relation{{Kind: otogi.RelationReply, Target: e.Ref()}}
-	if _, err := inv.Send(ctx, "card:"+id, msg); err != nil {
-		return err
-	}
-	outcome := "ok"
-	if payload["render_error"] != nil {
-		outcome = "degraded"
-	}
-	m.host.Record(ctx, otogi.Record{Kind: "twitter.card", Outcome: outcome, Duration: m.now().Sub(started), Payload: payload})
-	return nil
+	return msg
 }
 
 // translate adds the post in Chinese to its card, under the original,

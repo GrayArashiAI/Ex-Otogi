@@ -60,7 +60,8 @@ type span struct {
 type grid struct {
 	Items     []cell
 	Sensitive bool
-	Ratio     string // of a lone item: "w / h"
+	Ratio     string       // of a lone item: "w / h"
+	Cover     template.URL // over each item, blurred, when the platform refused the pictures
 }
 
 type cell struct {
@@ -92,6 +93,25 @@ type pollChoice struct {
 type action struct {
 	Icon  template.HTML
 	Value string
+}
+
+// cover puts the cover sticker over the card's pictures, the post's and
+// its quote's, and reports whether it had any to cover.
+func (c *card) cover() bool {
+	covered := false
+	for _, g := range []*grid{&c.Media, quoteMedia(c.Quote)} {
+		if g != nil && len(g.Items) > 0 {
+			g.Cover, covered = cardimage.Cover(), true
+		}
+	}
+	return covered
+}
+
+func quoteMedia(q *quoted) *grid {
+	if q == nil {
+		return nil
+	}
+	return &q.Media
 }
 
 // pictures are a post's downloaded images, by URL.

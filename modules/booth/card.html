@@ -13,7 +13,9 @@
   .picture { position: relative; overflow: hidden; background: #f2f2f2; }
   .picture img { display: block; width: 100%; height: auto; max-height: 600px; object-fit: cover; }
   .picture.none { aspect-ratio: 16 / 9; }
-  .adult img { filter: blur(30px) brightness(.85); transform: scale(1.15); }
+  .adult img, .covered img { filter: blur(30px) brightness(.85); transform: scale(1.15); }
+  .covered img.cover { position: absolute; inset: 0; margin: auto; width: 60%; height: 60%; max-height: none; object-fit: contain; filter: none; transform: none; }
+  .covered .warning { display: none; }
   .warning { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(20, 20, 20, .55); color: #fff; font-size: 15px; font-weight: 700; }
   .badges { position: absolute; left: 10px; top: 10px; display: flex; gap: 6px; }
   .badge { padding: 2px 8px; border-radius: 6px; background: rgba(0, 0, 0, .7); color: #fff; font-size: 13px; font-weight: 700; line-height: 1.4; }
@@ -44,8 +46,9 @@
 </head>
 <body>
 <div class="card">
-  <div class="picture{{if not .Picture}} none{{end}}{{if .Adult}} adult{{end}}">
+  <div class="picture{{if not .Picture}} none{{end}}{{if .Adult}} adult{{end}}{{if .Cover}} covered{{end}}">
     {{if .Picture}}<img src="{{.Picture}}" alt="">{{end}}
+    {{if .Cover}}<img class="cover" src="{{.Cover}}" alt="">{{end}}
     {{if and .Adult .Picture}}<div class="warning">R-18 · 图片已隐藏</div>{{end}}
     <div class="badges">
       {{if .Adult}}<span class="badge r18">R-18</span>{{end}}

@@ -137,7 +137,8 @@ func TestPassiveRepliesAndReplays(t *testing.T) {
 
 // QQ's answers that matter: a passive reply refused goes out proactively, a
 // repeated msg_seq means it was delivered, a refusal is unavailable and can
-// be tried again, and a transient failure is retried.
+// be tried again, moderation refusing the content says so, and a transient
+// failure is retried.
 func TestSendFailures(t *testing.T) {
 	x, srv, s := newEffects(t)
 	ctx := context.Background()
@@ -152,6 +153,8 @@ func TestSendFailures(t *testing.T) {
 			return 400, `{"code":40054005,"message":"duplicate msg_seq"}`, true
 		case body["content"] == "no" && calls < 10:
 			return 400, `{"code":40034102,"message":"no proactive permission","trace_id":"T1"}`, true
+		case body["content"] == "lewd":
+			return 400, `{"code":40034006,"message":"消息内容违规","trace_id":"T2"}`, true
 		case body["content"] == "busy" && calls%2 == 1:
 			return 500, `{"code":50055001,"message":"busy"}`, true
 		}
@@ -169,6 +172,9 @@ func TestSendFailures(t *testing.T) {
 	_, err := sendText(x, "no", "", "group:G1", otogi.TextMessage("no"))
 	if !errors.Is(err, otogi.ErrUnavailable) || !strings.Contains(err.Error(), "code 40034102: no proactive permission (trace T1)") {
 		t.Fatalf("refusal = %v", err)
+	}
+	if _, err := sendText(x, "lewd", "", "group:G1", otogi.TextMessage("lewd")); !errors.Is(err, otogi.ErrRefused) || errors.Is(err, otogi.ErrUnavailable) || !strings.Contains(err.Error(), "code 40034006: 消息内容违规") {
+		t.Fatalf("moderation = %v", err)
 	}
 	calls = 10 // QQ accepts it now; the refused send was released
 	if _, err := sendText(x, "no", "", "group:G1", otogi.TextMessage("no")); err != nil {
