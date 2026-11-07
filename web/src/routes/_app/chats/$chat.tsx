@@ -2,12 +2,20 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient, useSuspenseQue
 import { createFileRoute, Link, notFound } from "@tanstack/react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { format, isToday, isYesterday } from "date-fns";
-import { ArrowLeft, Pencil, ScrollText } from "lucide-react";
+import { ArrowDown, ArrowLeft, ExternalLink, Pencil, ScrollText, X } from "lucide-react";
 import { useLayoutEffect, useRef, useState } from "react";
 import { ApiError, api, data, type Schemas } from "@/api/client";
 import { outcomeTone, StatusDot } from "@/components/status-dot";
 import { Tile } from "@/components/tile";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogBackdrop,
+  DialogClose,
+  DialogPortal,
+  DialogPrimitive,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetHeader, SheetPanel, SheetPopup, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -113,6 +121,9 @@ function Conversation({ chat, people }: { chat: string; people: Record<string, s
   const newest = items.at(-1)?.id;
   const oldest = items[0]?.id;
   const placed = useRef<{ oldest?: number; newest?: number; height: number }>({ height: 0 });
+  // away is the newest message when the reader scrolled up from it, so the
+  // jump button can say when newer ones arrived.
+  const [away, setAway] = useState<number>();
   useLayoutEffect(() => {
     const el = scroller.current;
     if (!el || items.length === 0) return;
@@ -139,41 +150,63 @@ function Conversation({ chat, people }: { chat: string; people: Record<string, s
       </div>
     );
   }
+  const toNewest = () => {
+    virtualizer.scrollToIndex(items.length - 1, { align: "end" });
+    setAway(undefined);
+  };
   return (
-    <div
-      ref={scroller}
-      className="min-h-0 flex-1 overflow-y-auto px-4 sm:px-6"
-      onScroll={(e) => {
-        if (e.currentTarget.scrollTop < 240 && messages.hasNextPage && !messages.isFetchingNextPage) {
-          void messages.fetchNextPage();
-        }
-      }}
-    >
-      {items.length === 0 && (
-        <p className="py-16 text-center text-muted-foreground text-sm">
-          Nothing said here within the event log's retention.
-        </p>
-      )}
-      <div className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
-        {virtualizer.getVirtualItems().map((row) => {
-          const m = items[row.index] as Message;
-          const prev = items[row.index - 1];
-          const newDay = !prev || new Date(prev.at).toDateString() !== new Date(m.at).toDateString();
-          return (
-            <div
-              key={row.key}
-              data-index={row.index}
-              ref={virtualizer.measureElement}
-              className="absolute inset-x-0 top-0 pt-3.5"
-              style={{ transform: `translateY(${row.start}px)` }}
-            >
-              {newDay && <DayLabel at={m.at} />}
-              <MessageRow chat={chat} m={m} labels={labels} people={people} />
-            </div>
-          );
-        })}
+    <div className="relative flex min-h-0 flex-1 flex-col">
+      <div
+        ref={scroller}
+        className="min-h-0 flex-1 overflow-y-auto px-4 sm:px-6"
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          if (el.scrollTop < 240 && messages.hasNextPage && !messages.isFetchingNextPage) {
+            void messages.fetchNextPage();
+          }
+          const far = el.scrollHeight - el.scrollTop - el.clientHeight > 320;
+          if (far && away === undefined) setAway(newest);
+          if (!far && away !== undefined) setAway(undefined);
+        }}
+      >
+        {items.length === 0 && (
+          <p className="py-16 text-center text-muted-foreground text-sm">
+            Nothing said here within the event log's retention.
+          </p>
+        )}
+        <div className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
+          {virtualizer.getVirtualItems().map((row) => {
+            const m = items[row.index] as Message;
+            const prev = items[row.index - 1];
+            const newDay = !prev || new Date(prev.at).toDateString() !== new Date(m.at).toDateString();
+            return (
+              <div
+                key={row.key}
+                data-index={row.index}
+                ref={virtualizer.measureElement}
+                className="absolute inset-x-0 top-0 pt-3.5"
+                style={{ transform: `translateY(${row.start}px)` }}
+              >
+                {newDay && <DayLabel at={m.at} />}
+                <MessageRow chat={chat} m={m} labels={labels} people={people} />
+              </div>
+            );
+          })}
+        </div>
+        <div className="h-5" />
       </div>
-      <div className="h-5" />
+      {away !== undefined && (
+        <Button
+          variant="outline"
+          size={newest !== away ? "sm" : "icon"}
+          onClick={toNewest}
+          aria-label="Jump to the newest message"
+          className="absolute right-4 bottom-4 rounded-full bg-background shadow-md/10 sm:right-6"
+        >
+          {newest !== away && <span className="ps-1 font-medium text-xs">New</span>}
+          <ArrowDown />
+        </Button>
+      )}
     </div>
   );
 }
@@ -270,17 +303,52 @@ function MediaPart({ chat, message, part }: { chat: string; message: number; par
     );
   }
   return (
-    <a href={src} target="_blank" rel="noreferrer" className="mt-1 block w-fit">
-      <img
-        src={src}
-        alt=""
-        loading="lazy"
-        onError={() => setFailed(true)}
-        className="h-auto max-h-80 w-auto max-w-[min(20rem,100%)] rounded-xl border shadow-xs/5"
-        width={part.media?.width}
-        height={part.media?.height}
-      />
-    </a>
+    <Dialog>
+      <DialogTrigger
+        className="mt-1 block w-fit cursor-zoom-in rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        aria-label="Show the picture"
+      >
+        <img
+          src={src}
+          alt=""
+          loading="lazy"
+          onError={() => setFailed(true)}
+          className="h-auto max-h-80 w-auto max-w-[min(20rem,100%)] rounded-xl border shadow-xs/5"
+          width={part.media?.width}
+          height={part.media?.height}
+        />
+      </DialogTrigger>
+      <Picture src={src} />
+    </Dialog>
+  );
+}
+
+/** Picture shows an image over the page, as large as the window allows;
+ * Escape, the close button, or a click beside it closes it. */
+function Picture({ src }: { src: string }) {
+  return (
+    <DialogPortal>
+      <DialogBackdrop className="bg-black/80 backdrop-blur-none" />
+      <DialogPrimitive.Viewport className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-10">
+        <DialogPrimitive.Popup className="relative flex max-h-full max-w-full flex-col items-center gap-3 outline-none transition-[scale,opacity] duration-200 data-ending-style:scale-98 data-ending-style:opacity-0 data-starting-style:scale-98 data-starting-style:opacity-0">
+          <DialogPrimitive.Title className="sr-only">Picture</DialogPrimitive.Title>
+          <img src={src} alt="" className="min-h-0 max-w-full flex-1 rounded-lg object-contain shadow-2xl" />
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              render={<a href={src} target="_blank" rel="noreferrer" />}
+              className="bg-background/90"
+            >
+              <ExternalLink /> Open original
+            </Button>
+            <DialogClose render={<Button variant="outline" size="sm" className="bg-background/90" />}>
+              <X /> Close
+            </DialogClose>
+          </div>
+        </DialogPrimitive.Popup>
+      </DialogPrimitive.Viewport>
+    </DialogPortal>
   );
 }
 
