@@ -56,7 +56,7 @@ func (a moduleAPI) Modules(ctx context.Context) ([]management.Module, error) {
 			}
 		}
 		for _, l := range d.Allowlists {
-			m.Allowlists = append(m.Allowlists, management.Allowlist{Name: l.Name, Title: l.Title, Description: l.Description, Chats: chats[[2]string{string(id), l.Name}]})
+			m.Allowlists = append(m.Allowlists, management.Allowlist{Name: l.Name, Title: l.Title, Description: l.Description, About: string(l.About), Chats: chats[[2]string{string(id), l.Name}]})
 		}
 		for _, c := range d.Commands {
 			m.Commands = append(m.Commands, management.Command{Name: c.Name, Usage: c.Usage, Description: c.Description})

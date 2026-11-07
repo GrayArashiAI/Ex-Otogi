@@ -128,7 +128,7 @@ function Conversation({ chat, people }: { chat: string; people: Record<string, s
     placed.current = { oldest, newest, height };
   });
   const labels = Object.fromEntries(
-    (modules ?? []).flatMap((m) => m.allowlists.map((l, i) => [`${m.id}/${l.name}`, listMeta(m.id, l.title, i)])),
+    (modules ?? []).flatMap((m) => m.allowlists.map((l, i) => [`${m.id}/${l.name}`, listMeta(m.id, l, i)])),
   );
   if (messages.isPending) {
     return (
@@ -301,9 +301,7 @@ function ModuleSwitches({ chat, compact }: { chat: Schemas["ChatOutputBody"]; co
       await queryClient.invalidateQueries({ queryKey: ["modules"] });
     },
   });
-  const lists = (modules ?? []).flatMap((m) =>
-    m.allowlists.map((l, i) => ({ m, l, meta: listMeta(m.id, l.title, i) })),
-  );
+  const lists = (modules ?? []).flatMap((m) => m.allowlists.map((l, i) => ({ m, l, meta: listMeta(m.id, l, i) })));
   const on = (module: string, list: string) => chat.lists.some((x) => x.module === module && x.list === list);
   if (compact) {
     return (
@@ -319,7 +317,7 @@ function ModuleSwitches({ chat, compact }: { chat: Schemas["ChatOutputBody"]; co
               checked={on(m.id, l.name)}
               disabled={toggle.isPending}
               onCheckedChange={(v) => toggle.mutate({ module: m.id, list: l.name, on: v })}
-              aria-label={`${meta.title} answers in this chat`}
+              aria-label={meta.toggle}
             />
           </li>
         ))}
@@ -350,7 +348,7 @@ function ModuleSwitches({ chat, compact }: { chat: Schemas["ChatOutputBody"]; co
                   checked={pending ? toggle.variables.on : checked}
                   disabled={pending}
                   onCheckedChange={(v) => toggle.mutate({ module: m.id, list: l.name, on: v })}
-                  aria-label={`${meta.title} answers in this chat`}
+                  aria-label={meta.toggle}
                 />
               </li>
             );

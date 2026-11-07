@@ -369,16 +369,22 @@ func TestConfigErrors(t *testing.T) {
 		profiles []ProfileConfig
 		want     string
 	}{
-		"no profiles":     {nil, "at least one"},
-		"shared keyword":  {[]ProfileConfig{base, {Name: "b", Keywords: []string{"A"}, Provider: "gemini", Model: "m"}}, `"A" also belongs to profile "a"`},
-		"bad tool":        {[]ProfileConfig{{Name: "a", Keywords: []string{"a"}, Provider: "gemini", Model: "m", Tools: []string{"a b"}}}, `"a b": want a built-in`},
-		"no provider":     {[]ProfileConfig{{Name: "a", Keywords: []string{"a"}, Provider: "openai", Model: "m"}}, "not configured"},
-		"bad thinking":    {[]ProfileConfig{{Name: "a", Keywords: []string{"a"}, Provider: "gemini", Model: "m", Thinking: "max"}}, "thinking"},
-		"duplicate names": {[]ProfileConfig{base, {Name: "a", Keywords: []string{"b"}, Provider: "gemini", Model: "m"}}, "used twice"},
-		"hot":             {[]ProfileConfig{{Name: "a", Keywords: []string{"a"}, Provider: "gemini", Model: "m", Temperature: ptr(2.5)}}, "temperature 2.5: want 0 to 2"},
+		"no profiles":                   {nil, "at least one"},
+		"shared keyword":                {[]ProfileConfig{base, {Name: "b", Keywords: []string{"A"}, Provider: "gemini", Model: "m"}}, `"A" also belongs to profile "a"`},
+		"module tool on a profile":      {[]ProfileConfig{{Name: "a", Keywords: []string{"a"}, Provider: "gemini", Model: "m", Tools: []string{"todou"}}}, `"todou": want a built-in`},
+		"profile named as a tools list": {[]ProfileConfig{{Name: "tools:todou", Keywords: []string{"a"}, Provider: "gemini", Model: "m"}}, "names starting with tools:"},
+		"no provider":                   {[]ProfileConfig{{Name: "a", Keywords: []string{"a"}, Provider: "openai", Model: "m"}}, "not configured"},
+		"bad thinking":                  {[]ProfileConfig{{Name: "a", Keywords: []string{"a"}, Provider: "gemini", Model: "m", Thinking: "max"}}, "thinking"},
+		"duplicate names":               {[]ProfileConfig{base, {Name: "a", Keywords: []string{"b"}, Provider: "gemini", Model: "m"}}, "used twice"},
+		"hot":                           {[]ProfileConfig{{Name: "a", Keywords: []string{"a"}, Provider: "gemini", Model: "m", Temperature: ptr(2.5)}}, "temperature 2.5: want 0 to 2"},
 	} {
 		if _, err := New(Config{Profiles: c.profiles}, providers); err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: err %v, want %q", name, err, c.want)
+		}
+	}
+	for tools, want := range map[string]string{"google_search": "a built-in tool: set it on the profiles", "a b": "want a module ID", "todou,todou": "listed twice"} {
+		if _, err := New(Config{Profiles: []ProfileConfig{base}, Tools: strings.Split(tools, ",")}, providers); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("tools %s: err %v, want %q", tools, err, want)
 		}
 	}
 }
@@ -399,7 +405,9 @@ func TestPrivateChatsAndDeletedMessages(t *testing.T) {
 	}
 }
 
-func TestToolGroups(t *testing.T) {
+// A module's tools are offered in the chats on its tools list, and only
+// there; built-in tools go wherever the agent answers.
+func TestToolsPerChat(t *testing.T) {
 	storage, err := modulestore.Open(context.Background(), t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -410,19 +418,21 @@ func TestToolGroups(t *testing.T) {
 		seen = e
 		return strings.ToUpper(string(args)), nil
 	})
-	h := &harness{t: t, host: &host{storage: storage, services: map[string]any{"llm.tools/fun": []llm.Tool{echo}}, lists: map[[2]string]string{{"otogi", group}: "test"}}, llm: map[string]*provider{}, now: time.Date(2026, 10, 31, 12, 0, 0, 0, time.UTC)}
+	h := &harness{t: t, host: &host{storage: storage, services: map[string]any{"llm.tools/fun": []llm.Tool{echo}}, lists: map[[2]string]string{{"otogi", group}: "test", {"otogi", "telegram:user:7"}: "test", {"tools:fun", group}: "test"}}, llm: map[string]*provider{}, now: time.Date(2026, 10, 31, 12, 0, 0, 0, time.UTC)}
 	p := &provider{responses: []llm.Response{
 		{Turn: llm.Turn{Role: llm.RoleModel, Calls: []llm.Call{{ID: "c1", Name: "shout", Args: json.RawMessage(`"hi"`)}}}, Finish: llm.FinishToolCalls},
 		answer("Shouted."),
 	}}
 	h.llm["p"] = p
-	h.m, err = New(Config{Profiles: []ProfileConfig{{Name: "otogi", Keywords: []string{"otogi"}, Provider: "p", Model: "m", Tools: []string{"google_search", "fun"}}}},
+	h.m, err = New(Config{Tools: []string{"fun"}, Profiles: []ProfileConfig{{Name: "otogi", Keywords: []string{"otogi"}, Provider: "p", Model: "m", Tools: []string{"google_search"}}}},
 		func(string) (llm.Provider, error) { return p, nil })
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := h.m.Descriptor().Requires; len(got) != 1 || got[0] != "llm.tools/fun" {
-		t.Fatalf("requires %v", got)
+	d := h.m.Descriptor()
+	if len(d.Requires) != 1 || d.Requires[0] != "llm.tools/fun" || len(d.Allowlists) != 2 ||
+		d.Allowlists[1] != (otogi.AllowlistSpec{Name: "tools:fun", Title: "fun tools", Description: "Agents may use fun's tools here.", About: "fun"}) {
+		t.Fatalf("requires %v, allowlists %+v", d.Requires, d.Allowlists)
 	}
 	h.m.now = func() time.Time { return h.now }
 	if err := h.m.Start(context.Background(), h.host); err != nil {
@@ -447,6 +457,14 @@ func TestToolGroups(t *testing.T) {
 	h.mustHandle(h.message("Alice", "again", replyingTo("agent-1")))
 	if turns := p.requests[2].Turns; len(turns) != 5 || turns[2].Role != llm.RoleTool {
 		t.Fatalf("follow-up turns %+v", turns)
+	}
+	// In a chat not on the tools list, the agent has its built-ins alone.
+	p.responses = []llm.Response{answer("Hi.")}
+	h.mustHandle(h.message("Alice", "otogi shout hi", func(e *otogi.Event) {
+		e.Conversation = otogi.Conversation{ID: "user:7", Kind: otogi.ConversationDirect}
+	}))
+	if tools := p.requests[len(p.requests)-1].Tools; len(tools) != 1 || tools[0].Builtin != llm.BuiltinGoogleSearch {
+		t.Fatalf("tools in a chat without fun's %+v", tools)
 	}
 }
 

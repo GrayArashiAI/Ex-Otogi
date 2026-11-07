@@ -130,11 +130,39 @@ export function moduleMeta(id: string): ModuleMeta {
 
 const agentTones: Tone[] = ["emerald", "violet", "sky", "amber", "rose", "indigo"];
 
-/** listMeta is how an allowlist shows: a chat agent's is its own tile. */
-export function listMeta(module: string, list: string, index: number): ModuleMeta {
+export type ListMeta = ModuleMeta & {
+  /** heading titles the list's chats; toggle says what a chat on it gets. */
+  heading: string;
+  toggle: string;
+  /** agent marks a chat agent's list. */
+  agent: boolean;
+};
+
+/** listMeta is how an allowlist shows: a chat agent's is its own tile, and
+ * a list granting another module's capability, such as where agents may
+ * use todou's tools, shows that module. */
+export function listMeta(module: string, list: { title: string; about?: string }, index: number): ListMeta {
+  if (list.about) {
+    const about = moduleMeta(list.about);
+    return {
+      ...about,
+      title: list.title,
+      heading: list.title,
+      toggle: `Agents may use ${about.title} here`,
+      agent: false,
+    };
+  }
   const m = moduleMeta(module);
-  if (module !== "chat") return m;
-  return { ...m, title: list, tone: agentTones[index % agentTones.length] ?? "emerald" };
+  if (module !== "chat")
+    return { ...m, heading: "Allowed chats", toggle: `${m.title} answers in this chat`, agent: false };
+  return {
+    ...m,
+    title: list.title,
+    tone: agentTones[index % agentTones.length] ?? "emerald",
+    heading: `Where ${list.title} answers`,
+    toggle: `${list.title} answers in this chat`,
+    agent: true,
+  };
 }
 
 export const platforms: Record<string, { title: string; icon: Icon; tone: Tone }> = {

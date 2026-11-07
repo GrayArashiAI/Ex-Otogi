@@ -1,5 +1,5 @@
 import type { AnyFieldApi, ReactFormExtendedApi } from "@tanstack/react-form";
-import { ChevronRight, Plus, Trash2, X } from "lucide-react";
+import { Check, ChevronRight, Plus, Trash2, X } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -162,7 +162,12 @@ function Control({ field, schema }: { field: AnyFieldApi; schema: JSONSchema }) 
     );
   }
   if (kind === "array") {
-    return <Tags value={(value as string[] | undefined) ?? []} onChange={(v) => field.handleChange(v)} />;
+    const choices = (schema.items as { enum?: unknown[] } | undefined)?.enum;
+    const words = (value as string[] | undefined) ?? [];
+    if (choices) {
+      return <Choices options={choices.map(String)} value={words} onChange={(v) => field.handleChange(v)} />;
+    }
+    return <Tags value={words} onChange={(v) => field.handleChange(v)} />;
   }
   if (schema.enum) {
     const items = [
@@ -215,6 +220,44 @@ function Control({ field, schema }: { field: AnyFieldApi; schema: JSONSchema }) 
       onChange={(e) => field.handleChange(e.target.value)}
       onBlur={field.handleBlur}
     />
+  );
+}
+
+/** Choices picks any of a few fixed words, each a chip that toggles. */
+function Choices({
+  options,
+  value,
+  onChange,
+}: {
+  options: string[];
+  value: string[];
+  onChange: (v: string[]) => void;
+}) {
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {options.map((o) => {
+        const on = value.includes(o);
+        return (
+          <button
+            key={o}
+            type="button"
+            aria-pressed={on}
+            onClick={() =>
+              onChange(on ? value.filter((w) => w !== o) : options.filter((x) => x === o || value.includes(x)))
+            }
+            className={cn(
+              "inline-flex h-7 items-center gap-1.5 rounded-md border px-2.5 font-mono text-xs outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+              on
+                ? "border-foreground/80 bg-foreground text-background"
+                : "bg-background text-muted-foreground shadow-xs/5 hover:text-foreground",
+            )}
+          >
+            {on && <Check className="size-3" />}
+            {o}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 

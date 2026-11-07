@@ -60,7 +60,7 @@ function ModulePage() {
               key={l.name}
               module={id}
               list={l.name}
-              meta={listMeta(id, l.title, i)}
+              meta={listMeta(id, l, i)}
               description={l.description}
             />
           ))}

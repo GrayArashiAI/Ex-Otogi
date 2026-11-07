@@ -54,6 +54,10 @@ type AllowlistSpec struct {
 	Title string
 	// Description says in one line what a chat on the list gets.
 	Description string
+	// About is the module whose capability the list grants, when that is
+	// another module's: the chat module's list of the chats where agents
+	// may use todou's tools is about todou. Empty for the module's own.
+	About ModuleID
 }
 
 // CommandSpec declares a command a module handles.

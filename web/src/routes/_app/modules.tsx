@@ -52,7 +52,8 @@ function Modules() {
                 {m.id === "chat" && m.allowlists.length > 0 && (
                   <ul className="mt-0.5 mb-1 ml-[1.375rem] flex flex-col gap-0.5 border-l pl-3">
                     {m.allowlists.map((l, i) => {
-                      const lm = listMeta(m.id, l.name, i);
+                      const lm = listMeta(m.id, l, i);
+                      if (!lm.agent) return null;
                       return (
                         <li key={l.name}>
                           <Link

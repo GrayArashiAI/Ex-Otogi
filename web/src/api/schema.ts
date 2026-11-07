@@ -389,6 +389,8 @@ export interface components {
             module: string;
         };
         Allowlist: {
+            /** @description The module whose capability the list grants, when that is another module's, such as todou for the chat module's list of where agents may use todou's tools. */
+            about?: string;
             /**
              * Format: int64
              * @description How many chats are on it.

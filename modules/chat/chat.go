@@ -7,8 +7,8 @@ package chat
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
-	"slices"
 	"strings"
 	"time"
 
@@ -19,22 +19,25 @@ import (
 
 // Module is the chat module.
 type Module struct {
-	cfg      Config
-	profiles []*profile
-	byName   map[string]*profile
-	host     otogi.Host
-	store    *store
-	now      func() time.Time
+	cfg         Config
+	profiles    []*profile
+	byName      map[string]*profile
+	toolModules []otogi.ModuleID
+	tools       map[otogi.ModuleID][]llm.Tool // each tool module's functions; set in Start
+	host        otogi.Host
+	store       *store
+	now         func() time.Time
 }
 
 // New validates the configuration; providers finds the providers profiles
 // name.
 func New(cfg Config, providers func(string) (llm.Provider, error)) (*Module, error) {
 	profiles, err := cfg.profiles(providers)
-	if err != nil {
+	toolModules, toolsErr := cfg.toolModules()
+	if err := errors.Join(err, toolsErr); err != nil {
 		return nil, err
 	}
-	m := &Module{cfg: cfg, profiles: profiles, byName: map[string]*profile{}, now: time.Now}
+	m := &Module{cfg: cfg, profiles: profiles, byName: map[string]*profile{}, toolModules: toolModules, now: time.Now}
 	for _, p := range profiles {
 		m.byName[p.Name] = p
 	}
@@ -43,18 +46,19 @@ func New(cfg Config, providers func(string) (llm.Provider, error)) (*Module, err
 
 // Descriptor declares the module. It sees every message of every direction,
 // to keep the transcript of the chats it serves; only people's new messages
-// trigger agents. Each profile has an allowlist, named as the profile.
+// trigger agents. Each profile has an allowlist, named as the profile, and
+// so does each module whose tools agents may use: the chats where they get
+// them.
 func (m *Module) Descriptor() otogi.ModuleDescriptor {
 	var requires []string
 	var lists []otogi.AllowlistSpec
 	for _, p := range m.profiles {
 		title := cmp.Or(p.Label, p.Name)
 		lists = append(lists, otogi.AllowlistSpec{Name: p.Name, Title: title, Description: title + " answers here."})
-		for _, g := range p.groups {
-			if s := llm.ToolsService(g); !slices.Contains(requires, s) {
-				requires = append(requires, s)
-			}
-		}
+	}
+	for _, t := range m.toolModules {
+		requires = append(requires, llm.ToolsService(t))
+		lists = append(lists, otogi.AllowlistSpec{Name: toolsList(t), Title: string(t) + " tools", Description: "Agents may use " + string(t) + "'s tools here.", About: t})
 	}
 	return otogi.ModuleDescriptor{
 		ID:         "chat",
@@ -77,21 +81,21 @@ func (m *Module) Start(ctx context.Context, host otogi.Host) error {
 		return err
 	}
 	m.host = host
-	for _, p := range m.profiles {
-		p.tools = map[string]llm.Tool{}
-		for _, g := range p.groups {
-			tools, err := otogi.Lookup[[]llm.Tool](host, llm.ToolsService(g))
-			if err != nil {
-				return fmt.Errorf("profile %s: tools %s: %w", p.Name, g, err)
-			}
-			for _, t := range tools {
-				name := t.Function().Name
-				if _, dup := p.tools[name]; dup {
-					return fmt.Errorf("profile %s: function %q is offered twice: %w", p.Name, name, otogi.ErrInvalid)
-				}
-				p.tools[name] = t
-			}
+	m.tools = map[otogi.ModuleID][]llm.Tool{}
+	names := map[string]otogi.ModuleID{}
+	for _, module := range m.toolModules {
+		tools, err := otogi.Lookup[[]llm.Tool](host, llm.ToolsService(module))
+		if err != nil {
+			return fmt.Errorf("tools %s: %w", module, err)
 		}
+		for _, t := range tools {
+			name := t.Function().Name
+			if other, dup := names[name]; dup {
+				return fmt.Errorf("function %q is offered by both %s and %s: %w", name, other, module, otogi.ErrInvalid)
+			}
+			names[name] = module
+		}
+		m.tools[module] = tools
 	}
 	return host.Schedule("prune", "@every 1h", m.prune)
 }
@@ -124,6 +128,20 @@ func (m *Module) Handle(ctx context.Context, e otogi.Event, inv otogi.Invocation
 		return err
 	}
 	return m.respond(ctx, e, inv, p, parent, trigger)
+}
+
+// toolsIn is the functions agents get in chat: those of the modules whose
+// tools lists have it.
+func (m *Module) toolsIn(chat string) map[string]llm.Tool {
+	out := map[string]llm.Tool{}
+	for _, module := range m.toolModules {
+		if m.host.Allowed(toolsList(module), chat) {
+			for _, t := range m.tools[module] {
+				out[t.Function().Name] = t
+			}
+		}
+	}
+	return out
 }
 
 // answers reports whether p answers in chat: whether chat is on p's

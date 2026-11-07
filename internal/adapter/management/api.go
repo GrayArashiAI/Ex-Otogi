@@ -69,6 +69,7 @@ type Allowlist struct {
 	Title       string `json:"title"`
 	Description string `json:"description,omitempty"`
 	Chats       int    `json:"chats" doc:"How many chats are on it."`
+	About       string `json:"about,omitempty" doc:"The module whose capability the list grants, when that is another module's, such as todou for the chat module's list of where agents may use todou's tools."`
 }
 
 // Command is a command a module handles.

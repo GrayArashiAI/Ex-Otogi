@@ -80,8 +80,8 @@ function Results({ onPick }: { onPick: () => void }) {
           ? m.allowlists.map((l, i) => ({
               key: `l/${l.name}`,
               title: l.title,
-              detail: "chat agent",
-              meta: listMeta(m.id, l.title, i),
+              detail: l.about ? "agent tools" : "chat agent",
+              meta: listMeta(m.id, l, i),
               link: (p: LinkProps) => (
                 <Link to="/modules/$module" params={{ module: m.id }} hash={`list-${l.name}`} {...p} />
               ),

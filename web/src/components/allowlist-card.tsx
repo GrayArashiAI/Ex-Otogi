@@ -8,7 +8,7 @@ import { Tile } from "@/components/tile";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { chatName } from "@/lib/chats";
-import { type ModuleMeta, platformMeta } from "@/lib/meta";
+import { type ListMeta, platformMeta } from "@/lib/meta";
 import { allowlistQuery } from "@/queries/modules";
 
 /** AllowlistCard shows the chats on one allowlist, to add and remove. */
@@ -20,7 +20,7 @@ export function AllowlistCard({
 }: {
   module: string;
   list: string;
-  meta: ModuleMeta;
+  meta: ListMeta;
   description?: string;
 }) {
   const { data: allowlist, isPending } = useQuery(allowlistQuery(module, list));
@@ -44,9 +44,7 @@ export function AllowlistCard({
       <header className="flex items-center gap-3 px-4 pt-3.5 pb-2.5">
         <Tile tone={meta.tone} icon={meta.icon} size="sm" />
         <div className="min-w-0 flex-1">
-          <h2 className="font-semibold text-[15px] leading-tight">
-            {module === "chat" ? `Where ${meta.title} answers` : "Allowed chats"}
-          </h2>
+          <h2 className="font-semibold text-[15px] leading-tight">{meta.heading}</h2>
           {description && <p className="truncate text-muted-foreground text-xs">{description}</p>}
         </div>
         <Button size="sm" onClick={() => setPicking(true)}>

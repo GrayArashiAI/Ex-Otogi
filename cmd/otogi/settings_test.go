@@ -85,7 +85,7 @@ func TestModuleSettingsRevisions(t *testing.T) {
 	if _, err := s.save(ctx, "notes", 0, &on, json.RawMessage(`{"max_notes": 5}`), "Tundra's iPhone"); err != nil {
 		t.Fatal(err)
 	}
-	chat := json.RawMessage(`{"profiles": [{"name": "Luna", "keywords": ["luna"], "provider": "gemini", "model": "m", "tools": ["notes"]}]}`)
+	chat := json.RawMessage(`{"profiles": [{"name": "Luna", "keywords": ["luna"], "provider": "gemini", "model": "m"}], "tools": ["notes"]}`)
 	if _, err := s.save(ctx, "chat", 0, &on, chat, "Tundra's iPhone"); err != nil {
 		t.Fatal(err)
 	}

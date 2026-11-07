@@ -18,6 +18,7 @@ type Config struct {
 	Retention otogi.Duration  `json:"retention,omitempty" doc:"How long threads and the chat transcript are kept; default 720h (30 days)."`
 	Timeout   otogi.Duration  `json:"timeout,omitempty" doc:"The longest one reply may take, tool calls included; default 5m. When less is left than two of its slowest model rounds, the agent stops calling tools and answers with what it has found."`
 	Profiles  []ProfileConfig `json:"profiles" minItems:"1" doc:"The agents. Each answers in the chats on its allowlist."`
+	Tools     []string        `json:"tools,omitempty" doc:"Modules whose tools agents may use, by module ID (notes, reminders, todou). Each has a list of the chats where agents get its tools; a chat on none of them gets none."`
 }
 
 // ProfileConfig configures one agent.
@@ -34,7 +35,7 @@ type ProfileConfig struct {
 	System        string   `json:"system,omitempty" format:"markdown" doc:"The system prompt: who the agent is and how it talks, in Markdown."`
 	Context       *int     `json:"context,omitempty" minimum:"0" doc:"How many recent chat messages the agent sees; default 30, 0 for none."`
 	MaxTurns      int      `json:"max_turns,omitempty" minimum:"0" doc:"How many turns of a thread are sent, newest kept; default 40."`
-	Tools         []string `json:"tools,omitempty" doc:"Built-in tools (google_search, url_context, code_execution) and the tools of modules, by module ID (notes, reminders, todou)."`
+	Tools         []string `json:"tools,omitempty" enum:"google_search,url_context,code_execution" doc:"The model's built-in tools the agent uses everywhere it answers. Modules' tools are set per chat: see tools above."`
 	MaxToolRounds int      `json:"max_tool_rounds,omitempty" minimum:"0" doc:"The most rounds of tool calls in one reply; default 8."`
 }
 
@@ -44,9 +45,31 @@ type profile struct {
 	keywords []string
 	context  int
 	builtins []llm.ToolSpec
-	groups   []otogi.ModuleID    // tool groups, by the module offering them
-	tools    map[string]llm.Tool // the groups' functions, by name; set in Start
 	provider llm.Provider
+}
+
+// toolsList names the allowlist of the chats where agents get a module's
+// tools. Profile lists are named as their profiles, which may not start
+// so.
+func toolsList(module otogi.ModuleID) string { return "tools:" + string(module) }
+
+// toolModules validates the modules whose tools agents may use.
+func (c *Config) toolModules() ([]otogi.ModuleID, error) {
+	var out []otogi.ModuleID
+	var errs []error
+	for _, t := range c.Tools {
+		switch {
+		case slices.Contains(builtinTools, t):
+			errs = append(errs, fmt.Errorf("tools: %q is a built-in tool: set it on the profiles that use it", t))
+		case t == "" || strings.ContainsAny(t, " :/"):
+			errs = append(errs, fmt.Errorf("tools: %q: want a module ID", t))
+		case slices.Contains(out, otogi.ModuleID(t)):
+			errs = append(errs, fmt.Errorf("tools: %q is listed twice", t))
+		default:
+			out = append(out, otogi.ModuleID(t))
+		}
+	}
+	return out, errors.Join(errs...)
 }
 
 var builtinTools = []string{llm.BuiltinGoogleSearch, llm.BuiltinURLContext, llm.BuiltinCodeExecution}
@@ -83,6 +106,8 @@ func (c *Config) profiles(providers func(string) (llm.Provider, error)) ([]*prof
 		switch {
 		case pc.Name == "":
 			errs = append(errs, fmt.Errorf("%s.name is required", field))
+		case strings.HasPrefix(pc.Name, "tools:"):
+			errs = append(errs, fmt.Errorf("%s.name %q: names starting with tools: are the lists of modules' tools", field, pc.Name))
 		case names[pc.Name]:
 			errs = append(errs, fmt.Errorf("%s.name %q is used twice", field, pc.Name))
 		}
@@ -115,14 +140,11 @@ func (c *Config) profiles(providers func(string) (llm.Provider, error)) ([]*prof
 			errs = append(errs, fmt.Errorf("%s: context, max_turns, max_output, and max_tool_rounds must not be negative", field))
 		}
 		for _, t := range pc.Tools {
-			switch {
-			case slices.Contains(builtinTools, t):
-				p.builtins = append(p.builtins, llm.ToolSpec{Builtin: t})
-			case t == "" || strings.ContainsAny(t, " :/"):
-				errs = append(errs, fmt.Errorf("%s.tools: %q: want a built-in (%s) or a module ID", field, t, strings.Join(builtinTools, ", ")))
-			default:
-				p.groups = append(p.groups, otogi.ModuleID(t))
+			if !slices.Contains(builtinTools, t) {
+				errs = append(errs, fmt.Errorf("%s.tools: %q: want a built-in (%s); modules' tools are set in tools, per chat", field, t, strings.Join(builtinTools, ", ")))
+				continue
 			}
+			p.builtins = append(p.builtins, llm.ToolSpec{Builtin: t})
 		}
 		provider, err := providers(pc.Provider)
 		if err != nil {
