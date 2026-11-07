@@ -36,11 +36,11 @@
   .media.n4 { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; aspect-ratio: 16 / 9; }
   .item { position: relative; min-height: 0; overflow: hidden; }
   .item img { display: block; width: 100%; height: 100%; object-fit: cover; }
-  .sensitive .item img { filter: blur(30px) brightness(.85); transform: scale(1.15); }
+  .sensitive .item img:not(.cover) { filter: blur(30px) brightness(.85); transform: scale(1.15); }
   .sensitive .play, .sensitive .length, .sensitive .gif { display: none; }
-  .covered .item img { filter: blur(30px) brightness(.9); transform: scale(1.15); }
-  .covered .item img.cover { position: absolute; inset: 0; margin: auto; width: 72%; height: 72%; object-fit: contain; filter: none; transform: none; }
-  .covered .play, .covered .length, .covered .gif, .covered .warning { display: none; }
+  /* A picture the platform refused shows through the sticker over it. */
+  .item img.cover { position: absolute; inset: 0; margin: auto; width: 72%; height: 72%; object-fit: contain; opacity: .8; }
+  .covered .play, .covered .length, .covered .gif { display: none; }
   .warning { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(15, 20, 25, .62); color: #fff; font-size: 15px; font-weight: 700; text-align: center; }
   .play { position: absolute; left: 50%; top: 50%; width: 52px; height: 52px; margin: -26px 0 0 -26px; border: 3px solid #fff; border-radius: 50%; background: #1d9bf0; }
   .play::after { content: ""; position: absolute; left: 19px; top: 13px; border-style: solid; border-width: 10px 0 10px 16px; border-color: transparent transparent transparent #fff; }

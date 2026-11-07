@@ -96,6 +96,6 @@ func DataURI(data []byte, mime string) template.URL {
 //go:embed cover.webp
 var cover []byte
 
-// Cover is the sticker a card puts over its pictures, blurred, when the
+// Cover is the sticker a card puts over its pictures, see-through, when the
 // platform refused the card for what they show (otogi.ErrRefused).
 func Cover() template.URL { return DataURI(cover, "image/webp") }

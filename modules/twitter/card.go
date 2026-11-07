@@ -61,7 +61,7 @@ type grid struct {
 	Items     []cell
 	Sensitive bool
 	Ratio     string       // of a lone item: "w / h"
-	Cover     template.URL // over each item, blurred, when the platform refused the pictures
+	Cover     template.URL // over each item, see-through, when the platform refused the pictures
 }
 
 type cell struct {
