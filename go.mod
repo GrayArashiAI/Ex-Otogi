@@ -6,9 +6,9 @@ require (
 	github.com/chromedp/cdproto v0.159.0
 	github.com/chromedp/chromedp v0.23.0
 	github.com/coder/websocket v1.8.15
+	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/danielgtaylor/huma/v2 v2.40.0
-	github.com/descope/virtualwebauthn v1.0.5
-	github.com/go-webauthn/webauthn v0.18.2
+	github.com/go-jose/go-jose/v4 v4.1.4
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/securecookie v1.1.2
 	github.com/gotd/td v0.161.0
@@ -19,6 +19,7 @@ require (
 	github.com/yuin/goldmark v1.8.6
 	go.uber.org/goleak v1.3.0
 	go.yaml.in/yaml/v3 v3.0.5
+	golang.org/x/oauth2 v0.37.0
 	golang.org/x/sync v0.24.0
 	golang.org/x/term v0.47.0
 	golang.org/x/text v0.43.0
@@ -37,7 +38,6 @@ require (
 	github.com/dustin/go-humanize v1.1.0 // indirect
 	github.com/fatih/color v1.19.0 // indirect
 	github.com/felixge/httpsnoop v1.1.0 // indirect
-	github.com/fxamacker/cbor/v2 v2.9.6 // indirect
 	github.com/ghodss/yaml v1.0.0 // indirect
 	github.com/go-faster/errors v0.8.0 // indirect
 	github.com/go-faster/jx v1.2.0 // indirect
@@ -46,11 +46,7 @@ require (
 	github.com/go-json-experiment/json v0.0.0-20260213210345-44df1a37e875 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
-	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
-	github.com/go-webauthn/x v0.3.1 // indirect
-	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
-	github.com/google/go-tpm v0.9.8 // indirect
 	github.com/google/s2a-go v0.1.9 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.15 // indirect
 	github.com/googleapis/gax-go/v2 v2.22.0 // indirect
@@ -64,13 +60,10 @@ require (
 	github.com/mfridman/interpolate v0.0.2 // indirect
 	github.com/ncruces/go-strftime v1.1.0 // indirect
 	github.com/ogen-go/ogen v1.23.0 // indirect
-	github.com/philhofer/fwd v1.2.1 // indirect
 	github.com/refraction-networking/utls v1.8.2 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/segmentio/asm v1.2.1 // indirect
 	github.com/shopspring/decimal v1.5.0 // indirect
-	github.com/tinylib/msgp v1.6.5 // indirect
-	github.com/x448/float16 v0.8.4 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.72.0 // indirect
 	go.opentelemetry.io/otel v1.47.0 // indirect

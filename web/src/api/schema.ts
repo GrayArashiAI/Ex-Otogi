@@ -4,71 +4,40 @@
  */
 
 export interface paths {
-    "/api/auth/enroll/begin": {
+    "/api/auth/callback": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get?: never;
-        put?: never;
         /**
-         * Start registering a passkey from an enrollment link
-         * @description The link comes from otogi passkey enroll on the server and works once, for 10 minutes.
+         * Come back from the identity provider
+         * @description Checks the provider's answer and starts a session; a failure returns to the sign-in page saying why.
          */
-        post: operations["begin-enrollment"];
+        get: operations["sign-in-callback"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/auth/enroll/finish": {
+    "/api/auth/login": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * Sign in at the identity provider
+         * @description Sends the browser to the provider, which sends it back to /api/auth/callback.
+         */
+        get: operations["sign-in"];
         put?: never;
-        /** Register the passkey and sign in */
-        post: operations["finish-enrollment"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/auth/login/begin": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Start signing in with a passkey */
-        post: operations["begin-sign-in"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/auth/login/finish": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Sign in with the passkey's answer */
-        post: operations["finish-sign-in"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -84,80 +53,9 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Sign out */
+        /** Sign out, here and at the identity provider */
         post: operations["sign-out"];
         delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/auth/passkeys": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** The operator's passkeys */
-        get: operations["list-passkeys"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/auth/passkeys/begin": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Start registering another passkey */
-        post: operations["begin-passkey"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/auth/passkeys/finish": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Register another passkey */
-        post: operations["finish-passkey"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/auth/passkeys/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /**
-         * Remove a passkey
-         * @description The last passkey cannot be removed: nobody could sign in.
-         */
-        delete: operations["remove-passkey"];
         options?: never;
         head?: never;
         patch?: never;
@@ -493,9 +391,6 @@ export interface components {
             offset: number;
             target?: string;
         };
-        "Begin-enrollmentRequest": {
-            token: string;
-        };
         Chat: {
             account: string;
             conversation: string;
@@ -807,12 +702,6 @@ export interface components {
         "Name-chatRequest": {
             name: string;
         };
-        NewPasskey: {
-            /** @description The result of navigator.credentials.create. */
-            credential: unknown;
-            /** @description What to call it, such as Tundra's iPhone. */
-            name: string;
-        };
         Page: {
             more: boolean;
             /** Format: int64 */
@@ -833,20 +722,6 @@ export interface components {
             opaque?: components["schemas"]["Extension"];
             poll?: components["schemas"]["Poll"];
             text?: string;
-        };
-        PasskeyInfo: {
-            /** Format: date-time */
-            created_at: string;
-            /** @description Whether this session signed in with it. */
-            current: boolean;
-            /** @description The credential ID, base64url. */
-            id: string;
-            name: string;
-            /**
-             * Format: date-time
-             * @description When it last signed in.
-             */
-            used_at?: string;
         };
         Person: {
             actor: string;
@@ -915,9 +790,11 @@ export interface components {
             title?: string;
         };
         SessionOutputBody: {
-            /** @description The passkey this session signed in with. */
-            passkey?: string;
+            name?: string;
+            /** @description The identity provider's issuer, which the sign-in page names. */
+            provider: string;
             signed_in: boolean;
+            username?: string;
         };
         SettingsOutputBody: {
             /** Format: date-time */
@@ -933,8 +810,9 @@ export interface components {
             };
             settings: unknown;
         };
-        SignedInOutputBody: {
-            passkey: string;
+        SignOutOutputBody: {
+            /** @description Where to go to sign out at the identity provider too. */
+            next: string;
         };
         Status: {
             drivers: components["schemas"]["DriverStatus"][];
@@ -958,58 +836,26 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    "begin-enrollment": {
+    "sign-in-callback": {
         parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["Begin-enrollmentRequest"];
+            query?: {
+                code?: string;
+                state?: string;
+                error?: string;
+                error_description?: string;
             };
-        };
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    "Set-Cookie"?: string;
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-        };
-    };
-    "finish-enrollment": {
-        parameters: {
-            query?: never;
             header?: never;
             path?: never;
             cookie?: {
-                otogi_ceremony?: string;
+                otogi_signin?: string;
             };
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["NewPasskey"];
-            };
-        };
+        requestBody?: never;
         responses: {
-            /** @description No Content */
-            204: {
+            /** @description Found */
+            302: {
                 headers: {
+                    Location?: string;
                     "Set-Cookie"?: string;
                     [name: string]: unknown;
                 };
@@ -1026,60 +872,26 @@ export interface operations {
             };
         };
     };
-    "begin-sign-in": {
+    "sign-in": {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description The panel path to return to. */
+                next?: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description OK */
-            200: {
+            /** @description Found */
+            302: {
                 headers: {
+                    Location?: string;
                     "Set-Cookie"?: string;
                     [name: string]: unknown;
                 };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-        };
-    };
-    "finish-sign-in": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: {
-                otogi_ceremony?: string;
-            };
-        };
-        requestBody: {
-            content: {
-                "application/json": unknown;
-            };
-        };
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    "Set-Cookie"?: string;
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SignedInOutputBody"];
-                };
+                content?: never;
             };
             /** @description Error */
             default: {
@@ -1103,65 +915,6 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description No Content */
-            204: {
-                headers: {
-                    "Set-Cookie"?: string;
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-        };
-    };
-    "list-passkeys": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: {
-                otogi_session?: string;
-            };
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PasskeyInfo"][] | null;
-                };
-            };
-            /** @description Error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-        };
-    };
-    "begin-passkey": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
             /** @description OK */
             200: {
                 headers: {
@@ -1169,72 +922,8 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["SignOutOutputBody"];
                 };
-            };
-            /** @description Error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-        };
-    };
-    "finish-passkey": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: {
-                otogi_ceremony?: string;
-            };
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["NewPasskey"];
-            };
-        };
-        responses: {
-            /** @description No Content */
-            204: {
-                headers: {
-                    "Set-Cookie"?: string;
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-        };
-    };
-    "remove-passkey": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The credential ID, base64url. */
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description No Content */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
             };
             /** @description Error */
             default: {

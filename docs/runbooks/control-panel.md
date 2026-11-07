@@ -1,6 +1,6 @@
 # Control Panel
 
-The control panel is the bot's own web app: Status, Modules, Chats, and the Event log. The bot serves it with its management API on `management.addr`; a TLS reverse proxy puts it on the web. Sign-in is passkeys only.
+The control panel is the bot's own web app: Status, Modules, Chats, and the Event log. The bot serves it with its management API on `management.addr`; a TLS reverse proxy puts it on the web. Sign-in goes through an OpenID Connect provider.
 
 ## Set it up
 
@@ -31,17 +31,33 @@ The control panel is the bot's own web app: Status, Modules, Chats, and the Even
 
    A request through the proxy needs a panel session; the management token works only for requests made straight to `management.addr`.
 
-## Register a passkey
+## Sign-in
 
-On the server, as the service's user (it writes `<data_dir>/panel.sqlite`):
+The panel signs in through an OpenID Connect provider; it has no accounts or passwords of its own.
 
-```sh
-sudo -u www-data env $(xargs < otogi.env) ./otogi -config otogi.yaml passkey enroll
-```
+1. Register a confidential client at the provider, with the redirect URI `<public_url>/api/auth/callback`, the post-logout redirect URI `<public_url>/sign-in`, and the scopes `openid` and `profile`. With Prohibitorum (opus.name):
 
-Open the printed link within 10 minutes, on the device that keeps the passkey, and name it. The link works once. Once signed in, add passkeys for other devices from the account menu, under Passkeys, and remove lost ones there; the last one cannot be removed.
+   ```sh
+   podman exec prohibitorum prohibitorum oidc-client create --client-id ex-otogi --display-name Ex-Otogi \
+     --redirect-uri https://otogi.example.com/api/auth/callback \
+     --post-logout-redirect-uri https://otogi.example.com/sign-in --scope openid --scope profile
+   ```
 
-Lost every passkey: run `passkey enroll` again on the server. To end every session at once, stop the bot, remove `panel.sqlite` (passkeys, links, and the cookie key go with it), start it, and enroll again.
+   It prints the client secret once: put it in `otogi.env` as `OTOGI_OIDC_CLIENT_SECRET`.
+
+2. Configure it, and name who may sign in by their username at the provider:
+
+   ```yaml
+   management:
+     public_url: https://otogi.example.com
+     oidc:
+       issuer: https://opus.name
+       client_id: ex-otogi
+       client_secret: ${OTOGI_OIDC_CLIENT_SECRET}
+       allow: [tundra]
+   ```
+
+Removing a username from `allow` (and restarting) ends its sessions. To end every session at once, stop the bot, remove `<data_dir>/panel.key`, and start it. Refused sign-ins are in the event log as `panel.session`, saying why.
 
 ## Set up modules
 
@@ -66,4 +82,4 @@ curl -s -X PUT 127.0.0.1:8383/api/modules/chat/allowlists/Luna/chats/telegram:ch
 
 ## Back up
 
-`panel.sqlite` holds the passkeys and the cookie key; `modules.sqlite` holds module settings, their revisions, and allowlists; `eventlog.sqlite` holds the chat directory. Back them up like every database here: with SQLite's backup, never by copying the live file (see `docs/operations.md`).
+`panel.key` seals session cookies (losing it only signs everyone out); `modules.sqlite` holds module settings, their revisions, and allowlists; `eventlog.sqlite` holds the chat directory. Back them up like every database here: with SQLite's backup, never by copying the live file (see `docs/operations.md`).

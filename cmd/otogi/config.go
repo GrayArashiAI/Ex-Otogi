@@ -52,9 +52,23 @@ type ManagementConfig struct {
 	// Token is the bearer token; required when Addr is not loopback.
 	Token string `yaml:"token"`
 	// PublicURL is where the control panel is served, such as
-	// https://otogi.example.com; passkeys are bound to it. Empty turns the
-	// panel's sign-in off.
+	// https://otogi.example.com. Empty turns the panel's sign-in off.
 	PublicURL string `yaml:"public_url"`
+	// OIDC is the identity provider the panel signs in with; required with
+	// PublicURL.
+	OIDC OIDCConfig `yaml:"oidc"`
+}
+
+// OIDCConfig is the panel's client at an OpenID Connect provider.
+type OIDCConfig struct {
+	// Issuer is the provider's issuer URL, such as https://opus.name.
+	Issuer string `yaml:"issuer"`
+	// ClientID and ClientSecret are the client registered for the panel,
+	// with the redirect URI <public_url>/api/auth/callback.
+	ClientID     string `yaml:"client_id"`
+	ClientSecret string `yaml:"client_secret"`
+	// Allow lists the provider usernames that may use the panel.
+	Allow []string `yaml:"allow"`
 }
 
 // CommandsConfig configures the command parser.
@@ -168,6 +182,16 @@ func (c Config) validate() error {
 	if u := c.Management.PublicURL; u != "" {
 		if parsed, err := url.Parse(u); err != nil || (parsed.Scheme != "https" && parsed.Scheme != "http") || parsed.Host == "" || parsed.Path != "" {
 			errs = append(errs, fmt.Errorf("management.public_url %q: want an origin, such as https://otogi.example.com", u))
+		}
+		o := c.Management.OIDC
+		if parsed, err := url.Parse(o.Issuer); err != nil || parsed.Scheme != "https" || parsed.Host == "" {
+			errs = append(errs, fmt.Errorf("management.oidc.issuer %q: want the provider's https issuer URL, which public_url needs to sign in", o.Issuer))
+		}
+		if o.ClientID == "" || o.ClientSecret == "" {
+			errs = append(errs, errors.New("management.oidc: client_id and client_secret are required with public_url"))
+		}
+		if len(o.Allow) == 0 {
+			errs = append(errs, errors.New("management.oidc.allow: list the provider usernames that may use the panel"))
 		}
 	}
 	if c.EventLog.Retention < 0 {

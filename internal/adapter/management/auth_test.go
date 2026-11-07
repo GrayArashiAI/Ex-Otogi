@@ -2,18 +2,74 @@ package management
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/descope/virtualwebauthn"
-
-	"github.com/TundraWork/Ex-Otogi/internal/adapter/management/panel"
+	"github.com/go-jose/go-jose/v4"
+	"github.com/go-jose/go-jose/v4/jwt"
 )
+
+// provider is an OpenID Connect provider: discovery, keys, and a token
+// endpoint that checks PKCE and signs ID tokens for one account.
+type provider struct {
+	t        *testing.T
+	srv      *httptest.Server
+	key      *rsa.PrivateKey
+	username string
+	nonce    string // from the last authorization request
+	verifier string // the code_challenge of the last authorization request
+}
+
+func newProvider(t *testing.T, username string) *provider {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := &provider{t: t, key: key, username: username}
+	p.srv = httptest.NewServer(http.HandlerFunc(p.serve))
+	t.Cleanup(p.srv.Close)
+	return p
+}
+
+func (p *provider) serve(w http.ResponseWriter, r *http.Request) {
+	iss := p.srv.URL
+	w.Header().Set("Content-Type", "application/json")
+	switch r.URL.Path {
+	case "/.well-known/openid-configuration":
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"issuer": iss, "authorization_endpoint": iss + "/authorize", "token_endpoint": iss + "/token",
+			"jwks_uri": iss + "/jwks", "end_session_endpoint": iss + "/logout", "id_token_signing_alg_values_supported": []string{"RS256"},
+		})
+	case "/jwks":
+		_ = json.NewEncoder(w).Encode(jose.JSONWebKeySet{Keys: []jose.JSONWebKey{{Key: &p.key.PublicKey, KeyID: "k1", Algorithm: "RS256", Use: "sig"}}})
+	case "/token":
+		_ = r.ParseForm()
+		sum := sha256.Sum256([]byte(r.Form.Get("code_verifier")))
+		if r.Form.Get("code") != "good-code" || base64.RawURLEncoding.EncodeToString(sum[:]) != p.verifier {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":"invalid_grant"}`))
+			return
+		}
+		signer, _ := jose.NewSigner(jose.SigningKey{Algorithm: jose.RS256, Key: jose.JSONWebKey{Key: p.key, KeyID: "k1"}}, nil)
+		claims := map[string]any{
+			"iss": iss, "sub": "1", "aud": "ex-otogi", "exp": time.Now().Add(time.Hour).Unix(), "iat": time.Now().Unix(),
+			"nonce": p.nonce, "username": p.username, "displayName": "Tundra",
+		}
+		token, _ := jwt.Signed(signer).Claims(claims).Serialize()
+		_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "at", "token_type": "Bearer", "id_token": token, "expires_in": 3600})
+	default:
+		w.WriteHeader(http.StatusNotFound)
+	}
+}
 
 // browser talks to the panel through a proxy, as a browser behind nginx
 // does, and keeps its cookies.
@@ -23,15 +79,12 @@ type browser struct {
 	cookies map[string]*http.Cookie
 }
 
-func (b *browser) do(method, path, body string, wantCode int) string {
+func (b *browser) do(method, path string, wantCode int) *httptest.ResponseRecorder {
 	b.t.Helper()
-	req := httptest.NewRequest(method, path, strings.NewReader(body))
+	req := httptest.NewRequest(method, path, nil)
 	req.RemoteAddr = "127.0.0.1:40000"
 	req.Header.Set("X-Forwarded-For", "203.0.113.7")
 	req.Header.Set("Sec-Fetch-Site", "same-origin")
-	if body != "" {
-		req.Header.Set("Content-Type", "application/json")
-	}
 	for _, c := range b.cookies {
 		req.AddCookie(c)
 	}
@@ -47,83 +100,62 @@ func (b *browser) do(method, path, body string, wantCode int) string {
 	if rec.Code != wantCode {
 		b.t.Fatalf("%s %s = %d %s, want %d", method, path, rec.Code, rec.Body.String(), wantCode)
 	}
-	return rec.Body.String()
+	return rec
 }
 
-// The first passkey comes from a one-time link, then signs in; a signed-in
-// operator adds and removes passkeys; without a session, a proxied request
-// gets nothing, and a cross-site write is refused.
-func TestPasskeySignIn(t *testing.T) {
-	ctx := context.Background()
-	store, err := panel.Open(ctx, filepath.Join(t.TempDir(), "panel.sqlite"))
+// signIn goes to the provider and comes back with code, as the provider's
+// redirect would.
+func (b *browser) signIn(p *provider, code string) *httptest.ResponseRecorder {
+	b.t.Helper()
+	to, err := url.Parse(b.do("GET", "/api/auth/login?next=/chats", http.StatusFound).Header().Get("Location"))
 	if err != nil {
-		t.Fatal(err)
+		b.t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = store.Close() })
+	q := to.Query()
+	if to.Path != "/authorize" || q.Get("code_challenge_method") != "S256" || q.Get("client_id") != "ex-otogi" || q.Get("redirect_uri") != "https://otogi.example.com/api/auth/callback" {
+		b.t.Fatalf("authorization request %s", to)
+	}
+	p.nonce, p.verifier = q.Get("nonce"), q.Get("code_challenge")
+	return b.do("GET", "/api/auth/callback?code="+code+"&state="+url.QueryEscape(q.Get("state")), http.StatusFound)
+}
+
+func newSignInHandler(t *testing.T, p *provider) (http.Handler, *EventLog) {
+	t.Helper()
 	events := openLog(t)
+	key := make([]byte, 64)
+	_, _ = rand.Read(key)
 	handler, err := newHandler(ServerConfig{
-		Token: "secret", Events: events, PublicURL: "https://otogi.example.com", Passkeys: store,
+		Token: "secret", Events: events, PublicURL: "https://otogi.example.com", CookieKey: key,
+		OIDC:   OIDC{Issuer: p.srv.URL, ClientID: "ex-otogi", ClientSecret: "s3cret", Allow: []string{"tundra"}},
 		Status: func(context.Context) Status { return Status{Version: "test"} }, Ready: func() bool { return true }, Shutdown: func() {},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	rp := virtualwebauthn.RelyingParty{Name: "Ex-Otogi", ID: "otogi.example.com", Origin: "https://otogi.example.com"}
-	phone := virtualwebauthn.NewAuthenticatorWithOptions(virtualwebauthn.AuthenticatorOptions{UserHandle: store.UserHandle()})
+	return handler, events
+}
+
+// Signing in goes through the provider and back; an allowed account gets a
+// session, which signing out ends here and at the provider. A proxied
+// request without a session gets nothing, and a cross-site write is
+// refused.
+func TestOIDCSignIn(t *testing.T) {
+	p := newProvider(t, "tundra")
+	handler, events := newSignInHandler(t, p)
 	b := &browser{t: t, handler: handler, cookies: map[string]*http.Cookie{}}
 
-	b.do("GET", "/api/status", "", 401)
-	if body := b.do("GET", "/api/auth/session", "", 200); !strings.Contains(body, `"signed_in":false`) {
-		t.Fatalf("session before signing in: %s", body)
+	b.do("GET", "/api/status", http.StatusUnauthorized)
+	if back := b.signIn(p, "bad-code").Header().Get("Location"); !strings.HasPrefix(back, "/sign-in?error=") {
+		t.Fatalf("a refused code went to %q", back)
 	}
-	// register registers a new credential on phone through a ceremony.
-	register := func(beginPath, beginBody, finishPath, name string) {
-		t.Helper()
-		options, err := virtualwebauthn.ParseAttestationOptions(b.do("POST", beginPath, beginBody, 200))
-		if err != nil {
-			t.Fatal(err)
-		}
-		credential := virtualwebauthn.NewCredential(virtualwebauthn.KeyTypeEC2)
-		response := virtualwebauthn.CreateAttestationResponse(rp, phone, credential, *options)
-		body, _ := json.Marshal(map[string]any{"name": name, "credential": json.RawMessage(response)})
-		b.do("POST", finishPath, string(body), 204)
-		phone.AddCredential(credential)
+	if back := b.signIn(p, "good-code").Header().Get("Location"); back != "/chats" {
+		t.Fatalf("signing in went to %q", back)
 	}
-
-	token, err := store.NewEnrollment(ctx, 10*time.Minute)
-	if err != nil {
-		t.Fatal(err)
+	b.do("GET", "/api/status", http.StatusOK)
+	if body := b.do("GET", "/api/auth/session", http.StatusOK).Body.String(); !strings.Contains(body, `"username":"tundra"`) {
+		t.Fatalf("session %s", body)
 	}
-	b.do("POST", "/api/auth/enroll/begin", `{"token": "forged"}`, 403)
-	register("/api/auth/enroll/begin", `{"token": "`+token+`"}`, "/api/auth/enroll/finish", "Tundra's iPhone")
-	b.do("GET", "/api/status", "", 200) // registering signed in
-	b.do("POST", "/api/auth/enroll/begin", `{"token": "`+token+`"}`, 403)
-
-	b.do("POST", "/api/auth/logout", "", 204)
-	b.do("GET", "/api/status", "", 401)
-	options, err := virtualwebauthn.ParseAssertionOptions(b.do("POST", "/api/auth/login/begin", "", 200))
-	if err != nil {
-		t.Fatal(err)
-	}
-	response := virtualwebauthn.CreateAssertionResponse(rp, phone, phone.Credentials[0], *options)
-	if body := b.do("POST", "/api/auth/login/finish", response, 200); !strings.Contains(body, `"passkey":"Tundra's iPhone"`) {
-		t.Fatalf("sign-in: %s", body)
-	}
-	b.do("POST", "/api/auth/login/finish", response, 400) // the ceremony is over
-
-	register("/api/auth/passkeys/begin", "", "/api/auth/passkeys/finish", "Desk")
-	var keys []PasskeyInfo
-	if err := json.Unmarshal([]byte(b.do("GET", "/api/auth/passkeys", "", 200)), &keys); err != nil {
-		t.Fatal(err)
-	}
-	if len(keys) != 2 || keys[0].Name != "Tundra's iPhone" || !keys[0].Current || keys[0].UsedAt.IsZero() || keys[1].Current {
-		t.Fatalf("passkeys %+v", keys)
-	}
-	b.do("DELETE", "/api/auth/passkeys/"+keys[1].ID, "", 204)
-	b.do("DELETE", "/api/auth/passkeys/"+keys[0].ID, "", 409) // the last one
-	if err := b.cookies[sessionCookie].Valid(); err != nil {
-		t.Fatal(err)
-	}
+	b.do("GET", "/api/auth/callback?code=good-code&state=replayed", http.StatusFound) // the sign-in is over
 
 	// A write from another site carries the cookie, but is refused.
 	req := httptest.NewRequest("POST", "/api/shutdown", nil)
@@ -135,11 +167,43 @@ func TestPasskeySignIn(t *testing.T) {
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("cross-site write = %d", rec.Code)
 	}
-	// The token works straight to the server, not through the proxy.
-	req = httptest.NewRequest("GET", "/api/status", nil)
+
+	var out struct {
+		Next string `json:"next"`
+	}
+	_ = json.Unmarshal(b.do("POST", "/api/auth/logout", http.StatusOK).Body.Bytes(), &out)
+	if !strings.HasPrefix(out.Next, p.srv.URL+"/logout?") || !strings.Contains(out.Next, "id_token_hint=") || !strings.Contains(out.Next, url.QueryEscape("https://otogi.example.com/sign-in")) {
+		t.Fatalf("sign-out goes to %q", out.Next)
+	}
+	b.do("GET", "/api/status", http.StatusUnauthorized)
+
+	var actions []string
+	page, _ := events.Query(context.Background(), Query{Kind: "panel.session"})
+	for _, r := range page.Records {
+		var payload map[string]any
+		_ = json.Unmarshal(r.Payload, &payload)
+		actions = append(actions, payload["action"].(string)+":"+r.Outcome)
+	}
+	if got := strings.Join(actions, " "); got != "sign_out:ok denied:error sign_in:ok denied:error" {
+		t.Fatalf("records %s", got)
+	}
+}
+
+// An account the provider vouches for, but not on the allow list, gets no
+// session; the token works only straight to the server.
+func TestOIDCAllowListAndToken(t *testing.T) {
+	p := newProvider(t, "mallory")
+	handler, _ := newSignInHandler(t, p)
+	b := &browser{t: t, handler: handler, cookies: map[string]*http.Cookie{}}
+	if back := b.signIn(p, "good-code").Header().Get("Location"); !strings.Contains(back, url.QueryEscape(`"mallory"`)) {
+		t.Fatalf("a disallowed account went to %q", back)
+	}
+	b.do("GET", "/api/status", http.StatusUnauthorized)
+
+	req := httptest.NewRequest("GET", "/api/status", nil)
 	req.RemoteAddr = "127.0.0.1:40000"
 	req.Header.Set("Authorization", "Bearer secret")
-	rec = httptest.NewRecorder()
+	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 	if rec.Code != 200 {
 		t.Fatalf("token from the server = %d", rec.Code)
@@ -149,16 +213,5 @@ func TestPasskeySignIn(t *testing.T) {
 	handler.ServeHTTP(rec, req)
 	if rec.Code != 401 {
 		t.Fatalf("token through the proxy = %d", rec.Code)
-	}
-
-	var actions []string
-	page, _ := events.Query(ctx, Query{Kind: "panel.session"})
-	for _, r := range page.Records {
-		var p map[string]any
-		_ = json.Unmarshal(r.Payload, &p)
-		actions = append(actions, p["action"].(string)+":"+r.Outcome)
-	}
-	if got := strings.Join(actions, " "); got != "remove:ok register:ok sign_in:ok sign_out:ok register:ok" {
-		t.Fatalf("records %s", got)
 	}
 }

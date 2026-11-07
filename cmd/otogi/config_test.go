@@ -67,6 +67,8 @@ func TestLoadConfigRejections(t *testing.T) {
 		"duplicate":          {"telegram:\n  - {account: a, app_id: 1, app_hash: h}\n  - {account: a, app_id: 1, app_hash: h}\n", "used twice"},
 		"missing app hash":   {"telegram:\n  - {account: a, app_id: 1}\n", "app_hash"},
 		"bad level":          {"log: {level: loud}\n", "log.level"},
+		"panel without oidc": {"management: {public_url: https://otogi.example.com}\n", "management.oidc.issuer"},
+		"oidc without allow": {"management: {public_url: https://otogi.example.com, oidc: {issuer: https://opus.name, client_id: c, client_secret: s}}\n", "management.oidc.allow"},
 		"bad duration":       {"shutdown_timeout: soon\n", "line 1"},
 		"bad operator":       {"operators: [\"123\"]\n", "<platform>:<actor id>"},
 		"gemini without key": {"llm:\n  gemini: {base_url: https://g.example}\n", "llm.gemini.api_key"},

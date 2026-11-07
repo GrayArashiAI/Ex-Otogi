@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/TundraWork/Ex-Otogi/internal/adapter/management"
-	"github.com/TundraWork/Ex-Otogi/internal/adapter/management/panel"
 	"github.com/TundraWork/Ex-Otogi/internal/adapter/modulestore"
 	"github.com/TundraWork/Ex-Otogi/internal/adapter/qq"
 	"github.com/TundraWork/Ex-Otogi/internal/adapter/telegram"
@@ -162,19 +161,16 @@ func run(ctx context.Context, cfg Config, log *slog.Logger) (failure error) {
 	}
 
 	if addr := *cfg.Management.Addr; addr != "" {
-		var passkeys *panel.Store
+		var key []byte
 		if cfg.Management.PublicURL != "" {
-			if passkeys, err = panel.Open(ctx, filepath.Join(cfg.DataDir, "panel.sqlite")); err != nil {
+			if key, err = management.LoadCookieKey(filepath.Join(cfg.DataDir, "panel.key")); err != nil {
 				return err
 			}
-			defer func() {
-				if err := passkeys.Close(); err != nil && failure == nil {
-					failure = err
-				}
-			}()
 		}
+		o := cfg.Management.OIDC
 		server, err := management.StartServer(management.ServerConfig{
-			PublicURL: cfg.Management.PublicURL, Passkeys: passkeys, Panel: web.Panel(),
+			PublicURL: cfg.Management.PublicURL, CookieKey: key, Panel: web.Panel(),
+			OIDC: management.OIDC{Issuer: o.Issuer, ClientID: o.ClientID, ClientSecret: o.ClientSecret, Allow: o.Allow},
 			Addr: addr, Token: cfg.Management.Token, Events: events, Logger: log,
 			Shutdown: requestShutdown, Modules: moduleAPI{settings}, Media: routes.FetchMedia, Version: version(),
 			Ready: func() bool { return allReady(drivers) },

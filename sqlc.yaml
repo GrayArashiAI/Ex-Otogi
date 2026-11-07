@@ -24,13 +24,6 @@ sql:
         package: queries
         out: internal/adapter/management/queries
   - engine: sqlite
-    schema: internal/adapter/management/panel/migrations
-    queries: internal/adapter/management/panel/queries
-    gen:
-      go:
-        package: queries
-        out: internal/adapter/management/panel/queries
-  - engine: sqlite
     schema: internal/adapter/qq/store/migrations
     queries: internal/adapter/qq/store/queries
     gen:

@@ -1,95 +1,127 @@
 package management
 
 import (
-	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/subtle"
-	"encoding/base64"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/danielgtaylor/huma/v2"
-	"github.com/go-webauthn/webauthn/protocol"
-	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/gorilla/securecookie"
+	"golang.org/x/oauth2"
 
-	"github.com/TundraWork/Ex-Otogi/internal/adapter/management/panel"
 	"github.com/TundraWork/Ex-Otogi/pkg/otogi"
 )
 
 const (
 	sessionCookie  = "otogi_session"
-	ceremonyCookie = "otogi_ceremony"
-	sessionAge     = 30 * 24 * time.Hour
-	ceremonyAge    = 5 * time.Minute
+	ceremonyCookie = "otogi_signin"
+	sessionAge     = 7 * 24 * time.Hour
+	ceremonyAge    = 10 * time.Minute
 )
 
-// signIn is the panel's sign-in: passkeys through WebAuthn, and sessions
-// in sealed cookies.
+// OIDC is the identity provider the panel signs in with, through the OpenID
+// Connect authorization code flow with PKCE.
+type OIDC struct {
+	// Issuer is the provider's issuer URL, such as https://opus.name.
+	Issuer string
+	// ClientID and ClientSecret are the panel's client at the provider.
+	ClientID, ClientSecret string
+	// Allow lists the provider usernames that may use the panel.
+	Allow []string
+}
+
+// signIn is the panel's sign-in: OpenID Connect against one provider, and
+// sessions in sealed cookies.
 type signIn struct {
-	store    *panel.Store
-	webauthn *webauthn.WebAuthn
+	cfg      OIDC
+	callback string // the redirect URI registered at the provider
+	home     string // the panel's origin, where signing out lands
 	cookies  *securecookie.SecureCookie
 	secure   bool // cookies go only over HTTPS
 	events   *EventLog
+
+	mu       sync.Mutex
+	provider *oidc.Provider // discovered on first use, so a provider outage does not stop the bot
 }
 
 // session is what a session cookie holds.
 type session struct {
-	Passkey []byte `json:"passkey"`
+	Subject  string `json:"sub"`
+	Username string `json:"username"`
+	Name     string `json:"name"`
+	IDToken  string `json:"id_token"` // the hint signing out at the provider needs
 }
 
-// ceremony is what the cookie between a ceremony's two steps holds.
+// ceremony is what the cookie between leaving for the provider and coming
+// back holds.
 type ceremony struct {
-	Data       webauthn.SessionData `json:"data"`
-	Enrollment string               `json:"enrollment,omitempty"` // the token of a first passkey's link
+	State    string `json:"state"`
+	Nonce    string `json:"nonce"`
+	Verifier string `json:"verifier"`
+	Next     string `json:"next"`
 }
 
-// operator is the one WebAuthn user every passkey belongs to.
-type operator struct {
-	handle      []byte
-	credentials []webauthn.Credential
+// LoadCookieKey reads the key that signs and encrypts session cookies from
+// path, generating it on first use.
+func LoadCookieKey(path string) ([]byte, error) {
+	key, err := os.ReadFile(path)
+	if err == nil && len(key) == 64 {
+		return key, nil
+	}
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("management: read cookie key: %w", err)
+	}
+	key = make([]byte, 64)
+	_, _ = rand.Read(key) // never fails
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return nil, fmt.Errorf("management: create directory for cookie key: %w", err)
+	}
+	if err := os.WriteFile(path, key, 0o600); err != nil {
+		return nil, fmt.Errorf("management: write cookie key: %w", err)
+	}
+	return key, nil
 }
 
-func (o operator) WebAuthnID() []byte                         { return o.handle }
-func (o operator) WebAuthnName() string                       { return "operator" }
-func (o operator) WebAuthnDisplayName() string                { return "Operator" }
-func (o operator) WebAuthnCredentials() []webauthn.Credential { return o.credentials }
-
-func newSignIn(store *panel.Store, publicURL string, events *EventLog) (*signIn, error) {
+func newSignIn(cfg OIDC, publicURL string, key []byte, events *EventLog) (*signIn, error) {
 	u, err := url.Parse(publicURL)
 	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
 		return nil, fmt.Errorf("management: public_url %q: want the panel's origin, such as https://otogi.example.com", publicURL)
 	}
-	timeout := webauthn.TimeoutConfig{Enforce: true, Timeout: ceremonyAge, TimeoutUVD: ceremonyAge}
-	w, err := webauthn.New(&webauthn.Config{
-		RPID: u.Hostname(), RPDisplayName: "Ex-Otogi", RPOrigins: []string{u.Scheme + "://" + u.Host},
-		Timeouts: webauthn.TimeoutsConfig{Login: timeout, Registration: timeout},
-	})
-	if err != nil {
-		return nil, fmt.Errorf("management: webauthn: %w", err)
+	if len(key) != 64 {
+		return nil, fmt.Errorf("management: the cookie key is %d bytes; want 64", len(key))
 	}
-	hash, block := store.CookieKeys()
-	cookies := securecookie.New(hash, block).MaxAge(int(sessionAge.Seconds())).SetSerializer(securecookie.JSONEncoder{})
-	return &signIn{store: store, webauthn: w, cookies: cookies, secure: u.Scheme == "https", events: events}, nil
+	home := u.Scheme + "://" + u.Host
+	cookies := securecookie.New(key[:32], key[32:]).MaxAge(int(sessionAge.Seconds())).SetSerializer(securecookie.JSONEncoder{})
+	return &signIn{cfg: cfg, callback: home + "/api/auth/callback", home: home, cookies: cookies, secure: u.Scheme == "https", events: events}, nil
 }
 
-func (s *signIn) operator(ctx context.Context) (operator, []panel.Passkey, error) {
-	keys, err := s.store.Passkeys(ctx)
-	if err != nil {
-		return operator{}, nil, err
+// oauth returns the provider's endpoints, discovering them once.
+func (s *signIn) oauth(ctx context.Context) (*oidc.Provider, *oauth2.Config, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.provider == nil {
+		p, err := oidc.NewProvider(ctx, s.cfg.Issuer)
+		if err != nil {
+			return nil, nil, fmt.Errorf("discover %s: %w", s.cfg.Issuer, err)
+		}
+		s.provider = p
 	}
-	o := operator{handle: s.store.UserHandle()}
-	for _, k := range keys {
-		o.credentials = append(o.credentials, k.Credential)
-	}
-	return o, keys, nil
+	return s.provider, &oauth2.Config{
+		ClientID: s.cfg.ClientID, ClientSecret: s.cfg.ClientSecret, Endpoint: s.provider.Endpoint(),
+		RedirectURL: s.callback, Scopes: []string{oidc.ScopeOpenID, "profile"},
+	}, nil
 }
 
 func (s *signIn) cookie(name string, value any, age time.Duration) (http.Cookie, error) {
@@ -97,37 +129,38 @@ func (s *signIn) cookie(name string, value any, age time.Duration) (http.Cookie,
 	if err != nil {
 		return http.Cookie{}, fmt.Errorf("seal cookie: %w", err)
 	}
-	return http.Cookie{Name: name, Value: encoded, Path: "/", MaxAge: int(age.Seconds()), Secure: s.secure, HttpOnly: true, SameSite: http.SameSiteStrictMode}, nil
+	// Lax, not Strict: the provider's redirect back to the callback is a
+	// cross-site navigation that must carry the sign-in cookie.
+	return http.Cookie{Name: name, Value: encoded, Path: "/", MaxAge: int(age.Seconds()), Secure: s.secure, HttpOnly: true, SameSite: http.SameSiteLaxMode}, nil
 }
 
 func (s *signIn) clear(name string) http.Cookie {
-	return http.Cookie{Name: name, Value: "", Path: "/", MaxAge: -1, Secure: s.secure, HttpOnly: true, SameSite: http.SameSiteStrictMode}
+	return http.Cookie{Name: name, Value: "", Path: "/", MaxAge: -1, Secure: s.secure, HttpOnly: true, SameSite: http.SameSiteLaxMode}
 }
 
-// who returns the name of the passkey a session cookie was signed in with,
-// while that passkey is still registered.
-func (s *signIn) who(ctx context.Context, value string) (panel.Passkey, bool) {
+// who returns the session a cookie holds, while its account is still
+// allowed.
+func (s *signIn) who(value string) (session, bool) {
 	var sess session
 	if value == "" || s.cookies.Decode(sessionCookie, value, &sess) != nil {
-		return panel.Passkey{}, false
+		return session{}, false
 	}
-	keys, err := s.store.Passkeys(ctx)
-	if err != nil {
-		return panel.Passkey{}, false
-	}
-	i := slices.IndexFunc(keys, func(k panel.Passkey) bool { return bytes.Equal(k.Credential.ID, sess.Passkey) })
-	if i < 0 {
-		return panel.Passkey{}, false
-	}
-	return keys[i], true
+	return sess, slices.Contains(s.cfg.Allow, sess.Username)
 }
 
-func (s *signIn) record(ctx context.Context, action, passkey string, err error) {
-	payload, outcome := map[string]any{"action": action, "passkey": passkey}, "ok"
+func (s *signIn) record(ctx context.Context, action string, sess session, err error) {
+	payload, outcome := map[string]any{"action": action, "username": sess.Username, "subject": sess.Subject}, "ok"
 	if err != nil {
 		payload["error"], outcome = err.Error(), "error"
 	}
 	s.events.Record(ctx, otogi.Record{At: time.Now(), Kind: "panel.session", Component: "management", Outcome: outcome, Payload: payload})
+}
+
+func (sess session) display() string {
+	if sess.Name != "" && sess.Name != sess.Username {
+		return sess.Name + " (" + sess.Username + ")"
+	}
+	return sess.Username
 }
 
 // guard admits a request to /api/ when it has a panel session, or when it
@@ -139,10 +172,9 @@ func guard(token string, s *signIn, open func(string) bool, next http.Handler) h
 	return http.NewCrossOriginProtection().Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		if s != nil {
-			c, _ := r.Cookie(sessionCookie)
-			if c != nil {
-				if key, ok := s.who(ctx, c.Value); ok {
-					next.ServeHTTP(w, r.WithContext(context.WithValue(ctx, callerKey{}, key.Name)))
+			if c, _ := r.Cookie(sessionCookie); c != nil {
+				if sess, ok := s.who(c.Value); ok {
+					next.ServeHTTP(w, r.WithContext(context.WithValue(ctx, callerKey{}, sess.display())))
 					return
 				}
 			}
@@ -155,7 +187,7 @@ func guard(token string, s *signIn, open func(string) bool, next http.Handler) h
 			return
 		}
 		w.Header().Set("Content-Type", "application/problem+json")
-		writeJSON(w, http.StatusUnauthorized, huma.ErrorModel{Title: "Unauthorized", Status: http.StatusUnauthorized, Detail: "sign in with a passkey, or send the management token"})
+		writeJSON(w, http.StatusUnauthorized, huma.ErrorModel{Title: "Unauthorized", Status: http.StatusUnauthorized, Detail: "sign in, or send the management token"})
 	}))
 }
 
@@ -167,27 +199,7 @@ func loopbackRemote(addr string) bool {
 
 // signInRoutes are open to everyone: they are how one signs in.
 func signInRoutes(path string) bool {
-	return path == "/api/auth/session" || path == "/api/auth/logout" ||
-		strings.HasPrefix(path, "/api/auth/login/") || strings.HasPrefix(path, "/api/auth/enroll/")
-}
-
-// PasskeyInfo is a registered passkey as the panel lists it.
-type PasskeyInfo struct {
-	ID        string    `json:"id" doc:"The credential ID, base64url."`
-	Name      string    `json:"name"`
-	CreatedAt time.Time `json:"created_at"`
-	UsedAt    time.Time `json:"used_at,omitzero" doc:"When it last signed in."`
-	Current   bool      `json:"current" doc:"Whether this session signed in with it."`
-}
-
-// SetCookies sets cookies on a response.
-type SetCookies struct {
-	SetCookie []http.Cookie `header:"Set-Cookie"`
-}
-
-type optionsOutput struct {
-	SetCookies
-	Body json.RawMessage `doc:"The options for navigator.credentials, as go-webauthn writes them."`
+	return strings.HasPrefix(path, "/api/auth/")
 }
 
 // SessionCookie is a request's session cookie.
@@ -195,15 +207,23 @@ type SessionCookie struct {
 	Session string `cookie:"otogi_session"`
 }
 
-// CeremonyCookie is a request's cookie between a ceremony's steps.
-type CeremonyCookie struct {
-	Ceremony string `cookie:"otogi_ceremony"`
+// redirect is a response that sends the browser elsewhere.
+type redirect struct {
+	Status    int           `json:"-"`
+	Location  string        `header:"Location"`
+	SetCookie []http.Cookie `header:"Set-Cookie"`
 }
 
-// newPasskey is a passkey being registered.
-type newPasskey struct {
-	Name       string          `json:"name" minLength:"1" maxLength:"100" doc:"What to call it, such as Tundra's iPhone."`
-	Credential json.RawMessage `json:"credential" doc:"The result of navigator.credentials.create."`
+// localPath keeps a return path within the panel.
+func localPath(next string) string {
+	if !strings.HasPrefix(next, "/") || strings.HasPrefix(next, "//") || strings.HasPrefix(next, "/\\") {
+		return "/"
+	}
+	return next
+}
+
+func random() string {
+	return oauth2.GenerateVerifier() // 32 random bytes, base64url
 }
 
 func registerSignIn(api huma.API, s *signIn) {
@@ -211,253 +231,116 @@ func registerSignIn(api huma.API, s *signIn) {
 	type sessionOutput struct {
 		Body struct {
 			SignedIn bool   `json:"signed_in"`
-			Passkey  string `json:"passkey,omitempty" doc:"The passkey this session signed in with."`
+			Username string `json:"username,omitempty"`
+			Name     string `json:"name,omitempty"`
+			Provider string `json:"provider" doc:"The identity provider's issuer, which the sign-in page names."`
 		}
 	}
 	huma.Register(api, huma.Operation{OperationID: "get-session", Method: http.MethodGet, Path: "/api/auth/session", Summary: "Whether this browser is signed in", Tags: tags},
-		func(ctx context.Context, in *SessionCookie) (*sessionOutput, error) {
+		func(_ context.Context, in *SessionCookie) (*sessionOutput, error) {
 			out := &sessionOutput{}
-			if key, ok := s.who(ctx, in.Session); ok {
-				out.Body.SignedIn, out.Body.Passkey = true, key.Name
+			out.Body.Provider = s.cfg.Issuer
+			if sess, ok := s.who(in.Session); ok {
+				out.Body.SignedIn, out.Body.Username, out.Body.Name = true, sess.Username, sess.Name
 			}
 			return out, nil
 		})
-	begin := func(ctx context.Context, c ceremony, options any) (*optionsOutput, error) {
-		cookie, err := s.cookie(ceremonyCookie, c, ceremonyAge)
-		if err != nil {
-			return nil, huma.Error500InternalServerError(err.Error())
-		}
-		body, err := json.Marshal(options)
-		if err != nil {
-			return nil, huma.Error500InternalServerError(err.Error())
-		}
-		return &optionsOutput{SetCookies: SetCookies{SetCookie: []http.Cookie{cookie}}, Body: body}, nil
-	}
-	readCeremony := func(value string) (ceremony, error) {
-		var c ceremony
-		if value == "" || s.cookies.Decode(ceremonyCookie, value, &c) != nil {
-			return ceremony{}, huma.Error400BadRequest("no passkey ceremony is under way in this browser; start again")
-		}
-		return c, nil
-	}
-	signedIn := func(ctx context.Context, key []byte, clearCeremony bool) ([]http.Cookie, error) {
-		cookie, err := s.cookie(sessionCookie, session{Passkey: key}, sessionAge)
-		if err != nil {
-			return nil, huma.Error500InternalServerError(err.Error())
-		}
-		cookies := []http.Cookie{cookie}
-		if clearCeremony {
-			cookies = append(cookies, s.clear(ceremonyCookie))
-		}
-		return cookies, nil
-	}
-	// register finishes a registration ceremony and stores the passkey.
-	register := func(ctx context.Context, c ceremony, in newPasskey) ([]http.Cookie, error) {
-		user, _, err := s.operator(ctx)
-		if err != nil {
-			return nil, problem(err)
-		}
-		parsed, err := protocol.ParseCredentialCreationResponseBytes(in.Credential)
-		if err != nil {
-			s.record(ctx, "register", in.Name, err)
-			return nil, huma.Error400BadRequest("the passkey's answer is malformed: " + err.Error())
-		}
-		credential, err := s.webauthn.CreateCredential(user, c.Data, parsed)
-		if err != nil {
-			s.record(ctx, "register", in.Name, err)
-			return nil, huma.Error400BadRequest("the passkey was not accepted: " + err.Error())
-		}
-		if err := s.store.AddPasskey(ctx, in.Name, *credential); err != nil {
-			return nil, problem(err)
-		}
-		s.record(ctx, "register", in.Name, nil)
-		return signedIn(ctx, credential.ID, true)
-	}
-	registration := func(ctx context.Context, c ceremony) (*optionsOutput, error) {
-		user, keys, err := s.operator(ctx)
-		if err != nil {
-			return nil, problem(err)
-		}
-		var exclude []protocol.CredentialDescriptor
-		for _, k := range keys {
-			exclude = append(exclude, k.Credential.Descriptor())
-		}
-		options, data, err := s.webauthn.BeginRegistration(user,
-			webauthn.WithResidentKeyRequirement(protocol.ResidentKeyRequirementRequired), webauthn.WithExclusions(exclude))
-		if err != nil {
-			return nil, huma.Error500InternalServerError(err.Error())
-		}
-		c.Data = *data
-		return begin(ctx, c, options)
-	}
-
-	huma.Register(api, huma.Operation{OperationID: "begin-sign-in", Method: http.MethodPost, Path: "/api/auth/login/begin", Summary: "Start signing in with a passkey", Tags: tags},
-		func(ctx context.Context, _ *struct{}) (*optionsOutput, error) {
-			options, data, err := s.webauthn.BeginDiscoverableLogin(webauthn.WithUserVerification(protocol.VerificationPreferred))
+	huma.Register(api, huma.Operation{OperationID: "sign-in", Method: http.MethodGet, Path: "/api/auth/login", Summary: "Sign in at the identity provider",
+		Description: "Sends the browser to the provider, which sends it back to /api/auth/callback.", DefaultStatus: http.StatusFound, Tags: tags},
+		func(ctx context.Context, in *struct {
+			Next string `query:"next" doc:"The panel path to return to."`
+		},
+		) (*redirect, error) {
+			_, cfg, err := s.oauth(ctx)
+			if err != nil {
+				return nil, huma.Error502BadGateway("the identity provider is unreachable: " + err.Error())
+			}
+			c := ceremony{State: random(), Nonce: random(), Verifier: oauth2.GenerateVerifier(), Next: localPath(in.Next)}
+			cookie, err := s.cookie(ceremonyCookie, c, ceremonyAge)
 			if err != nil {
 				return nil, huma.Error500InternalServerError(err.Error())
 			}
-			return begin(ctx, ceremony{Data: *data}, options)
+			to := cfg.AuthCodeURL(c.State, oidc.Nonce(c.Nonce), oauth2.S256ChallengeOption(c.Verifier))
+			return &redirect{Status: http.StatusFound, Location: to, SetCookie: []http.Cookie{cookie}}, nil
 		})
-	type signedInOutput struct {
-		SetCookies
-		Body struct {
-			Passkey string `json:"passkey"`
+	huma.Register(api, huma.Operation{OperationID: "sign-in-callback", Method: http.MethodGet, Path: "/api/auth/callback", Summary: "Come back from the identity provider",
+		Description: "Checks the provider's answer and starts a session; a failure returns to the sign-in page saying why.", DefaultStatus: http.StatusFound, Tags: tags},
+		func(ctx context.Context, in *struct {
+			Ceremony    string `cookie:"otogi_signin"`
+			Code        string `query:"code"`
+			State       string `query:"state"`
+			Error       string `query:"error"`
+			Description string `query:"error_description"`
+		},
+		) (*redirect, error) {
+			fail := func(reason string, sess session, err error) *redirect {
+				s.record(ctx, "denied", sess, err)
+				return &redirect{Status: http.StatusFound, Location: "/sign-in?error=" + url.QueryEscape(reason), SetCookie: []http.Cookie{s.clear(ceremonyCookie)}}
+			}
+			var c ceremony
+			if in.Ceremony == "" || s.cookies.Decode(ceremonyCookie, in.Ceremony, &c) != nil || subtle.ConstantTimeCompare([]byte(c.State), []byte(in.State)) != 1 {
+				return fail("The sign-in expired or was started in another browser. Try again.", session{}, errors.New("no matching sign-in under way")), nil
+			}
+			if in.Error != "" {
+				return fail("The identity provider said: "+strings.TrimSpace(in.Error+" "+in.Description), session{}, errors.New(in.Error)), nil
+			}
+			provider, cfg, err := s.oauth(ctx)
+			if err != nil {
+				return fail("The identity provider is unreachable.", session{}, err), nil
+			}
+			token, err := cfg.Exchange(ctx, in.Code, oauth2.VerifierOption(c.Verifier))
+			if err != nil {
+				return fail("The identity provider did not accept the sign-in.", session{}, err), nil
+			}
+			raw, _ := token.Extra("id_token").(string)
+			idToken, err := provider.Verifier(&oidc.Config{ClientID: s.cfg.ClientID}).Verify(ctx, raw)
+			if err == nil && idToken.Nonce != c.Nonce {
+				err = errors.New("the ID token's nonce does not match")
+			}
+			if err != nil {
+				return fail("The identity provider's answer did not check out.", session{}, err), nil
+			}
+			var claims struct {
+				Username    string `json:"username"`
+				DisplayName string `json:"displayName"`
+			}
+			if err := idToken.Claims(&claims); err != nil {
+				return fail("The identity provider's answer did not check out.", session{}, err), nil
+			}
+			sess := session{Subject: idToken.Subject, Username: claims.Username, Name: claims.DisplayName, IDToken: raw}
+			if !slices.Contains(s.cfg.Allow, sess.Username) {
+				return fail(fmt.Sprintf("The account %q may not use this panel.", sess.Username), sess, errors.New("not in management.oidc.allow")), nil
+			}
+			cookie, err := s.cookie(sessionCookie, sess, sessionAge)
+			if err != nil {
+				return nil, huma.Error500InternalServerError(err.Error())
+			}
+			s.record(ctx, "sign_in", sess, nil)
+			return &redirect{Status: http.StatusFound, Location: c.Next, SetCookie: []http.Cookie{cookie, s.clear(ceremonyCookie)}}, nil
+		})
+	type signOutOutput struct {
+		SetCookie []http.Cookie `header:"Set-Cookie"`
+		Body      struct {
+			Next string `json:"next" doc:"Where to go to sign out at the identity provider too."`
 		}
 	}
-	huma.Register(api, huma.Operation{OperationID: "finish-sign-in", Method: http.MethodPost, Path: "/api/auth/login/finish", Summary: "Sign in with the passkey's answer", Tags: tags},
-		func(ctx context.Context, in *struct {
-			CeremonyCookie
-			Body json.RawMessage `doc:"The result of navigator.credentials.get."`
-		},
-		) (*signedInOutput, error) {
-			c, err := readCeremony(in.Ceremony)
-			if err != nil {
-				return nil, err
-			}
-			parsed, err := protocol.ParseCredentialRequestResponseBytes(in.Body)
-			if err != nil {
-				s.record(ctx, "sign_in", "", err)
-				return nil, huma.Error400BadRequest("the passkey's answer is malformed: " + err.Error())
-			}
-			user, keys, err := s.operator(ctx)
-			if err != nil {
-				return nil, problem(err)
-			}
-			_, credential, err := s.webauthn.ValidatePasskeyLogin(func(_, handle []byte) (webauthn.User, error) {
-				if !bytes.Equal(handle, user.handle) {
-					return nil, fmt.Errorf("a passkey of another site's user")
+	huma.Register(api, huma.Operation{OperationID: "sign-out", Method: http.MethodPost, Path: "/api/auth/logout", Summary: "Sign out, here and at the identity provider", Tags: tags},
+		func(ctx context.Context, in *SessionCookie) (*signOutOutput, error) {
+			out := &signOutOutput{SetCookie: []http.Cookie{s.clear(sessionCookie)}}
+			out.Body.Next = "/sign-in"
+			var sess session
+			if in.Session != "" && s.cookies.Decode(sessionCookie, in.Session, &sess) == nil {
+				s.record(ctx, "sign_out", sess, nil)
+				if provider, _, err := s.oauth(ctx); err == nil {
+					var meta struct {
+						EndSession string `json:"end_session_endpoint"`
+					}
+					if provider.Claims(&meta) == nil && meta.EndSession != "" {
+						q := url.Values{"id_token_hint": {sess.IDToken}, "post_logout_redirect_uri": {s.home + "/sign-in"}}
+						out.Body.Next = meta.EndSession + "?" + q.Encode()
+					}
 				}
-				return user, nil
-			}, c.Data, parsed)
-			if err != nil {
-				s.record(ctx, "sign_in", "", err)
-				return nil, huma.Error401Unauthorized("the passkey was not accepted: " + err.Error())
-			}
-			if err := s.store.UsePasskey(ctx, *credential); err != nil {
-				return nil, problem(err)
-			}
-			name := keys[slices.IndexFunc(keys, func(k panel.Passkey) bool { return bytes.Equal(k.Credential.ID, credential.ID) })].Name
-			s.record(ctx, "sign_in", name, nil)
-			cookies, err := signedIn(ctx, credential.ID, true)
-			if err != nil {
-				return nil, err
-			}
-			out := &signedInOutput{SetCookies: SetCookies{SetCookie: cookies}}
-			out.Body.Passkey = name
-			return out, nil
-		})
-	huma.Register(api, huma.Operation{OperationID: "sign-out", Method: http.MethodPost, Path: "/api/auth/logout", Summary: "Sign out", DefaultStatus: http.StatusNoContent, Tags: tags},
-		func(ctx context.Context, in *SessionCookie) (*SetCookies, error) {
-			if key, ok := s.who(ctx, in.Session); ok {
-				s.record(ctx, "sign_out", key.Name, nil)
-			}
-			return &SetCookies{SetCookie: []http.Cookie{s.clear(sessionCookie)}}, nil
-		})
-	huma.Register(api, huma.Operation{OperationID: "begin-enrollment", Method: http.MethodPost, Path: "/api/auth/enroll/begin", Summary: "Start registering a passkey from an enrollment link",
-		Description: "The link comes from otogi passkey enroll on the server and works once, for 10 minutes.", Tags: tags},
-		func(ctx context.Context, in *struct {
-			Body struct {
-				Token string `json:"token" minLength:"1"`
-			}
-		},
-		) (*optionsOutput, error) {
-			valid, err := s.store.Enrollment(ctx, in.Body.Token, false)
-			if err != nil {
-				return nil, problem(err)
-			}
-			if !valid {
-				return nil, huma.Error403Forbidden("this enrollment link is used or expired; make another with otogi passkey enroll")
-			}
-			return registration(ctx, ceremony{Enrollment: in.Body.Token})
-		})
-	huma.Register(api, huma.Operation{OperationID: "finish-enrollment", Method: http.MethodPost, Path: "/api/auth/enroll/finish", Summary: "Register the passkey and sign in", Tags: tags},
-		func(ctx context.Context, in *struct {
-			CeremonyCookie
-			Body newPasskey
-		},
-		) (*SetCookies, error) {
-			c, err := readCeremony(in.Ceremony)
-			if err != nil {
-				return nil, err
-			}
-			if c.Enrollment == "" {
-				return nil, huma.Error400BadRequest("this ceremony did not start from an enrollment link")
-			}
-			valid, err := s.store.Enrollment(ctx, c.Enrollment, true)
-			if err != nil {
-				return nil, problem(err)
-			}
-			if !valid {
-				return nil, huma.Error403Forbidden("this enrollment link is used or expired; make another with otogi passkey enroll")
-			}
-			cookies, err := register(ctx, c, in.Body)
-			return &SetCookies{SetCookie: cookies}, err
-		})
-	huma.Register(api, huma.Operation{OperationID: "list-passkeys", Method: http.MethodGet, Path: "/api/auth/passkeys", Summary: "The operator's passkeys", Tags: tags},
-		func(ctx context.Context, in *SessionCookie) (*struct{ Body []PasskeyInfo }, error) {
-			current, _ := s.who(ctx, in.Session)
-			_, keys, err := s.operator(ctx)
-			if err != nil {
-				return nil, problem(err)
-			}
-			out := &struct{ Body []PasskeyInfo }{[]PasskeyInfo{}}
-			for _, k := range keys {
-				out.Body = append(out.Body, PasskeyInfo{
-					ID: base64.RawURLEncoding.EncodeToString(k.Credential.ID), Name: k.Name, CreatedAt: k.CreatedAt, UsedAt: k.UsedAt,
-					Current: bytes.Equal(k.Credential.ID, current.Credential.ID),
-				})
 			}
 			return out, nil
-		})
-	huma.Register(api, huma.Operation{OperationID: "begin-passkey", Method: http.MethodPost, Path: "/api/auth/passkeys/begin", Summary: "Start registering another passkey", Tags: tags},
-		func(ctx context.Context, _ *struct{}) (*optionsOutput, error) {
-			return registration(ctx, ceremony{})
-		})
-	huma.Register(api, huma.Operation{OperationID: "finish-passkey", Method: http.MethodPost, Path: "/api/auth/passkeys/finish", Summary: "Register another passkey", Tags: tags},
-		func(ctx context.Context, in *struct {
-			CeremonyCookie
-			Body newPasskey
-		},
-		) (*SetCookies, error) {
-			c, err := readCeremony(in.Ceremony)
-			if err != nil {
-				return nil, err
-			}
-			if c.Enrollment != "" {
-				return nil, huma.Error400BadRequest("this ceremony started from an enrollment link")
-			}
-			cookies, err := register(ctx, c, in.Body)
-			if err != nil {
-				return nil, err
-			}
-			return &SetCookies{SetCookie: cookies[1:]}, nil // the session stays the one signed in
-		})
-	huma.Register(api, huma.Operation{OperationID: "remove-passkey", Method: http.MethodDelete, Path: "/api/auth/passkeys/{id}", Summary: "Remove a passkey",
-		Description: "The last passkey cannot be removed: nobody could sign in.", DefaultStatus: http.StatusNoContent, Tags: tags},
-		func(ctx context.Context, in *struct {
-			ID string `path:"id" doc:"The credential ID, base64url."`
-		},
-		) (*struct{}, error) {
-			id, err := base64.RawURLEncoding.DecodeString(in.ID)
-			if err != nil {
-				return nil, huma.Error400BadRequest("id must be base64url")
-			}
-			_, keys, err := s.operator(ctx)
-			if err != nil {
-				return nil, problem(err)
-			}
-			i := slices.IndexFunc(keys, func(k panel.Passkey) bool { return bytes.Equal(k.Credential.ID, id) })
-			switch {
-			case i < 0:
-				return nil, huma.Error404NotFound("no such passkey")
-			case len(keys) == 1:
-				return nil, huma.Error409Conflict("this is the last passkey: register another before removing it")
-			}
-			if _, err := s.store.RemovePasskey(ctx, id); err != nil {
-				return nil, problem(err)
-			}
-			s.record(ctx, "remove", keys[i].Name, nil)
-			return nil, nil
 		})
 }

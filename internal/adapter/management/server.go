@@ -15,7 +15,6 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
 
-	"github.com/TundraWork/Ex-Otogi/internal/adapter/management/panel"
 	"github.com/TundraWork/Ex-Otogi/pkg/otogi"
 )
 
@@ -41,11 +40,16 @@ type ServerConfig struct {
 	Media func(context.Context, otogi.Destination, otogi.MediaSource) ([]byte, error)
 	// Version is the build, as the OpenAPI document names it.
 	Version string
-	// PublicURL is the panel's origin, such as https://otogi.example.com:
-	// passkeys are bound to it. Empty turns panel sign-in off.
+	// PublicURL is the panel's origin, such as https://otogi.example.com,
+	// where the identity provider sends browsers back. Empty turns panel
+	// sign-in off.
 	PublicURL string
-	// Passkeys holds the panel's sign-in; required with PublicURL.
-	Passkeys *panel.Store
+	// OIDC is the identity provider the panel signs in with; required with
+	// PublicURL.
+	OIDC OIDC
+	// CookieKey signs and encrypts session cookies (see LoadCookieKey);
+	// required with PublicURL.
+	CookieKey []byte
 	// Panel is the built control panel, served at every path outside /api/.
 	Panel fs.FS
 	// Logger receives server errors.
@@ -124,7 +128,7 @@ func newHandler(cfg ServerConfig) (http.Handler, error) {
 	open := func(string) bool { return false }
 	if cfg.PublicURL != "" {
 		var err error
-		if signIn, err = newSignIn(cfg.Passkeys, cfg.PublicURL, cfg.Events); err != nil {
+		if signIn, err = newSignIn(cfg.OIDC, cfg.PublicURL, cfg.CookieKey, cfg.Events); err != nil {
 			return nil, err
 		}
 		open = signInRoutes

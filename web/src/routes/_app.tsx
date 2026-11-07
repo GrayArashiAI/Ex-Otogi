@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createFileRoute, Link, Outlet, redirect, useRouter, useRouterState } from "@tanstack/react-router";
-import { ChevronDown, KeyRound, LogOut } from "lucide-react";
+import { createFileRoute, Link, Outlet, redirect, useRouterState } from "@tanstack/react-router";
+import { ChevronDown, LogOut } from "lucide-react";
 import { api, data } from "@/api/client";
 import { Search } from "@/components/search";
 import { Menu, MenuItem, MenuLinkItem, MenuPopup, MenuSeparator, MenuTrigger } from "@/components/ui/menu";
@@ -73,15 +73,15 @@ function PhoneNav() {
 function Account() {
   const { data: session } = useQuery(sessionQuery);
   const queryClient = useQueryClient();
-  const router = useRouter();
   const signOut = useMutation({
     mutationFn: () => data(api.POST("/api/auth/logout")),
-    onSuccess: async () => {
+    // Signing out ends the provider's session too, which happens there.
+    onSuccess: (out) => {
       queryClient.clear();
-      await router.navigate({ to: "/sign-in" });
+      window.location.assign(out.next);
     },
   });
-  const name = session?.passkey ?? "";
+  const name = session?.name || session?.username || "";
   return (
     <Menu>
       <MenuTrigger
@@ -91,11 +91,13 @@ function Account() {
         {name.slice(0, 1).toUpperCase() || "?"}
       </MenuTrigger>
       <MenuPopup align="end">
-        <div className="px-2 py-1.5 text-muted-foreground text-xs">Signed in with {name}</div>
+        <div className="px-2 py-1.5 text-muted-foreground text-xs">
+          Signed in as {name}
+          {session?.username && session.name && session.username !== session.name && (
+            <span className="block font-mono">{session.username}</span>
+          )}
+        </div>
         <MenuSeparator />
-        <MenuLinkItem render={<Link to="/passkeys" />}>
-          <KeyRound /> Passkeys
-        </MenuLinkItem>
         <MenuItem onClick={() => signOut.mutate()}>
           <LogOut /> Sign out
         </MenuItem>

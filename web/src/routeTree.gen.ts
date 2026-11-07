@@ -10,13 +10,11 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as AppRouteImport } from './routes/_app'
-import { Route as EnrollRouteImport } from './routes/enroll'
 import { Route as SignInRouteImport } from './routes/sign-in'
 import { Route as AppIndexRouteImport } from './routes/_app/index'
 import { Route as AppChatsRouteImport } from './routes/_app/chats'
 import { Route as AppEventsRouteImport } from './routes/_app/events'
 import { Route as AppModulesRouteImport } from './routes/_app/modules'
-import { Route as AppPasskeysRouteImport } from './routes/_app/passkeys'
 import { Route as AppStatusRouteImport } from './routes/_app/status'
 import { Route as AppChatsIndexRouteImport } from './routes/_app/chats/index'
 import { Route as AppChatsChatRouteImport } from './routes/_app/chats/$chat'
@@ -25,11 +23,6 @@ import { Route as AppModulesModuleRouteImport } from './routes/_app/modules/$mod
 
 const AppRoute = AppRouteImport.update({
   id: '/_app',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const EnrollRoute = EnrollRouteImport.update({
-  id: '/enroll',
-  path: '/enroll',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SignInRoute = SignInRouteImport.update({
@@ -55,11 +48,6 @@ const AppEventsRoute = AppEventsRouteImport.update({
 const AppModulesRoute = AppModulesRouteImport.update({
   id: '/modules',
   path: '/modules',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppPasskeysRoute = AppPasskeysRouteImport.update({
-  id: '/passkeys',
-  path: '/passkeys',
   getParentRoute: () => AppRoute,
 } as any)
 const AppStatusRoute = AppStatusRouteImport.update({
@@ -90,12 +78,10 @@ const AppModulesModuleRoute = AppModulesModuleRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
-  '/enroll': typeof EnrollRoute
   '/sign-in': typeof SignInRoute
   '/chats': typeof AppChatsRouteWithChildren
   '/events': typeof AppEventsRoute
   '/modules': typeof AppModulesRouteWithChildren
-  '/passkeys': typeof AppPasskeysRoute
   '/status': typeof AppStatusRoute
   '/chats/$chat': typeof AppChatsChatRoute
   '/modules/$module': typeof AppModulesModuleRoute
@@ -103,10 +89,8 @@ export interface FileRoutesByFullPath {
   '/modules/': typeof AppModulesIndexRoute
 }
 export interface FileRoutesByTo {
-  '/enroll': typeof EnrollRoute
   '/sign-in': typeof SignInRoute
   '/events': typeof AppEventsRoute
-  '/passkeys': typeof AppPasskeysRoute
   '/status': typeof AppStatusRoute
   '/': typeof AppIndexRoute
   '/chats/$chat': typeof AppChatsChatRoute
@@ -117,12 +101,10 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_app': typeof AppRouteWithChildren
-  '/enroll': typeof EnrollRoute
   '/sign-in': typeof SignInRoute
   '/_app/chats': typeof AppChatsRouteWithChildren
   '/_app/events': typeof AppEventsRoute
   '/_app/modules': typeof AppModulesRouteWithChildren
-  '/_app/passkeys': typeof AppPasskeysRoute
   '/_app/status': typeof AppStatusRoute
   '/_app/': typeof AppIndexRoute
   '/_app/chats/$chat': typeof AppChatsChatRoute
@@ -134,12 +116,10 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
-    | '/enroll'
     | '/sign-in'
     | '/chats'
     | '/events'
     | '/modules'
-    | '/passkeys'
     | '/status'
     | '/chats/$chat'
     | '/modules/$module'
@@ -147,10 +127,8 @@ export interface FileRouteTypes {
     | '/modules/'
   fileRoutesByTo: FileRoutesByTo
   to:
-    | '/enroll'
     | '/sign-in'
     | '/events'
-    | '/passkeys'
     | '/status'
     | '/'
     | '/chats/$chat'
@@ -160,12 +138,10 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/_app'
-    | '/enroll'
     | '/sign-in'
     | '/_app/chats'
     | '/_app/events'
     | '/_app/modules'
-    | '/_app/passkeys'
     | '/_app/status'
     | '/_app/'
     | '/_app/chats/$chat'
@@ -176,7 +152,6 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   AppRoute: typeof AppRouteWithChildren
-  EnrollRoute: typeof EnrollRoute
   SignInRoute: typeof SignInRoute
 }
 
@@ -187,13 +162,6 @@ declare module '@tanstack/react-router' {
       path: ''
       fullPath: '/'
       preLoaderRoute: typeof AppRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/enroll': {
-      id: '/enroll'
-      path: '/enroll'
-      fullPath: '/enroll'
-      preLoaderRoute: typeof EnrollRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/sign-in': {
@@ -229,13 +197,6 @@ declare module '@tanstack/react-router' {
       path: '/modules'
       fullPath: '/modules'
       preLoaderRoute: typeof AppModulesRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/passkeys': {
-      id: '/_app/passkeys'
-      path: '/passkeys'
-      fullPath: '/passkeys'
-      preLoaderRoute: typeof AppPasskeysRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/status': {
@@ -308,7 +269,6 @@ interface AppRouteChildren {
   AppChatsRoute: typeof AppChatsRouteWithChildren
   AppEventsRoute: typeof AppEventsRoute
   AppModulesRoute: typeof AppModulesRouteWithChildren
-  AppPasskeysRoute: typeof AppPasskeysRoute
   AppStatusRoute: typeof AppStatusRoute
   AppIndexRoute: typeof AppIndexRoute
 }
@@ -317,7 +277,6 @@ const AppRouteChildren: AppRouteChildren = {
   AppChatsRoute: AppChatsRouteWithChildren,
   AppEventsRoute: AppEventsRoute,
   AppModulesRoute: AppModulesRouteWithChildren,
-  AppPasskeysRoute: AppPasskeysRoute,
   AppStatusRoute: AppStatusRoute,
   AppIndexRoute: AppIndexRoute,
 }
@@ -326,7 +285,6 @@ const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
   AppRoute: AppRouteWithChildren,
-  EnrollRoute: EnrollRoute,
   SignInRoute: SignInRoute,
 }
 export const routeTree = rootRouteImport

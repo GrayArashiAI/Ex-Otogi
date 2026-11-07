@@ -17,8 +17,12 @@ kernel:
 management:
   addr: 127.0.0.1:8090    # HTTP API for status and the event log; "" disables it
   # token: ${OTOGI_MANAGEMENT_TOKEN}   # required if addr is not loopback
-  # public_url: https://otogi.example.com   # the control panel's origin, behind a TLS proxy;
-  #                                         # sign in with passkeys (otogi passkey enroll)
+  # public_url: https://otogi.example.com   # the control panel's origin, behind a TLS proxy
+  # oidc:                                   # the provider the panel signs in with
+  #   issuer: https://opus.name
+  #   client_id: ex-otogi                   # redirect URI <public_url>/api/auth/callback
+  #   client_secret: ${OTOGI_OIDC_CLIENT_SECRET}
+  #   allow: [tundra]                       # provider usernames that may sign in
 
 # Platform-qualified actor IDs (as /whoami prints them) allowed to use operator
 # commands such as /status and /todou link.

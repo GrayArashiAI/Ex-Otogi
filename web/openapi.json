@@ -107,19 +107,6 @@
         ],
         "type": "object"
       },
-      "Begin-enrollmentRequest": {
-        "additionalProperties": false,
-        "properties": {
-          "token": {
-            "minLength": 1,
-            "type": "string"
-          }
-        },
-        "required": [
-          "token"
-        ],
-        "type": "object"
-      },
       "Chat": {
         "additionalProperties": false,
         "properties": {
@@ -1027,25 +1014,6 @@
         ],
         "type": "object"
       },
-      "NewPasskey": {
-        "additionalProperties": false,
-        "properties": {
-          "credential": {
-            "description": "The result of navigator.credentials.create."
-          },
-          "name": {
-            "description": "What to call it, such as Tundra's iPhone.",
-            "maxLength": 100,
-            "minLength": 1,
-            "type": "string"
-          }
-        },
-        "required": [
-          "name",
-          "credential"
-        ],
-        "type": "object"
-      },
       "Page": {
         "additionalProperties": false,
         "properties": {
@@ -1134,38 +1102,6 @@
         "required": [
           "id",
           "kind"
-        ],
-        "type": "object"
-      },
-      "PasskeyInfo": {
-        "additionalProperties": false,
-        "properties": {
-          "created_at": {
-            "format": "date-time",
-            "type": "string"
-          },
-          "current": {
-            "description": "Whether this session signed in with it.",
-            "type": "boolean"
-          },
-          "id": {
-            "description": "The credential ID, base64url.",
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          },
-          "used_at": {
-            "description": "When it last signed in.",
-            "format": "date-time",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "name",
-          "created_at",
-          "current"
         ],
         "type": "object"
       },
@@ -1375,16 +1311,23 @@
       "SessionOutputBody": {
         "additionalProperties": false,
         "properties": {
-          "passkey": {
-            "description": "The passkey this session signed in with.",
+          "name": {
+            "type": "string"
+          },
+          "provider": {
+            "description": "The identity provider's issuer, which the sign-in page names.",
             "type": "string"
           },
           "signed_in": {
             "type": "boolean"
+          },
+          "username": {
+            "type": "string"
           }
         },
         "required": [
-          "signed_in"
+          "signed_in",
+          "provider"
         ],
         "type": "object"
       },
@@ -1424,15 +1367,16 @@
         ],
         "type": "object"
       },
-      "SignedInOutputBody": {
+      "SignOutOutputBody": {
         "additionalProperties": false,
         "properties": {
-          "passkey": {
+          "next": {
+            "description": "Where to go to sign out at the identity provider too.",
             "type": "string"
           }
         },
         "required": [
-          "passkey"
+          "next"
         ],
         "type": "object"
       },
@@ -1493,81 +1437,60 @@
   },
   "openapi": "3.1.0",
   "paths": {
-    "/api/auth/enroll/begin": {
-      "post": {
-        "description": "The link comes from otogi passkey enroll on the server and works once, for 10 minutes.",
-        "operationId": "begin-enrollment",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/Begin-enrollmentRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "description": "The options for navigator.credentials, as go-webauthn writes them."
-                }
-              }
-            },
-            "description": "OK",
-            "headers": {
-              "Set-Cookie": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorModel"
-                }
-              }
-            },
-            "description": "Error"
-          }
-        },
-        "summary": "Start registering a passkey from an enrollment link",
-        "tags": [
-          "Sign-in"
-        ]
-      }
-    },
-    "/api/auth/enroll/finish": {
-      "post": {
-        "operationId": "finish-enrollment",
+    "/api/auth/callback": {
+      "get": {
+        "description": "Checks the provider's answer and starts a session; a failure returns to the sign-in page saying why.",
+        "operationId": "sign-in-callback",
         "parameters": [
           {
             "in": "cookie",
-            "name": "otogi_ceremony",
+            "name": "otogi_signin",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "code",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "state",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "error",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "error_description",
             "schema": {
               "type": "string"
             }
           }
         ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/NewPasskey"
-              }
-            }
-          },
-          "required": true
-        },
         "responses": {
-          "204": {
-            "description": "No Content",
+          "302": {
+            "description": "Found",
             "headers": {
+              "Location": {
+                "schema": {
+                  "type": "string"
+                }
+              },
               "Set-Cookie": {
                 "schema": {
                   "type": "string"
@@ -1586,83 +1509,37 @@
             "description": "Error"
           }
         },
-        "summary": "Register the passkey and sign in",
+        "summary": "Come back from the identity provider",
         "tags": [
           "Sign-in"
         ]
       }
     },
-    "/api/auth/login/begin": {
-      "post": {
-        "operationId": "begin-sign-in",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "description": "The options for navigator.credentials, as go-webauthn writes them."
-                }
-              }
-            },
-            "description": "OK",
-            "headers": {
-              "Set-Cookie": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorModel"
-                }
-              }
-            },
-            "description": "Error"
-          }
-        },
-        "summary": "Start signing in with a passkey",
-        "tags": [
-          "Sign-in"
-        ]
-      }
-    },
-    "/api/auth/login/finish": {
-      "post": {
-        "operationId": "finish-sign-in",
+    "/api/auth/login": {
+      "get": {
+        "description": "Sends the browser to the provider, which sends it back to /api/auth/callback.",
+        "operationId": "sign-in",
         "parameters": [
           {
-            "in": "cookie",
-            "name": "otogi_ceremony",
+            "description": "The panel path to return to.",
+            "explode": false,
+            "in": "query",
+            "name": "next",
             "schema": {
+              "description": "The panel path to return to.",
               "type": "string"
             }
           }
         ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "description": "The result of navigator.credentials.get."
-              }
-            }
-          },
-          "required": true
-        },
         "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SignedInOutputBody"
-                }
-              }
-            },
-            "description": "OK",
+          "302": {
+            "description": "Found",
             "headers": {
+              "Location": {
+                "schema": {
+                  "type": "string"
+                }
+              },
               "Set-Cookie": {
                 "schema": {
                   "type": "string"
@@ -1681,7 +1558,7 @@
             "description": "Error"
           }
         },
-        "summary": "Sign in with the passkey's answer",
+        "summary": "Sign in at the identity provider",
         "tags": [
           "Sign-in"
         ]
@@ -1700,88 +1577,11 @@
           }
         ],
         "responses": {
-          "204": {
-            "description": "No Content",
-            "headers": {
-              "Set-Cookie": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorModel"
-                }
-              }
-            },
-            "description": "Error"
-          }
-        },
-        "summary": "Sign out",
-        "tags": [
-          "Sign-in"
-        ]
-      }
-    },
-    "/api/auth/passkeys": {
-      "get": {
-        "operationId": "list-passkeys",
-        "parameters": [
-          {
-            "in": "cookie",
-            "name": "otogi_session",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/PasskeyInfo"
-                  },
-                  "type": [
-                    "array",
-                    "null"
-                  ]
-                }
-              }
-            },
-            "description": "OK"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorModel"
-                }
-              }
-            },
-            "description": "Error"
-          }
-        },
-        "summary": "The operator's passkeys",
-        "tags": [
-          "Sign-in"
-        ]
-      }
-    },
-    "/api/auth/passkeys/begin": {
-      "post": {
-        "operationId": "begin-passkey",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "description": "The options for navigator.credentials, as go-webauthn writes them."
+                  "$ref": "#/components/schemas/SignOutOutputBody"
                 }
               }
             },
@@ -1805,94 +1605,7 @@
             "description": "Error"
           }
         },
-        "summary": "Start registering another passkey",
-        "tags": [
-          "Sign-in"
-        ]
-      }
-    },
-    "/api/auth/passkeys/finish": {
-      "post": {
-        "operationId": "finish-passkey",
-        "parameters": [
-          {
-            "in": "cookie",
-            "name": "otogi_ceremony",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/NewPasskey"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "204": {
-            "description": "No Content",
-            "headers": {
-              "Set-Cookie": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorModel"
-                }
-              }
-            },
-            "description": "Error"
-          }
-        },
-        "summary": "Register another passkey",
-        "tags": [
-          "Sign-in"
-        ]
-      }
-    },
-    "/api/auth/passkeys/{id}": {
-      "delete": {
-        "description": "The last passkey cannot be removed: nobody could sign in.",
-        "operationId": "remove-passkey",
-        "parameters": [
-          {
-            "description": "The credential ID, base64url.",
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "description": "The credential ID, base64url.",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "No Content"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorModel"
-                }
-              }
-            },
-            "description": "Error"
-          }
-        },
-        "summary": "Remove a passkey",
+        "summary": "Sign out, here and at the identity provider",
         "tags": [
           "Sign-in"
         ]

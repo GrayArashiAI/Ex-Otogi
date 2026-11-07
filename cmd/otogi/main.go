@@ -3,7 +3,6 @@
 //	otogi [-config otogi.yaml] [run]        run until SIGINT or SIGTERM
 //	otogi [-config otogi.yaml] validate     check the config file
 //	otogi [-config otogi.yaml] login ACCOUNT  log a Telegram account in
-//	otogi [-config otogi.yaml] passkey enroll  print a link that registers a panel passkey
 //	otogi smoke                             offline smoke test
 //	otogi openapi                           print the management API's OpenAPI document
 package main
@@ -13,16 +12,12 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
-	"time"
 
 	"github.com/TundraWork/Ex-Otogi/internal/adapter/management"
-	"github.com/TundraWork/Ex-Otogi/internal/adapter/management/panel"
 	"github.com/TundraWork/Ex-Otogi/internal/adapter/telegram"
 	"github.com/TundraWork/Ex-Otogi/pkg/otogi"
 )
@@ -56,10 +51,10 @@ func mainExit() int {
 		if doc, err = management.OpenAPI(); err == nil {
 			_, err = fmt.Printf("%s\n", doc)
 		}
-	case "run", "validate", "login", "passkey":
+	case "run", "validate", "login":
 		err = withConfig(ctx, *configPath, command, args)
 	default:
-		err = fmt.Errorf("unknown command %q (want run, validate, login, passkey, smoke, or openapi)", command)
+		err = fmt.Errorf("unknown command %q (want run, validate, login, smoke, or openapi)", command)
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "otogi:", err)
@@ -86,11 +81,6 @@ func withConfig(ctx context.Context, path, command string, args []string) error 
 			return errors.New("usage: otogi login ACCOUNT")
 		}
 		return login(ctx, cfg, args[0])
-	case "passkey":
-		if len(args) != 1 || args[0] != "enroll" {
-			return errors.New("usage: otogi passkey enroll")
-		}
-		return enroll(ctx, cfg, os.Stdout)
 	default:
 		log, err := newLogger(cfg.Log)
 		if err != nil {
@@ -98,26 +88,6 @@ func withConfig(ctx context.Context, path, command string, args []string) error 
 		}
 		return run(ctx, cfg, log)
 	}
-}
-
-// enroll prints a one-time link that registers a passkey for the panel,
-// valid for 10 minutes. Run it as the service's user: it writes the panel's
-// database.
-func enroll(ctx context.Context, cfg Config, out io.Writer) error {
-	if cfg.Management.PublicURL == "" {
-		return errors.New("passkey enroll: set management.public_url, where the panel is served")
-	}
-	store, err := panel.Open(ctx, filepath.Join(cfg.DataDir, "panel.sqlite"))
-	if err != nil {
-		return err
-	}
-	defer func() { _ = store.Close() }()
-	token, err := store.NewEnrollment(ctx, 10*time.Minute)
-	if err != nil {
-		return err
-	}
-	_, err = fmt.Fprintf(out, "Open this link within 10 minutes to register a passkey; it works once:\n%s/enroll#%s\n", cfg.Management.PublicURL, token)
-	return err
 }
 
 func login(ctx context.Context, cfg Config, account string) error {

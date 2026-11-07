@@ -10,17 +10,14 @@ It is an adapter: it reads the event log and component status, and changes modul
 
 `management.addr` defaults to `127.0.0.1:8090`; an empty value disables the API. On a non-loopback address, `management.token` is required and sent as `Authorization: Bearer <token>` on `/api/` routes; `/healthz` and `/readyz` stay open for supervisors.
 
-With `management.public_url`, the control panel signs in with passkeys (see `docs/security.md`), and an `/api/` request is admitted with a session cookie, or with the token when it comes straight to the server rather than through the proxy. Changes are then recorded with the passkey's name. The sign-in routes are open:
+With `management.public_url`, the control panel signs in through the OpenID Connect provider in `management.oidc` (see `docs/security.md`), and an `/api/` request is admitted with a session cookie, or with the token when it comes straight to the server rather than through the proxy. Changes are then recorded with the account's display name and username. The sign-in routes are open:
 
 | Route | Purpose |
 | --- | --- |
-| `GET /api/auth/session` | Whether this browser is signed in, and with which passkey |
-| `POST /api/auth/login/begin`, `POST /api/auth/login/finish` | Sign in: the options for `navigator.credentials.get`, then its result |
-| `POST /api/auth/logout` | Sign out |
-| `POST /api/auth/enroll/begin`, `POST /api/auth/enroll/finish` | Register a first passkey from an enrollment link's token, and sign in |
-| `GET /api/auth/passkeys` | The passkeys (signed in) |
-| `POST /api/auth/passkeys/begin`, `POST /api/auth/passkeys/finish` | Register another passkey (signed in) |
-| `DELETE /api/auth/passkeys/{id}` | Remove one, except the last (signed in) |
+| `GET /api/auth/session` | Whether this browser is signed in, as whom, and the provider's issuer |
+| `GET /api/auth/login?next=<path>` | Leave for the provider to sign in |
+| `GET /api/auth/callback` | Where the provider sends the browser back: a session, then `next`; or the sign-in page saying why not |
+| `POST /api/auth/logout` | Sign out; the response's `next` signs out at the provider too |
 
 ## Routes
 
@@ -49,7 +46,7 @@ The API is built with [huma](https://huma.rocks): `GET /api/openapi.json` (or `.
 | `GET /api/chats/{chat}/messages` | Its conversation, newest first (`before=<message id>`, `limit`): people's messages from the events received, and the bot's from what it sent, each naming its module and that module's records for the event it answered (`chat.reply` with the model, `module.completed` with the duration) |
 | `GET /api/chats/{chat}/media/{message}/{part}` | An image or file in the conversation: what the bot sent comes from the event log; what people sent is fetched through the platform, so it is gone once the platform drops it |
 
-A chat is named as `/whoami` prints it, `<platform>:<conversation>` (`telegram:channel:123`). Changes are recorded as made by the passkey that signed in, or by `management API` when the token was used.
+A chat is named as `/whoami` prints it, `<platform>:<conversation>` (`telegram:channel:123`). Changes are recorded as made by the account that signed in, or by `management API` when the token was used.
 
 ## Capabilities
 
