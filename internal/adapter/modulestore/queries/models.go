@@ -12,6 +12,12 @@ type Allowlist struct {
 	AddedBy string
 }
 
+type BotReceiver struct {
+	Module    string
+	ChangedAt int64
+	ChangedBy string
+}
+
 type Kv struct {
 	Module    string
 	Key       string

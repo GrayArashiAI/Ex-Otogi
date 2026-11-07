@@ -940,6 +940,10 @@
           "id": {
             "type": "string"
           },
+          "ignore_bots": {
+            "description": "Whether it ignores messages from bot accounts; on unless turned off.",
+            "type": "boolean"
+          },
           "problem": {
             "description": "Why its current settings do not build, when they do not; its allowlists are then unknown.",
             "type": "string"
@@ -960,7 +964,8 @@
           "revision",
           "allowlists",
           "commands",
-          "counts"
+          "counts",
+          "ignore_bots"
         ],
         "type": "object"
       },
@@ -1455,12 +1460,14 @@
         "additionalProperties": false,
         "properties": {
           "enabled": {
+            "description": "Whether the module runs.",
+            "type": "boolean"
+          },
+          "ignore_bots": {
+            "description": "Whether it ignores messages from bot accounts.",
             "type": "boolean"
           }
         },
-        "required": [
-          "enabled"
-        ],
         "type": "object"
       },
       "Task": {
@@ -2345,7 +2352,7 @@
         ]
       },
       "patch": {
-        "description": "Saves a revision that changes only whether the module runs, and applies it.",
+        "description": "enabled saves a revision that changes only whether the module runs, and applies it. ignore_bots turns its \"ignore bots\" switch on or off at once, and is recorded as bots.changed.",
         "operationId": "switch-module",
         "parameters": [
           {
@@ -2359,11 +2366,11 @@
             }
           },
           {
-            "description": "The ETag of the settings this changes; the current revision when absent.",
+            "description": "The ETag of the settings enabled changes; the current revision when absent.",
             "in": "header",
             "name": "If-Match",
             "schema": {
-              "description": "The ETag of the settings this changes; the current revision when absent.",
+              "description": "The ETag of the settings enabled changes; the current revision when absent.",
               "type": "string"
             }
           }
@@ -2400,7 +2407,7 @@
             "description": "Error"
           }
         },
-        "summary": "Turn a module on or off",
+        "summary": "Turn a module, or its bots switch, on or off",
         "tags": [
           "Modules"
         ]

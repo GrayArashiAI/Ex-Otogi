@@ -33,7 +33,7 @@ Missed platform history is the driver's job. Telegram, for example, fetches upda
 
 Each delivery goes into a lane keyed by (module, platform, account, conversation). A pool of kernel-owned workers runs lanes, one delivery at a time per lane. So a module sees one conversation's events in order, while different conversations, and different modules on the same event, run in parallel. A slow module delays only its own lane. A module may declare `OrderNone` to run every delivery independently.
 
-Which modules receive an event: if the event carries a command (set by the command parser middleware, `commands.prefixes`, or by a driver) that a module declares, only that module; otherwise every module subscribed to the event's action. Each module's filter applies in both cases; by default it admits incoming events only, so modules never see, and answer, the account's own messages, and none from bot accounts, so they do not answer another bot.
+Which modules receive an event: if the event carries a command (set by the command parser middleware, `commands.prefixes`, or by a driver) that a module declares, only that module; otherwise every module subscribed to the event's action. Each module's filter applies in both cases; by default it admits incoming events only, so modules never see, and answer, the account's own messages. A module whose "ignore bots" switch is on, as it is unless the operator turns it off, receives no event from a bot account either.
 
 Modules are independent: there is no order between modules for the same event. Anything that must happen before all modules belongs in middleware.
 

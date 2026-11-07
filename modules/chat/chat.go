@@ -44,9 +44,9 @@ func New(cfg Config, providers func(string) (llm.Provider, error)) (*Module, err
 	return m, nil
 }
 
-// Descriptor declares the module. It sees every message of every direction,
-// bots' too, to keep the transcript of the chats it serves; only people's
-// new messages trigger agents. Each profile has an allowlist, named as the profile, and
+// Descriptor declares the module. It sees every message of every direction
+// (bots' too, when its "ignore bots" switch is off), to keep the transcript
+// of the chats it serves; only people's new messages trigger agents. Each profile has an allowlist, named as the profile, and
 // so does each module whose tools agents may use: the chats where they get
 // them.
 func (m *Module) Descriptor() otogi.ModuleDescriptor {
@@ -66,7 +66,7 @@ func (m *Module) Descriptor() otogi.ModuleDescriptor {
 		Subscribes: []otogi.EventAction{otogi.ActionMessageCreated, otogi.ActionMessageEdited, otogi.ActionMessageDeleted},
 		Ordering:   otogi.OrderNone,
 		Timeout:    time.Duration(m.cfg.Timeout),
-		Filter:     otogi.Filter{Directions: []otogi.Direction{otogi.DirectionIncoming, otogi.DirectionOutgoing, otogi.DirectionSystem}, Bots: true},
+		Filter:     otogi.Filter{Directions: []otogi.Direction{otogi.DirectionIncoming, otogi.DirectionOutgoing, otogi.DirectionSystem}},
 		Allowlists: lists,
 	}
 }

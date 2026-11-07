@@ -670,32 +670,3 @@ func TestRunningShowsDeliveriesInProgress(t *testing.T) {
 		t.Fatalf("running after completion = %+v", running)
 	}
 }
-
-// A bot's message goes only to the modules that ask for bots' messages.
-func TestBotsReachOnlyModulesThatAsk(t *testing.T) {
-	var mu sync.Mutex
-	got := map[otogi.ModuleID]int{}
-	count := func(id otogi.ModuleID) func(context.Context, otogi.Event, otogi.Invocation) error {
-		return func(context.Context, otogi.Event, otogi.Invocation) error {
-			mu.Lock()
-			defer mu.Unlock()
-			got[id]++
-			return nil
-		}
-	}
-	cards := module("cards", count("cards"))
-	transcript := module("transcript", count("transcript"))
-	transcript.descriptor.Filter.Bots = true
-	k := start(t, Config{}, []otogi.Module{cards, transcript}, nil, nil)
-	fromBot := event("c", "x.com/a/status/1")
-	fromBot.Actor = otogi.Actor{ID: "user:6", Bot: true}
-	if o := await(t, submit(t, k, fromBot)); len(o.Modules) != 1 || o.Modules[0].Module != "transcript" {
-		t.Fatalf("bot's message outcome %+v", o)
-	}
-	await(t, submit(t, k, event("c", "hi")))
-	mu.Lock()
-	defer mu.Unlock()
-	if got["cards"] != 1 || got["transcript"] != 2 {
-		t.Fatalf("deliveries %v", got)
-	}
-}

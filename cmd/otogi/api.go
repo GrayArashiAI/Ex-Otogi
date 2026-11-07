@@ -39,7 +39,7 @@ func (a moduleAPI) Modules(ctx context.Context) ([]management.Module, error) {
 	var out []management.Module
 	for _, id := range slices.Sorted(maps.Keys(s.kinds)) {
 		r, saved := current[id]
-		m := management.Module{ID: string(id), Enabled: r.Enabled, Revision: r.Revision, Allowlists: []management.Allowlist{}, Commands: []management.Command{}}
+		m := management.Module{ID: string(id), Enabled: r.Enabled, Revision: r.Revision, IgnoreBots: s.kernel.IgnoresBots(id), Allowlists: []management.Allowlist{}, Commands: []management.Command{}}
 		d, ok := running[id]
 		m.Running = ok
 		if !ok { // describe it as its current settings would build it
@@ -125,6 +125,10 @@ func (a moduleAPI) Allowlists() []management.AllowedChat {
 
 func (a moduleAPI) SetAllowed(ctx context.Context, module, list, chat string, allowed bool, by string) error {
 	return a.settings.kernel.SetAllowed(ctx, otogi.ModuleID(module), list, chat, allowed, by)
+}
+
+func (a moduleAPI) SetIgnoreBots(ctx context.Context, module string, ignore bool, by string) error {
+	return a.settings.kernel.SetIgnoreBots(ctx, otogi.ModuleID(module), ignore, by)
 }
 
 func revisionOut(r modulestore.SettingsRevision) management.Revision {

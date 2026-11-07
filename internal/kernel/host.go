@@ -33,6 +33,11 @@ type ModuleStorage interface {
 	Allowlists(ctx context.Context, fn func(module otogi.ModuleID, list, chat string, at time.Time, by string)) error
 	// SetAllowed adds a chat to a module's allowlist, or removes it.
 	SetAllowed(ctx context.Context, module otogi.ModuleID, list, chat string, allowed bool, at time.Time, by string) error
+	// BotReceivers calls fn for every module whose "ignore bots" switch is
+	// off.
+	BotReceivers(ctx context.Context, fn func(module otogi.ModuleID)) error
+	// SetIgnoreBots turns a module's "ignore bots" switch on or off.
+	SetIgnoreBots(ctx context.Context, module otogi.ModuleID, ignore bool, at time.Time, by string) error
 }
 
 // host is one module's otogi.Host.

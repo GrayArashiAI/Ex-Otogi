@@ -34,7 +34,7 @@ The API is built with [huma](https://huma.rocks): `GET /api/openapi.json` (or `.
 | `POST /api/shutdown` | Graceful shutdown |
 | `GET /api/modules` | Every module compiled in: whether it is on and running, its settings revision, its allowlists with their chat counts (and `about`, the module a list grants another module's capability of, such as `todou` for the chat module's `tools:todou`), its commands, and its runs since start. A module whose saved settings do not build says why in `problem`. |
 | `GET /api/modules/{module}` | One module, as above |
-| `PATCH /api/modules/{module}` | Turn it on or off (`{"enabled": true}`): a settings revision like any other, applied at once |
+| `PATCH /api/modules/{module}` | Turn it on or off (`{"enabled": true}`): a settings revision like any other, applied at once. `{"ignore_bots": false}` turns its "ignore bots" switch off (it is on unless turned off), at once, recorded as `bots.changed`. Each module in `GET /api/modules` says `ignore_bots`. |
 | `GET /api/modules/{module}/settings` | The current revision (number, on or off, settings, who saved it and when) and the settings' JSON Schema, whose `doc` texts describe each field. The `ETag` is the revision. |
 | `PUT /api/modules/{module}/settings` | Save new settings and apply them. `If-Match` must carry the `ETag` they replace; a stale one is 412. Settings that break the schema are 422, field by field. The module is built from them and swapped in while it runs, with the modules using its services; nothing is stored if that fails. |
 | `GET /api/modules/{module}/settings/revisions` | The settings' history, newest first: `before=<revision>`, `limit` |

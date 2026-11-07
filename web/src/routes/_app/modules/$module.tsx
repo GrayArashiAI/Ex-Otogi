@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute, Link, notFound } from "@tanstack/react-router";
 import { format } from "date-fns";
-import { ArrowLeft, CircleAlert } from "lucide-react";
+import { ArrowLeft, Bot, CircleAlert } from "lucide-react";
 import { Suspense } from "react";
 import { api, data, type Schemas } from "@/api/client";
 import { AllowlistCard } from "@/components/allowlist-card";
@@ -39,7 +39,10 @@ function ModulePage() {
           <h1 className="font-bold text-2xl leading-tight tracking-[-0.035em] sm:text-[1.875rem]">{meta.title}</h1>
           <p className="text-muted-foreground text-sm">{meta.about}</p>
         </div>
-        <Power module={m} />
+        <div className="flex flex-wrap items-center gap-2">
+          <IgnoreBots module={m} />
+          <Power module={m} />
+        </div>
       </div>
       {m.problem && (
         <div className="mt-5 flex gap-2.5 rounded-xl border border-destructive/24 bg-destructive/4 px-3.5 py-3 text-sm">
@@ -88,6 +91,33 @@ function Power({ module: m }: { module: Schemas["Module"] }) {
         disabled={toggle.isPending}
         onCheckedChange={(v) => toggle.mutate(v)}
         aria-label="Run this module"
+      />
+    </div>
+  );
+}
+
+/** IgnoreBots is the module's "ignore bots" switch: on, messages from bot
+ * accounts never reach it. It applies at once. */
+function IgnoreBots({ module: m }: { module: Schemas["Module"] }) {
+  const queryClient = useQueryClient();
+  const toggle = useMutation({
+    mutationFn: (ignore_bots: boolean) =>
+      data(api.PATCH("/api/modules/{module}", { params: { path: { module: m.id } }, body: { ignore_bots } })),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ["modules"] }),
+  });
+  const on = toggle.isPending ? Boolean(toggle.variables) : m.ignore_bots;
+  return (
+    <div
+      className="flex items-center gap-2.5 rounded-full border bg-background py-1.5 ps-3 pe-1.5 shadow-xs/5"
+      title="Messages from bot accounts never reach this module. Accounts a program drives for a person (userbots) are not told apart."
+    >
+      <Bot className="size-4 text-muted-foreground" />
+      <span className="font-medium text-sm">Ignore bots</span>
+      <Switch
+        checked={on}
+        disabled={toggle.isPending}
+        onCheckedChange={(v) => toggle.mutate(v)}
+        aria-label="Ignore messages from bot accounts"
       />
     </div>
   );

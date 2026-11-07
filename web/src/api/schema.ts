@@ -222,8 +222,8 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Turn a module on or off
-         * @description Saves a revision that changes only whether the module runs, and applies it.
+         * Turn a module, or its bots switch, on or off
+         * @description enabled saves a revision that changes only whether the module runs, and applies it. ignore_bots turns its "ignore bots" switch on or off at once, and is recorded as bots.changed.
          */
         patch: operations["switch-module"];
         trace?: never;
@@ -694,6 +694,8 @@ export interface components {
             /** @description Whether its current revision turns it on. */
             enabled: boolean;
             id: string;
+            /** @description Whether it ignores messages from bot accounts; on unless turned off. */
+            ignore_bots: boolean;
             /** @description Why its current settings do not build, when they do not; its allowlists are then unknown. */
             problem?: string;
             /**
@@ -855,7 +857,10 @@ export interface components {
             version: string;
         };
         "Switch-moduleRequest": {
-            enabled: boolean;
+            /** @description Whether the module runs. */
+            enabled?: boolean;
+            /** @description Whether it ignores messages from bot accounts. */
+            ignore_bots?: boolean;
         };
         Task: {
             account?: string;
@@ -1354,7 +1359,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description The ETag of the settings this changes; the current revision when absent. */
+                /** @description The ETag of the settings enabled changes; the current revision when absent. */
                 "If-Match"?: string;
             };
             path: {

@@ -81,10 +81,6 @@ type Filter struct {
 	ConversationKinds []ConversationKind
 	// Directions lists the directions the module receives.
 	Directions []Direction
-	// Bots admits events from bot accounts (Actor.Bot), which modules do
-	// not receive otherwise: a module answering links or commands should
-	// not answer another bot.
-	Bots bool
 }
 
 // Matches reports whether f admits e.
@@ -95,8 +91,7 @@ func (f Filter) Matches(e Event) bool {
 	}
 	return (len(f.Platforms) == 0 || slices.Contains(f.Platforms, e.Platform)) &&
 		(len(f.ConversationKinds) == 0 || slices.Contains(f.ConversationKinds, e.Conversation.Kind)) &&
-		(e.Direction == "" || slices.Contains(directions, e.Direction)) &&
-		(f.Bots || !e.Actor.Bot)
+		(e.Direction == "" || slices.Contains(directions, e.Direction))
 }
 
 // Module is bot behavior. The kernel calls Handle once per subscribed event,

@@ -37,6 +37,8 @@ type Modules interface {
 	Allowlists() []AllowedChat
 	// SetAllowed adds a chat to a module's allowlist, or removes it.
 	SetAllowed(ctx context.Context, module, list, chat string, allowed bool, by string) error
+	// SetIgnoreBots turns a module's "ignore bots" switch on or off.
+	SetIgnoreBots(ctx context.Context, module string, ignore bool, by string) error
 }
 
 // ErrNotFound is what Modules returns for a module or revision that does
@@ -61,6 +63,7 @@ type Module struct {
 	Allowlists []Allowlist  `json:"allowlists" nullable:"false"`
 	Commands   []Command    `json:"commands" nullable:"false"`
 	Counts     ModuleCounts `json:"counts" doc:"Its deliveries since the process started."`
+	IgnoreBots bool         `json:"ignore_bots" doc:"Whether it ignores messages from bot accounts; on unless turned off."`
 }
 
 // Allowlist is a module's list of the chats it answers in.
@@ -199,22 +202,36 @@ func registerModules(api huma.API, modules Modules) {
 			m, err := find(ctx, in.Module)
 			return &struct{ Body Module }{m}, err
 		})
-	huma.Register(api, huma.Operation{OperationID: "switch-module", Method: http.MethodPatch, Path: "/api/modules/{module}", Summary: "Turn a module on or off",
-		Description: "Saves a revision that changes only whether the module runs, and applies it.", Tags: []string{"Modules"}},
+	huma.Register(api, huma.Operation{OperationID: "switch-module", Method: http.MethodPatch, Path: "/api/modules/{module}", Summary: "Turn a module, or its bots switch, on or off",
+		Description: "enabled saves a revision that changes only whether the module runs, and applies it. ignore_bots turns its \"ignore bots\" switch on or off at once, and is recorded as bots.changed.", Tags: []string{"Modules"}},
 		func(ctx context.Context, in *struct {
 			ModulePath
-			IfMatch string `header:"If-Match" doc:"The ETag of the settings this changes; the current revision when absent."`
+			IfMatch string `header:"If-Match" doc:"The ETag of the settings enabled changes; the current revision when absent."`
 			Body    struct {
-				Enabled bool `json:"enabled"`
+				Enabled    *bool `json:"enabled,omitempty" doc:"Whether the module runs."`
+				IgnoreBots *bool `json:"ignore_bots,omitempty" doc:"Whether it ignores messages from bot accounts."`
 			}
 		},
 		) (*struct{ Body Module }, error) {
-			base, err := baseRevision(ctx, modules, in.Module, in.IfMatch)
-			if err != nil {
+			if in.Body.Enabled == nil && in.Body.IgnoreBots == nil {
+				return nil, huma.Error422UnprocessableEntity("set enabled, ignore_bots, or both")
+			}
+			if _, err := find(ctx, in.Module); err != nil {
 				return nil, err
 			}
-			if _, err := modules.SaveSettings(ctx, in.Module, base, &in.Body.Enabled, nil, caller(ctx)); err != nil {
-				return nil, problem(err)
+			if in.Body.IgnoreBots != nil {
+				if err := modules.SetIgnoreBots(ctx, in.Module, *in.Body.IgnoreBots, caller(ctx)); err != nil {
+					return nil, problem(err)
+				}
+			}
+			if in.Body.Enabled != nil {
+				base, err := baseRevision(ctx, modules, in.Module, in.IfMatch)
+				if err != nil {
+					return nil, err
+				}
+				if _, err := modules.SaveSettings(ctx, in.Module, base, in.Body.Enabled, nil, caller(ctx)); err != nil {
+					return nil, problem(err)
+				}
 			}
 			m, err := find(ctx, in.Module)
 			return &struct{ Body Module }{m}, err

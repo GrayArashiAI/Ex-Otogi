@@ -36,3 +36,31 @@ func (s *Storage) SetAllowed(ctx context.Context, module otogi.ModuleID, list, c
 	}
 	return nil
 }
+
+// BotReceivers calls fn for every module that receives bots' messages,
+// whose "ignore bots" switch is off.
+func (s *Storage) BotReceivers(ctx context.Context, fn func(module otogi.ModuleID)) error {
+	modules, err := queries.New(s.db).BotReceivers(ctx)
+	if err != nil {
+		return fmt.Errorf("module store: bot receivers: %w", err)
+	}
+	for _, m := range modules {
+		fn(otogi.ModuleID(m))
+	}
+	return nil
+}
+
+// SetIgnoreBots turns a module's "ignore bots" switch on or off.
+func (s *Storage) SetIgnoreBots(ctx context.Context, module otogi.ModuleID, ignore bool, at time.Time, by string) error {
+	q := queries.New(s.db)
+	var err error
+	if ignore {
+		err = q.IgnoreBots(ctx, string(module))
+	} else {
+		err = q.ReceiveBots(ctx, queries.ReceiveBotsParams{Module: string(module), ChangedAt: at.UnixMilli(), ChangedBy: by})
+	}
+	if err != nil {
+		return fmt.Errorf("module store: set ignore bots %s: %w", module, err)
+	}
+	return nil
+}

@@ -393,9 +393,6 @@ func TestConfigErrors(t *testing.T) {
 // starting with its keyword: two bots must not answer each other forever.
 func TestBotsDoNotTrigger(t *testing.T) {
 	h := newHarness(t)
-	if !h.m.Descriptor().Filter.Bots {
-		t.Fatal("the module does not see bots' messages")
-	}
 	h.mustHandle(h.message("Sarasa", "otogi, x.com/a/status/1", func(e *otogi.Event) { e.Actor.Bot = true }))
 	if n := len(h.llm["otogi"].requests); n != 0 {
 		t.Fatalf("a bot triggered %d requests", n)

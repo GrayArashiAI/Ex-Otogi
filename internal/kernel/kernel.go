@@ -118,6 +118,9 @@ type Kernel struct {
 
 	runningMu sync.Mutex
 	running   map[*delivery]time.Time // deliveries being handled -> started
+
+	botsMu       sync.RWMutex
+	botReceivers map[otogi.ModuleID]bool // modules whose "ignore bots" switch is off
 }
 
 // New validates the module set and returns a kernel that is not yet started.
@@ -132,11 +135,12 @@ func New(cfg Config, modules []otogi.Module, middleware []otogi.Middleware, effe
 	cfg = cfg.withDefaults()
 	k := &Kernel{
 		cfg: cfg, log: log, effector: effector,
-		middleware: slices.Clone(middleware),
-		slots:      make(chan struct{}, cfg.MaxInFlight),
-		timers:     map[string]bool{},
-		running:    map[*delivery]time.Time{},
-		lists:      map[allowKey]AllowedChat{},
+		middleware:   slices.Clone(middleware),
+		slots:        make(chan struct{}, cfg.MaxInFlight),
+		timers:       map[string]bool{},
+		running:      map[*delivery]time.Time{},
+		botReceivers: map[otogi.ModuleID]bool{},
+		lists:        map[allowKey]AllowedChat{},
 	}
 	k.sched.init(&k.mu)
 	entries := make([]*moduleEntry, 0, len(modules))
@@ -168,6 +172,9 @@ func (k *Kernel) Start(ctx context.Context) error {
 	}
 	k.mu.Unlock()
 	if err := k.loadAllowlists(ctx); err != nil {
+		return err
+	}
+	if err := k.loadBotReceivers(ctx); err != nil {
 		return err
 	}
 	if err := k.startModules(ctx, k.routes.startOrder); err != nil {
@@ -536,21 +543,21 @@ func (k *Kernel) Running() []Running {
 
 // recipients returns the modules an event goes to. A command declared by a
 // module goes only to that module, whatever it subscribes to; otherwise the
-// event goes to every module subscribed to its action. Filters apply in both
-// cases. The caller holds k.mu.
+// event goes to every module subscribed to its action. Filters and the
+// "ignore bots" switches apply in both cases. The caller holds k.mu.
 func (k *Kernel) recipients(e otogi.Event) []*moduleEntry {
 	if e.Command != nil {
 		if owners, ok := k.routes.commands[e.Command.Name]; ok {
-			return filtered(owners, e, func(*moduleEntry) bool { return true })
+			return k.filtered(owners, e, func(*moduleEntry) bool { return true })
 		}
 	}
-	return filtered(k.routes.modules, e, func(entry *moduleEntry) bool { return entry.subscribes[e.Action] })
+	return k.filtered(k.routes.modules, e, func(entry *moduleEntry) bool { return entry.subscribes[e.Action] })
 }
 
-func filtered(entries []*moduleEntry, e otogi.Event, eligible func(*moduleEntry) bool) []*moduleEntry {
+func (k *Kernel) filtered(entries []*moduleEntry, e otogi.Event, eligible func(*moduleEntry) bool) []*moduleEntry {
 	var out []*moduleEntry
 	for _, entry := range entries {
-		if eligible(entry) && entry.descriptor.Filter.Matches(e) {
+		if eligible(entry) && entry.descriptor.Filter.Matches(e) && (!e.Actor.Bot || !k.IgnoresBots(entry.descriptor.ID)) {
 			out = append(out, entry)
 		}
 	}
