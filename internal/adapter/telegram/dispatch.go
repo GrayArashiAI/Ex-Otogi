@@ -29,7 +29,7 @@ type dispatchStore interface {
 	MarkInboxFailed(context.Context, int64, string, time.Time) error
 	PutLocator(context.Context, string, int, string, time.Time) error
 	FindLocator(context.Context, string, int) (string, bool, error)
-	Name(context.Context, string) (string, error)
+	Peer(context.Context, string) (telegramstore.Peer, error)
 }
 
 const dispatchBatch = 100
@@ -168,18 +168,20 @@ func (d *dispatcher) mapRow(ctx context.Context, row telegramstore.InboxRow) ([]
 	return events, nil
 }
 
-// name fills in the conversation's title and the sender's name, as the
-// inbox last saw them.
+// name fills in the conversation's title, and the sender's name and
+// whether it is a bot, as the inbox last saw them.
 func (d *dispatcher) name(ctx context.Context, e *otogi.Event) error {
-	title, err := d.store.Name(ctx, string(e.Conversation.ID))
+	chat, err := d.store.Peer(ctx, string(e.Conversation.ID))
 	if err != nil {
 		return err
 	}
-	e.Conversation.Title = title
+	e.Conversation.Title = chat.Name
 	if e.Actor.ID != "" {
-		if e.Actor.Name, err = d.store.Name(ctx, string(e.Actor.ID)); err != nil {
+		actor, err := d.store.Peer(ctx, string(e.Actor.ID))
+		if err != nil {
 			return err
 		}
+		e.Actor.Name, e.Actor.Bot = actor.Name, actor.Bot
 	}
 	return nil
 }

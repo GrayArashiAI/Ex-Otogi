@@ -377,6 +377,7 @@ export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         Actor: {
+            bot?: boolean;
             id: string;
             name?: string;
         };

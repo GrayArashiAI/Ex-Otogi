@@ -132,7 +132,7 @@ func (m *mapper) mapFrame(ctx context.Context, f frame, received time.Time) (oto
 			e.Direction = otogi.DirectionOutgoing
 		}
 	}
-	e.Actor = otogi.Actor{ID: otogi.ActorID("user:" + actor), Name: msg.Author.Username}
+	e.Actor = otogi.Actor{ID: otogi.ActorID("user:" + actor), Name: msg.Author.Username, Bot: msg.Author.Bot}
 	if err := m.learnNames(ctx, msg, actor); err != nil {
 		return otogi.Event{}, err
 	}

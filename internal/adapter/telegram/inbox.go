@@ -15,13 +15,14 @@ import (
 	"github.com/gotd/td/tg"
 
 	"github.com/TundraWork/Ex-Otogi/internal/adapter/telegram/mapper"
+	"github.com/TundraWork/Ex-Otogi/internal/adapter/telegram/store"
 )
 
 var errInboxFailed = errors.New("telegram: inbox write failed earlier; restart required")
 
 type inboxStore interface {
 	InsertInbox(context.Context, string, []byte, time.Time) (bool, error)
-	SaveNames(context.Context, map[string]string) error
+	SavePeers(context.Context, map[string]store.Peer) error
 }
 
 // inboxHandler is the update manager's handler. gotd saves its position only
@@ -64,9 +65,10 @@ func (h *inboxHandler) Handle(ctx context.Context, u tg.UpdatesClass) error {
 			h.log.Warn("telegram: save peers", "error", err)
 		}
 	}
-	// Names only label events; one not saved leaves a title empty.
-	if err := h.store.SaveNames(ctx, mapper.Names(users, chats)); err != nil {
-		h.log.Warn("telegram: save names", "error", err)
+	// Peers label events; one not saved leaves a title empty, and a bot's
+	// message unmarked.
+	if err := h.store.SavePeers(ctx, mapper.Peers(users, chats)); err != nil {
+		h.log.Warn("telegram: save peers", "error", err)
 	}
 	for _, update := range batch {
 		box, pts, ok := mapper.Routed(update)

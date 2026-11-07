@@ -45,8 +45,8 @@ func New(cfg Config, providers func(string) (llm.Provider, error)) (*Module, err
 }
 
 // Descriptor declares the module. It sees every message of every direction,
-// to keep the transcript of the chats it serves; only people's new messages
-// trigger agents. Each profile has an allowlist, named as the profile, and
+// bots' too, to keep the transcript of the chats it serves; only people's
+// new messages trigger agents. Each profile has an allowlist, named as the profile, and
 // so does each module whose tools agents may use: the chats where they get
 // them.
 func (m *Module) Descriptor() otogi.ModuleDescriptor {
@@ -66,7 +66,7 @@ func (m *Module) Descriptor() otogi.ModuleDescriptor {
 		Subscribes: []otogi.EventAction{otogi.ActionMessageCreated, otogi.ActionMessageEdited, otogi.ActionMessageDeleted},
 		Ordering:   otogi.OrderNone,
 		Timeout:    time.Duration(m.cfg.Timeout),
-		Filter:     otogi.Filter{Directions: []otogi.Direction{otogi.DirectionIncoming, otogi.DirectionOutgoing, otogi.DirectionSystem}},
+		Filter:     otogi.Filter{Directions: []otogi.Direction{otogi.DirectionIncoming, otogi.DirectionOutgoing, otogi.DirectionSystem}, Bots: true},
 		Allowlists: lists,
 	}
 }
@@ -120,7 +120,7 @@ func (m *Module) Handle(ctx context.Context, e otogi.Event, inv otogi.Invocation
 	if err := m.store.record(ctx, e.Destination(), transcriptLine(e)); err != nil {
 		return err
 	}
-	if e.Action != otogi.ActionMessageCreated || e.Direction != otogi.DirectionIncoming || e.Command != nil {
+	if e.Action != otogi.ActionMessageCreated || e.Direction != otogi.DirectionIncoming || e.Command != nil || e.Actor.Bot {
 		return nil
 	}
 	p, parent, trigger, err := m.route(ctx, e)

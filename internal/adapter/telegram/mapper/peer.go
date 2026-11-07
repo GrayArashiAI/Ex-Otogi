@@ -6,6 +6,7 @@ import (
 
 	"github.com/gotd/td/tg"
 
+	"github.com/TundraWork/Ex-Otogi/internal/adapter/telegram/store"
 	"github.com/TundraWork/Ex-Otogi/pkg/otogi"
 )
 
@@ -50,29 +51,29 @@ func messageFlow(message *tg.Message) (otogi.Direction, string, error) {
 	return direction, actor, nil
 }
 
-// Names returns the display names of users and chats, by their peer IDs
-// (see PeerID): a user's full name, or else username; a group's or
-// channel's title.
-func Names(users []tg.UserClass, chats []tg.ChatClass) map[string]string {
-	names := map[string]string{}
+// Peers returns what the entities say of users and chats, by their peer
+// IDs (see PeerID): a user's full name, or else username, and whether it is
+// a bot; a group's or channel's title.
+func Peers(users []tg.UserClass, chats []tg.ChatClass) map[string]store.Peer {
+	peers := map[string]store.Peer{}
 	for _, u := range users {
 		if user, ok := u.(*tg.User); ok {
 			name := strings.TrimSpace(user.FirstName + " " + user.LastName)
 			if name == "" {
 				name = user.Username
 			}
-			if name != "" {
-				names[fmt.Sprintf("user:%d", user.ID)] = name
+			if name != "" || user.Bot {
+				peers[fmt.Sprintf("user:%d", user.ID)] = store.Peer{Name: name, Bot: user.Bot}
 			}
 		}
 	}
 	for _, c := range chats {
 		switch chat := c.(type) {
 		case *tg.Chat:
-			names[fmt.Sprintf("chat:%d", chat.ID)] = chat.Title
+			peers[fmt.Sprintf("chat:%d", chat.ID)] = store.Peer{Name: chat.Title}
 		case *tg.Channel:
-			names[fmt.Sprintf("channel:%d", chat.ID)] = chat.Title
+			peers[fmt.Sprintf("channel:%d", chat.ID)] = store.Peer{Name: chat.Title}
 		}
 	}
-	return names
+	return peers
 }

@@ -389,6 +389,23 @@ func TestConfigErrors(t *testing.T) {
 	}
 }
 
+// A bot's message is kept for context, but does not trigger an agent, even
+// starting with its keyword: two bots must not answer each other forever.
+func TestBotsDoNotTrigger(t *testing.T) {
+	h := newHarness(t)
+	if !h.m.Descriptor().Filter.Bots {
+		t.Fatal("the module does not see bots' messages")
+	}
+	h.mustHandle(h.message("Sarasa", "otogi, x.com/a/status/1", func(e *otogi.Event) { e.Actor.Bot = true }))
+	if n := len(h.llm["otogi"].requests); n != 0 {
+		t.Fatalf("a bot triggered %d requests", n)
+	}
+	h.mustHandle(h.message("Alice", "otogi, what did Sarasa post?"))
+	if text := lastUserText(h.llm["otogi"].requests[0]); !strings.Contains(text, "Sarasa: otogi, x.com/a/status/1") {
+		t.Fatalf("the bot's message is not in the context:\n%s", text)
+	}
+}
+
 func TestPrivateChatsAndDeletedMessages(t *testing.T) {
 	h := newHarness(t, ProfileConfig{Name: "otogi", Keywords: []string{"otogi"}, Provider: "p", Model: "m"})
 	h.host.lists = map[[2]string]string{{"otogi", "telegram:user:7"}: "test"}

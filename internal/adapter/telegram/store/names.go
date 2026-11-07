@@ -9,37 +9,45 @@ import (
 	"github.com/TundraWork/Ex-Otogi/internal/adapter/telegram/store/queries"
 )
 
-// SaveNames stores display names by peer (user:<id>, chat:<id>, or
-// channel:<id>), replacing older ones.
-func (s *Store) SaveNames(ctx context.Context, names map[string]string) error {
-	if len(names) == 0 {
+// Peer is what the entities of updates say of a user, chat, or channel.
+type Peer struct {
+	// Name is a user's display name, or a chat's or channel's title.
+	Name string
+	// Bot marks a bot user.
+	Bot bool
+}
+
+// SavePeers stores peers by ID (user:<id>, chat:<id>, or channel:<id>),
+// replacing what was known.
+func (s *Store) SavePeers(ctx context.Context, peers map[string]Peer) error {
+	if len(peers) == 0 {
 		return nil
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("save names: %w", err)
+		return fmt.Errorf("save peers: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
 	q := queries.New(tx)
-	for peer, name := range names {
-		if err := q.SaveName(ctx, queries.SaveNameParams{Peer: peer, Name: name}); err != nil {
-			return fmt.Errorf("save name of %s: %w", peer, err)
+	for peer, p := range peers {
+		if err := q.SavePeer(ctx, queries.SavePeerParams{Peer: peer, Name: p.Name, Bot: p.Bot}); err != nil {
+			return fmt.Errorf("save peer %s: %w", peer, err)
 		}
 	}
 	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("save names: %w", err)
+		return fmt.Errorf("save peers: %w", err)
 	}
 	return nil
 }
 
-// Name returns a peer's display name, or "" when none is known.
-func (s *Store) Name(ctx context.Context, peer string) (string, error) {
-	name, err := queries.New(s.db).Name(ctx, peer)
+// Peer returns what is known of a peer; nothing known is a zero Peer.
+func (s *Store) Peer(ctx context.Context, peer string) (Peer, error) {
+	row, err := queries.New(s.db).PeerInfo(ctx, peer)
 	if errors.Is(err, sql.ErrNoRows) {
-		return "", nil
+		return Peer{}, nil
 	}
 	if err != nil {
-		return "", fmt.Errorf("name of %s: %w", peer, err)
+		return Peer{}, fmt.Errorf("peer %s: %w", peer, err)
 	}
-	return name, nil
+	return Peer{Name: row.Name, Bot: row.Bot}, nil
 }

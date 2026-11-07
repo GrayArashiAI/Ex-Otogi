@@ -65,6 +65,10 @@ func TestMapGroupMessages(t *testing.T) {
 	if e := mapOne(t, m, "GROUP_MESSAGE_CREATE", `{"id":"g3","content":"pong","group_openid":"G1","author":{"id":"B1","bot":true,"member_openid":"B9"}}`); e.Direction != otogi.DirectionOutgoing {
 		t.Fatalf("echo direction = %s", e.Direction)
 	}
+	// Another bot's message comes in, marked as a bot's.
+	if e := mapOne(t, m, "GROUP_MESSAGE_CREATE", `{"id":"g6","content":"hi","group_openid":"G1","author":{"id":"B2","bot":true,"member_openid":"B8"}}`); e.Direction != otogi.DirectionIncoming || !e.Actor.Bot {
+		t.Fatalf("other bot = %s %+v", e.Direction, e.Actor)
+	}
 
 	// A quote names the quoted message by its REFIDX.
 	e = mapOne(t, m, "GROUP_MESSAGE_CREATE", `{"id":"g4","content":"agreed","group_openid":"G1","author":{"member_openid":"M2"},"message_type":103,

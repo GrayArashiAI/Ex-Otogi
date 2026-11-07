@@ -149,21 +149,29 @@ func TestDispatcherStopsQuietlyWhenKernelRefuses(t *testing.T) {
 }
 
 // Names come from the entities an update arrives with: the group's title and
-// the sender's name label the event.
+// the sender's name label the event, and a bot's message says it is one.
 func TestEventsCarryNames(t *testing.T) {
 	h := newDispatchHarness(t)
 	inbox := &inboxHandler{store: h.store, guard: &positionGuard{StateStorage: h.store}, wake: h.wake, log: quiet, now: time.Now, fail: func(err error) { t.Error(err) }}
+	fromBot := newMessage(2, &tg.PeerChat{ChatID: 3}, "x.com/a/status/1")
+	fromBot.SetFromID(&tg.PeerUser{UserID: 6})
 	batch := &tg.Updates{
-		Updates: []tg.UpdateClass{&tg.UpdateNewMessage{Message: newMessage(1, &tg.PeerChat{ChatID: 3}, "hi"), Pts: 1, PtsCount: 1}},
-		Users:   []tg.UserClass{&tg.User{ID: 5, FirstName: "Alice", LastName: "Liddell"}},
-		Chats:   []tg.ChatClass{&tg.Chat{ID: 3, Title: "Wonderland"}},
+		Updates: []tg.UpdateClass{
+			&tg.UpdateNewMessage{Message: newMessage(1, &tg.PeerChat{ChatID: 3}, "hi"), Pts: 1, PtsCount: 1},
+			&tg.UpdateNewMessage{Message: fromBot, Pts: 2, PtsCount: 1},
+		},
+		Users: []tg.UserClass{&tg.User{ID: 5, FirstName: "Alice", LastName: "Liddell"}, &tg.User{ID: 6, FirstName: "Haru", Bot: true}},
+		Chats: []tg.ChatClass{&tg.Chat{ID: 3, Title: "Wonderland"}},
 	}
 	if err := inbox.Handle(context.Background(), batch); err != nil {
 		t.Fatal(err)
 	}
 	stop := h.run(t)
 	defer stop()
-	if e := h.kernel.next(t); e.Conversation.Title != "Wonderland" || e.Actor.Name != "Alice Liddell" {
+	if e := h.kernel.next(t); e.Conversation.Title != "Wonderland" || e.Actor.Name != "Alice Liddell" || e.Actor.Bot {
 		t.Fatalf("conversation %+v, actor %+v", e.Conversation, e.Actor)
+	}
+	if e := h.kernel.next(t); e.Actor.Name != "Haru" || !e.Actor.Bot {
+		t.Fatalf("bot's message actor %+v", e.Actor)
 	}
 }

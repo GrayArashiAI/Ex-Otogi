@@ -12,6 +12,8 @@ import (
 	gotdtelegram "github.com/gotd/td/telegram"
 	"github.com/gotd/td/telegram/updates"
 	"github.com/gotd/td/tg"
+
+	telegramstore "github.com/TundraWork/Ex-Otogi/internal/adapter/telegram/store"
 )
 
 // recordingState is an in-memory updates.StateStorage that logs position writes.
@@ -99,7 +101,7 @@ func TestGotdSavesPositionOnlyAfterHandlerReturns(t *testing.T) {
 
 type failingInbox struct{}
 
-func (failingInbox) SaveNames(context.Context, map[string]string) error { return nil }
+func (failingInbox) SavePeers(context.Context, map[string]telegramstore.Peer) error { return nil }
 
 func (failingInbox) InsertInbox(context.Context, string, []byte, time.Time) (bool, error) {
 	return false, errors.New("disk full")

@@ -9,28 +9,34 @@ import (
 	"context"
 )
 
-const name = `-- name: Name :one
-SELECT name FROM names WHERE peer = ?1
+const peerInfo = `-- name: PeerInfo :one
+SELECT name, bot FROM names WHERE peer = ?1
 `
 
-func (q *Queries) Name(ctx context.Context, peer string) (string, error) {
-	row := q.db.QueryRowContext(ctx, name, peer)
-	var name string
-	err := row.Scan(&name)
-	return name, err
+type PeerInfoRow struct {
+	Name string
+	Bot  bool
 }
 
-const saveName = `-- name: SaveName :exec
-INSERT INTO names (peer, name) VALUES (?1, ?2)
-ON CONFLICT (peer) DO UPDATE SET name = excluded.name
+func (q *Queries) PeerInfo(ctx context.Context, peer string) (PeerInfoRow, error) {
+	row := q.db.QueryRowContext(ctx, peerInfo, peer)
+	var i PeerInfoRow
+	err := row.Scan(&i.Name, &i.Bot)
+	return i, err
+}
+
+const savePeer = `-- name: SavePeer :exec
+INSERT INTO names (peer, name, bot) VALUES (?1, ?2, ?3)
+ON CONFLICT (peer) DO UPDATE SET name = excluded.name, bot = excluded.bot
 `
 
-type SaveNameParams struct {
+type SavePeerParams struct {
 	Peer string
 	Name string
+	Bot  bool
 }
 
-func (q *Queries) SaveName(ctx context.Context, arg SaveNameParams) error {
-	_, err := q.db.ExecContext(ctx, saveName, arg.Peer, arg.Name)
+func (q *Queries) SavePeer(ctx context.Context, arg SavePeerParams) error {
+	_, err := q.db.ExecContext(ctx, savePeer, arg.Peer, arg.Name, arg.Bot)
 	return err
 }

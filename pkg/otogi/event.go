@@ -105,6 +105,10 @@ type Actor struct {
 	ID ActorID `json:"id"`
 	// Name is the display name when the driver knows it.
 	Name string `json:"name,omitempty"`
+	// Bot reports an account the platform marks as a bot, such as a
+	// Telegram bot. A person's account a program drives (a userbot) is not
+	// marked.
+	Bot bool `json:"bot,omitempty"`
 }
 
 // ProviderLocator is driver-owned data that lets the driver find the source

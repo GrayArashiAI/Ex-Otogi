@@ -46,6 +46,7 @@ type Locator struct {
 type Name struct {
 	Peer string
 	Name string
+	Bot  bool
 }
 
 type Peer struct {

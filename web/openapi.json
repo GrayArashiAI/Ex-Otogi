@@ -4,6 +4,9 @@
       "Actor": {
         "additionalProperties": false,
         "properties": {
+          "bot": {
+            "type": "boolean"
+          },
           "id": {
             "type": "string"
           },
