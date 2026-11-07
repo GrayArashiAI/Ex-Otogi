@@ -269,19 +269,19 @@ func (m *model) Generate(_ context.Context, req llm.Request, _ func(otogi.Messag
 	return llm.Response{Markdown: m.reply}, m.err
 }
 
-// A post not in Chinese gets a second card, translated, with the quote
-// translated too; a post in Chinese gets none; a reply out of form is
-// recorded and sends nothing more.
+// A post not in Chinese gets its translation on its card, under the
+// original, the quote's under the quote; a post in Chinese gets none; a
+// reply out of form is recorded, and the card goes out without it.
 func TestTranslatedCards(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
 		name, reply string
-		cards       int
+		translated  bool
 		record      string
 	}{
-		{"english", "<language>英语</language>\n<post>我们 2026 年第三季度的财报现已公开 → https://ir.spacex.com/x @ElonMusk</post>\n<quote>观看直播</quote>", 2, "ok"},
-		{"chinese", "<language>中文</language>", 1, ""},
-		{"out of form", "Sure! Here is the translation.", 1, "error"},
+		{"english", "<language>英语</language>\n<post>我们 2026 年第三季度的财报现已公开 → https://ir.spacex.com/x @ElonMusk</post>\n<quote>观看直播</quote>", true, "ok"},
+		{"chinese", "<language>中文</language>", false, ""},
+		{"out of form", "Sure! Here is the translation.", false, "error"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			lm := &model{reply: c.reply}
@@ -300,20 +300,22 @@ func TestTranslatedCards(t *testing.T) {
 			if err := m.Handle(context.Background(), e, inv); err != nil {
 				t.Fatal(err)
 			}
-			if len(inv.sent) != c.cards {
-				t.Fatalf("%d cards sent", len(inv.sent))
+			if len(inv.sent) != 1 || inv.keys[0] != "card:2112637394654822514" {
+				t.Fatalf("%d cards sent: %v", len(inv.sent), inv.keys)
 			}
 			if req := lm.requests[0]; req.Model != "gemini-4-argon" || req.Thinking != "low" || !strings.Contains(req.Turns[0].Content.PlainText(), "<quote>Watch live") {
 				t.Fatalf("request %+v", req)
 			}
-			if c.cards == 2 {
-				tr := drawn[1]
-				if inv.keys[1] != "translation:2112637394654822514" || tr.Translated != "由 Gemini 翻译自英语" || tr.Text[0].Text != "我们 2026 年第三季度的财报现已公开 → " || tr.Quote.Text[0].Text != "观看直播" {
-					t.Fatalf("translated card %+v", tr)
+			card := drawn[0]
+			if strings.HasPrefix(card.Text[0].Text, "我们") || strings.HasPrefix(card.Quote.Text[0].Text, "观看") {
+				t.Fatalf("the original text was replaced: %+v", card.Text)
+			}
+			if c.translated {
+				if tr := card.Translation; tr == nil || tr.By != "由 Gemini 翻译自英语" || tr.Text[0].Text != "我们 2026 年第三季度的财报现已公开 → " || card.Quote.Translation[0].Text != "观看直播" {
+					t.Fatalf("translation on the card %+v, quote %+v", card.Translation, card.Quote.Translation)
 				}
-				if drawn[0].Translated != "" || drawn[0].Text[0].Text == tr.Text[0].Text {
-					t.Fatal("the original card was translated")
-				}
+			} else if card.Translation != nil || card.Quote.Translation != nil {
+				t.Fatalf("an untranslated card shows %+v", card.Translation)
 			}
 			var got string
 			for _, r := range h.records {
@@ -367,5 +369,15 @@ func TestRenderWithChrome(t *testing.T) {
 	}
 	if out := os.Getenv("OTOGI_CARD_OUT"); out != "" {
 		_ = os.WriteFile(out, png, 0o600)
+	}
+}
+
+// The card in words carries the translation too, links in full.
+func TestTextCardCarriesTheTranslation(t *testing.T) {
+	t.Parallel()
+	tw := tweet{Author: author{Name: "SpaceX", Handle: "SpaceX"}, Text: "Earnings are out → https://ir.spacex.com/q3-2026-results"}
+	msg := textCard(tw, &translatedText{By: "由 Gemini 翻译自英语", Plain: "财报已发布 → https://ir.spacex.com/q3-2026-results"})
+	if got := msg.PlainText(); got != "SpaceX @SpaceX\nEarnings are out → https://ir.spacex.com/q3-2026-results\n\n由 Gemini 翻译自英语：\n财报已发布 → https://ir.spacex.com/q3-2026-results" {
+		t.Fatalf("text card %q", got)
 	}
 }

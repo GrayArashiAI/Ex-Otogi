@@ -21,7 +21,7 @@ import (
 type Config struct {
 	Chrome    string     `json:"chrome" minLength:"1" doc:"The path of the chrome-headless-shell binary that draws the cards."`
 	Timezone  string     `json:"timezone,omitempty" doc:"Where the cards' times are read, an IANA time zone such as Asia/Shanghai; default the server's."`
-	Translate *Translate `json:"translate,omitempty" doc:"When set, the card of a post not in Chinese is followed by a second card, the post translated by a language model."`
+	Translate *Translate `json:"translate,omitempty" doc:"When set, the card of a post not in Chinese also shows the post translated by a language model, under the original."`
 }
 
 // Module is the twitter module.
@@ -129,13 +129,18 @@ func (m *Module) answer(ctx context.Context, e otogi.Event, inv otogi.Invocation
 		m.host.Logger().Warn("twitter: pictures not downloaded", "post", id, "error", picErr)
 		payload["picture_error"] = picErr.Error()
 	}
-	png, err := m.render(ctx, newCard(t, pics, m.zone))
-	payload["rendered"] = m.now().Sub(fetched).String()
+	c := newCard(t, pics, m.zone)
+	if m.translator != nil && t.Text != "" {
+		m.translate(ctx, t, &c)
+	}
+	drawing := m.now()
+	png, err := m.render(ctx, c)
+	payload["rendered"] = m.now().Sub(drawing).String()
 	var msg otogi.Message
 	if err != nil {
 		m.host.Logger().Warn("twitter: card not rendered; sending text", "post", id, "error", err)
 		payload["render_error"] = err.Error()
-		msg = textCard(t)
+		msg = textCard(t, c.Translation)
 	} else {
 		payload["bytes"] = len(png)
 		msg = otogi.Message{Roots: []otogi.PartID{"card"}, Parts: []otogi.Part{{ID: "card", Kind: otogi.PartMedia,
@@ -150,15 +155,13 @@ func (m *Module) answer(ctx context.Context, e otogi.Event, inv otogi.Invocation
 		outcome = "degraded"
 	}
 	m.host.Record(ctx, otogi.Record{Kind: "twitter.card", Outcome: outcome, Duration: m.now().Sub(started), Payload: payload})
-	if m.translator != nil && t.Text != "" {
-		return m.translated(ctx, e, inv, t, pics)
-	}
 	return nil
 }
 
-// translated sends the post's card again, translated, unless it is in
-// Chinese. A failed translation is recorded and sends nothing.
-func (m *Module) translated(ctx context.Context, e otogi.Event, inv otogi.Invocation, t tweet, pics pictures) error {
+// translate adds the post in Chinese to its card, under the original,
+// unless it is in Chinese already. A failed translation is recorded, and
+// the card goes out without it.
+func (m *Module) translate(ctx context.Context, t tweet, c *card) {
 	started := m.now()
 	tr, needed, err := m.translator.translate(ctx, t)
 	payload := map[string]any{"post": t.ID, "model": m.translator.cfg.Model, "took": m.now().Sub(started).String()}
@@ -167,39 +170,19 @@ func (m *Module) translated(ctx context.Context, e otogi.Event, inv otogi.Invoca
 		m.host.Logger().Warn("twitter: translation failed", "post", t.ID, "error", err)
 		payload["error"] = err.Error()
 		m.host.Record(ctx, otogi.Record{Kind: "twitter.translation", Outcome: "error", Payload: payload})
-		return nil
+		return
 	case !needed:
 		m.host.Logger().Debug("twitter: post is in Chinese; no translation", "post", t.ID)
-		return nil
+		return
 	}
 	payload["language"] = tr.Language
-	t.Text = tr.Post
-	if t.Quote != nil && tr.Quote != "" {
-		q := *t.Quote
-		q.Text = tr.Quote
-		t.Quote = &q
+	text, more := excerpt(tr.Post, maxText)
+	c.Translation = &translatedText{By: "由 " + providerName(m.translator.cfg.Provider) + " 翻译自" + tr.Language, Plain: text, Text: spans(text), More: more}
+	if c.Quote != nil && tr.Quote != "" {
+		quote, _ := excerpt(tr.Quote, maxQuoteText)
+		c.Quote.Translation = spans(quote)
 	}
-	c := newCard(t, pics, m.zone)
-	c.Translated = "由 " + providerName(m.translator.cfg.Provider) + " 翻译自" + tr.Language
-	var msg otogi.Message
-	if png, err := m.render(ctx, c); err != nil {
-		m.host.Logger().Warn("twitter: translated card not rendered; sending text", "post", t.ID, "error", err)
-		payload["render_error"] = err.Error()
-		msg = textCard(t)
-	} else {
-		msg = otogi.Message{Roots: []otogi.PartID{"card"}, Parts: []otogi.Part{{ID: "card", Kind: otogi.PartMedia,
-			Media: &otogi.Media{Role: otogi.MediaImage, MediaType: "image/png", ByteSize: int64(len(png)), Source: otogi.MediaSource{Kind: otogi.MediaSourceInline, Inline: png}}}}}
-	}
-	msg.Relations = []otogi.Relation{{Kind: otogi.RelationReply, Target: e.Ref()}}
-	if _, err := inv.Send(ctx, "translation:"+t.ID, msg); err != nil {
-		return err
-	}
-	outcome := "ok"
-	if payload["render_error"] != nil {
-		outcome = "degraded"
-	}
-	m.host.Record(ctx, otogi.Record{Kind: "twitter.translation", Outcome: outcome, Duration: m.now().Sub(started), Payload: payload})
-	return nil
+	m.host.Record(ctx, otogi.Record{Kind: "twitter.translation", Outcome: "ok", Duration: m.now().Sub(started), Payload: payload})
 }
 
 // providerName is a provider as a card names it: gemini is Gemini.
@@ -243,13 +226,16 @@ func (m *Module) pictures(ctx context.Context, t tweet) (pictures, error) {
 	return pics, errors.Join(errs...)
 }
 
-// textCard is the post in words, for when the card cannot be drawn. It
-// holds no link: the message it answers has one, and QQ groups refuse
-// messages with links.
-func textCard(t tweet) otogi.Message {
+// textCard is the post in words, and its translation when it has one, for
+// when the card cannot be drawn. It holds no link: the message it answers
+// has one, and QQ groups refuse messages with links.
+func textCard(t tweet, tr *translatedText) otogi.Message {
 	var r otogi.RichText
 	r.Mark(otogi.AnnotationBold, "", func() { r.Write(t.Author.Name) })
 	text, _ := excerpt(t.Text, maxText)
 	r.Write(" @" + t.Author.Handle + "\n" + text)
+	if tr != nil {
+		r.Write("\n\n" + tr.By + "：\n" + tr.Plain)
+	}
 	return r.Message()
 }

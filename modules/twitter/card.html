@@ -23,7 +23,12 @@
   .text { margin-top: 10px; font-size: 16.5px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
   .link { color: #1471b8; }
   .more { display: block; margin-top: 2px; color: #1471b8; font-size: 15px; }
-  .translated { margin-top: 8px; color: #536471; font-size: 14px; }
+  .translation { margin-top: 12px; }
+  .translation .by { color: #536471; font-size: 14px; }
+  .translation .text { margin-top: 6px; }
+  .quote .qtrans { padding: 0 12px 12px; margin-top: -4px; }
+  .quote .qtrans .by { color: #536471; font-size: 13px; }
+  .quote .qtrans .qtext { padding: 2px 0 0; }
   .media { position: relative; display: grid; gap: 2px; margin-top: 12px; border: 1px solid #cfd9de; border-radius: 16px; overflow: hidden; background: #f7f9f9; }
   .media.n2 { grid-template-columns: 1fr 1fr; aspect-ratio: 16 / 9; }
   .media.n3 { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; aspect-ratio: 16 / 9; }
@@ -78,7 +83,11 @@
   {{if .ReplyingTo}}<div class="replying">回复 <span class="link">@{{.ReplyingTo}}</span></div>{{end}}
   {{if .Text}}<div class="text">{{range .Text}}{{if .Link}}<span class="link">{{.Text}}</span>{{else}}{{.Text}}{{end}}{{end}}</div>{{end}}
   {{if .More}}<span class="more">显示更多</span>{{end}}
-  {{if .Translated}}<div class="translated">{{.Translated}}</div>{{end}}
+  {{with .Translation}}<div class="translation">
+    <div class="by">{{.By}}</div>
+    <div class="text">{{range .Text}}{{if .Link}}<span class="link">{{.Text}}</span>{{else}}{{.Text}}{{end}}{{end}}</div>
+    {{if .More}}<span class="more">显示更多</span>{{end}}
+  </div>{{end}}
   {{template "media" .Media}}
   {{with .Poll}}<div class="poll">
     {{range .Choices}}<div class="choice{{if .Top}} top{{end}}"><div class="bar" style="width: {{.Width}}%"></div><span>{{.Label}}</span><span>{{.Percent}}</span></div>{{end}}
@@ -87,6 +96,7 @@
   {{with .Quote}}<div class="quote">
     <div class="top">{{if .Avatar}}<img src="{{.Avatar}}" alt="">{{end}}<b>{{.Name}}</b>{{badge .Badge}}<span class="dim">@{{.Handle}} · {{.Date}}</span></div>
     {{if .Text}}<div class="qtext">{{range .Text}}{{if .Link}}<span class="link">{{.Text}}</span>{{else}}{{.Text}}{{end}}{{end}}</div>{{end}}
+    {{if .Translation}}<div class="qtrans"><div class="by">译文</div><div class="qtext">{{range .Translation}}{{if .Link}}<span class="link">{{.Text}}</span>{{else}}{{.Text}}{{end}}{{end}}</div></div>{{end}}
     {{template "media" .Media}}
   </div>{{end}}
   {{if .QuoteGone}}<div class="gone">{{.QuoteGone}}</div>{{end}}

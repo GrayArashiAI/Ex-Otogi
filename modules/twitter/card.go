@@ -40,7 +40,16 @@ type card struct {
 	Poll                            *pollView
 	When, Views                     string
 	Actions                         []action
-	Translated                      string // who translated the text from what, on a translated card
+	Translation                     *translatedText // the post in Chinese, under the original, when it is not in Chinese
+}
+
+// translatedText is a post's text in Chinese, with who translated it from
+// what.
+type translatedText struct {
+	By    string // 由 Gemini 翻译自英语
+	Plain string // the text, as cut for the card
+	Text  []span
+	More  bool
 }
 
 type span struct {
@@ -64,6 +73,7 @@ type quoted struct {
 	Name, Handle, Badge, Date string
 	Avatar                    template.URL
 	Text                      []span
+	Translation               []span // in Chinese, when the post is translated
 	Media                     grid
 }
 
@@ -100,7 +110,6 @@ func newCard(t tweet, pics pictures, zone *time.Location) card {
 			{icons["repost"], counter(t.Reposts)},
 			{icons["like"], counter(t.Likes)},
 			{icons["bookmark"], counter(t.Bookmarks)},
-			{icons["share"], ""},
 		},
 	}
 	if t.Views != nil {
@@ -268,11 +277,10 @@ func badge(kind string) template.HTML {
 	return template.HTML(`<svg class="badge" viewBox="0 0 22 22" fill="` + color + `"><path d="M20.4 11c0-1.3-.8-2.5-2-3.1.4-1.3.2-2.7-.8-3.6-.9-1-2.3-1.2-3.6-.8C13.4 2.3 12.3 1.5 11 1.5S8.6 2.3 8 3.5c-1.3-.4-2.7-.2-3.6.8-1 .9-1.2 2.3-.8 3.6-1.2.6-2 1.8-2 3.1s.8 2.5 2 3.1c-.4 1.3-.2 2.7.8 3.6.9 1 2.3 1.2 3.6.8.6 1.2 1.8 2 3.1 2s2.5-.8 3.1-2c1.3.4 2.7.2 3.6-.8 1-.9 1.2-2.3.8-3.6 1.2-.6 2-1.8 2-3.1zm-10.7 4.1-3.4-3.4 1.3-1.3 2.1 2.1 4.6-5 1.4 1.3-6 6.3z"/></svg>`)
 }
 
-// icons are the action bar's, in currentColor.
+// icons are the action bar's, X's own, in currentColor.
 var icons = map[string]template.HTML{
-	"reply":    `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M9.5 4h5a6.5 6.5 0 0 1 0 13H12l-4.5 3.5V16.6A6.5 6.5 0 0 1 9.5 4z"/></svg>`,
-	"repost":   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 9.5 7.5 6.5l3 3M7.5 7v7.5a2.5 2.5 0 0 0 2.5 2.5h4M19.5 14.5l-3 3-3-3M16.5 17V9.5A2.5 2.5 0 0 0 14 7h-4"/></svg>`,
-	"like":     `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 20s-7.5-4.6-7.5-10.1A4.2 4.2 0 0 1 12 7.4a4.2 4.2 0 0 1 7.5 2.5C19.5 15.4 12 20 12 20z"/></svg>`,
-	"bookmark": `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M6.5 4.5h11v15.5L12 16.2 6.5 20z"/></svg>`,
-	"share":    `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V4M8 7.5 12 3.5l4 4M5 13v5.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V13"/></svg>`,
+	"reply":    `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M1.751 10c0-4.42 3.584-8 8.005-8h4.366c4.49 0 8.129 3.64 8.129 8.13 0 2.96-1.607 5.68-4.196 7.11l-8.054 4.46v-3.69h-.067c-4.49.1-8.183-3.51-8.183-8.01zm8.005-6c-3.317 0-6.005 2.69-6.005 6 0 3.37 2.77 6.08 6.138 6.01l.351-.01h1.761v2.3l5.087-2.81c1.951-1.08 3.163-3.13 3.163-5.36 0-3.39-2.744-6.13-6.129-6.13H9.756z"/></svg>`,
+	"repost":   `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M4.5 3.88l4.432 4.14-1.364 1.46L5.5 7.55V16c0 1.1.896 2 2 2H13v2H7.5c-2.209 0-4-1.79-4-4V7.55L1.432 9.48.068 8.02 4.5 3.88zM16.5 6H11V4h5.5c2.209 0 4 1.79 4 4v8.45l2.068-1.93 1.364 1.46-4.432 4.14-4.432-4.14 1.364-1.46 2.068 1.93V8c0-1.1-.896-2-2-2z"/></svg>`,
+	"like":     `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M16.697 5.5c-1.222-.06-2.679.51-3.89 2.16l-.805 1.09-.806-1.09C9.984 6.01 8.526 5.44 7.304 5.5c-1.243.07-2.349.78-2.91 1.91-.552 1.12-.633 2.78.479 4.82 1.074 1.97 3.257 4.27 7.129 6.61 3.87-2.34 6.052-4.64 7.126-6.61 1.111-2.04 1.03-3.7.477-4.82-.561-1.13-1.666-1.84-2.908-1.91zm4.187 7.69c-1.351 2.48-4.001 5.12-8.379 7.67l-.503.3-.504-.3c-4.379-2.55-7.029-5.19-8.382-7.67-1.36-2.5-1.41-4.86-.514-6.67.887-1.79 2.647-2.91 4.601-3.01 1.651-.09 3.368.56 4.798 2.01 1.429-1.45 3.146-2.1 4.796-2.01 1.954.1 3.714 1.22 4.601 3.01.896 1.81.846 4.17-.514 6.67z"/></svg>`,
+	"bookmark": `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 4.5C4 3.12 5.119 2 6.5 2h11C18.881 2 20 3.12 20 4.5v18.44l-8-5.71-8 5.71V4.5zM6.5 4c-.276 0-.5.22-.5.5v14.56l6-4.29 6 4.29V4.5c0-.28-.224-.5-.5-.5h-11z"/></svg>`,
 }
