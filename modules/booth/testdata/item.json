@@ -1,0 +1,99 @@
+{
+ "id": 9111596,
+ "name": "(v0.1.0) [FREE] Pyrite9 Sleeve Roll — 袖まくりギミック / Sleeve-rolling gimmick【VRChat】",
+ "description": "【最新アップデート v0.1.0（2026-11-07）】初公開です。\n[Latest update v0.1.0 (2026-11-07)] First release.\n[최신 업데이트 v0.1.0 (2026-11-07)] 첫 공개입니다.\n\nVRChat アバター用の袖まくりギミックです。無料でお使いいただけます。\nプレハブをアバターに入れて袖のある衣装を選ぶだけで、ビルド時にその衣装のメッシュから「まくった袖」の形を計算して入れます。Expression Menu のトグルをオンにすると両袖がまくれ上がり、他の人にもそのまま見えます。\nこのパッケージにシェイプキーやメッシュのデータは入っていません。形はあなたが持っている衣装からビルド時に作られます。\n\nA free sleeve-rolling gimmick for VRChat avatars. Drop the pre",
+ "price": "¥ 100",
+ "published_at": "2026-11-07T18:49:15.000+09:00",
+ "is_adult": false,
+ "is_sold_out": false,
+ "is_end_of_sale": false,
+ "wish_lists_count": 398,
+ "category": {
+  "id": 217,
+  "name": "3D装飾品",
+  "parent": {
+   "name": "3Dモデル",
+   "url": "https://booth.pm/ja/browse/3D%E3%83%A2%E3%83%87%E3%83%AB"
+  },
+  "url": "https://booth.pm/ja/browse/3D%E8%A3%85%E9%A3%BE%E5%93%81"
+ },
+ "images": [
+  {
+   "caption": null,
+   "original": "https://booth.pximg.net/u/i/9111596/moving_base_resized.gif",
+   "resized": "x"
+  },
+  {
+   "caption": null,
+   "original": "https://booth.pximg.net/6e5a2a6c-6c80-46d6-9663-3fb2a704e152/i/9111596/5e43ac65-77fc-4d78-b384-9faa8faddee6_base_resized.jpg",
+   "resized": "https://booth.pximg.net/c/72x72_a2_g5/6e5a2a6c-6c80-46d6-9663-3fb2a704e152/i/9111596/5e43ac65-77fc-4d78-b384-9faa8faddee6_base_resized.jpg"
+  },
+  {
+   "caption": null,
+   "original": "https://booth.pximg.net/6e5a2a6c-6c80-46d6-9663-3fb2a704e152/i/9111596/92cb6431-7895-46a8-9f0b-64220e90eb5c_base_resized.jpg",
+   "resized": "https://booth.pximg.net/c/72x72_a2_g5/6e5a2a6c-6c80-46d6-9663-3fb2a704e152/i/9111596/92cb6431-7895-46a8-9f0b-64220e90eb5c_base_resized.jpg"
+  }
+ ],
+ "shop": {
+  "uuid": "6e5a2a6c-6c80-46d6-9663-3fb2a704e152",
+  "name": "pyrite9",
+  "subdomain": "pyrite9",
+  "thumbnail_url": "https://booth.pximg.net/c/48x48/users/20580667/icon_image/5eeb037b-bb74-44b9-82ec-8010d5934f67_base_resized.jpg",
+  "url": "https://pyrite9.booth.pm/",
+  "verified": false
+ },
+ "tags": [
+  {
+   "name": "無料",
+   "url": "https://booth.pm/ja/items?tags%5B%5D=%E7%84%A1%E6%96%99"
+  },
+  {
+   "name": "Free",
+   "url": "https://booth.pm/ja/items?tags%5B%5D=Free"
+  },
+  {
+   "name": "衣装",
+   "url": "https://booth.pm/ja/items?tags%5B%5D=%E8%A1%A3%E8%A3%85"
+  },
+  {
+   "name": "汎用",
+   "url": "https://booth.pm/ja/items?tags%5B%5D=%E6%B1%8E%E7%94%A8"
+  },
+  {
+   "name": "萌え袖",
+   "url": "https://booth.pm/ja/items?tags%5B%5D=%E8%90%8C%E3%81%88%E8%A2%96"
+  },
+  {
+   "name": "ギミック",
+   "url": "https://booth.pm/ja/items?tags%5B%5D=%E3%82%AE%E3%83%9F%E3%83%83%E3%82%AF"
+  },
+  {
+   "name": "VRChat",
+   "url": "https://booth.pm/ja/items?tags%5B%5D=VRChat"
+  },
+  {
+   "name": "sleeve",
+   "url": "https://booth.pm/ja/items?tags%5B%5D=sleeve"
+  }
+ ],
+ "embeds": [
+  "<iframe width=\"560\" height=\"315\" src=\"https://www.youtube.com/embed/bvTN-9sY09w\" frameborder=\"0\" allowfullscreen sandbox=\"allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-presentation\" class=\"wide-content\"></iframe>",
+  "<iframe width=\"560\" height=\"315\" src=\"https://www.youtube.com/embed/yj1gWWQefO0\" frameborder=\"0\" allowfullscreen sandbox=\"allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-presentation\" class=\"wide-content\"></iframe>"
+ ],
+ "variations": [
+  {
+   "id": 15208703,
+   "name": "無料版 / Free",
+   "price": 0,
+   "status": "free_download",
+   "type": "digital"
+  },
+  {
+   "id": 15208734,
+   "name": "支援版 / Support",
+   "price": 100,
+   "status": "addable_to_cart",
+   "type": "digital"
+  }
+ ]
+}

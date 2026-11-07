@@ -1,4 +1,14 @@
-import { AlarmClock, Bot, KanbanSquare, MessageSquare, NotebookPen, PlaySquare, Repeat2, Wrench } from "lucide-react";
+import {
+  AlarmClock,
+  Bot,
+  KanbanSquare,
+  MessageSquare,
+  NotebookPen,
+  PlaySquare,
+  Repeat2,
+  ShoppingBag,
+  Wrench,
+} from "lucide-react";
 import type { ComponentType, SVGProps } from "react";
 
 export type Tone = "emerald" | "violet" | "rose" | "zinc" | "sky" | "orange" | "amber" | "indigo" | "slate" | "teal";
@@ -53,6 +63,12 @@ const modules: Record<string, ModuleMeta> = {
     about: "Answers links to Bilibili videos with a card.",
     icon: PlaySquare,
     tone: "rose",
+  },
+  booth: {
+    title: "Booth cards",
+    about: "Answers links to Booth items with a card showing the item's first picture.",
+    icon: ShoppingBag,
+    tone: "orange",
   },
   twitter: {
     title: "X cards",
