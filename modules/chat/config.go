@@ -35,7 +35,7 @@ type ProfileConfig struct {
 	System        string   `json:"system,omitempty" format:"markdown" doc:"The system prompt: who the agent is and how it talks, in Markdown."`
 	Context       *int     `json:"context,omitempty" minimum:"0" doc:"How many recent chat messages the agent sees; default 30, 0 for none."`
 	MaxTurns      int      `json:"max_turns,omitempty" minimum:"0" doc:"How many turns of a thread are sent, newest kept; default 40."`
-	Tools         []string `json:"tools,omitempty" enum:"google_search,url_context,code_execution" doc:"The model's built-in tools the agent uses everywhere it answers. Modules' tools are set per chat: see tools above."`
+	Tools         []string `json:"tools,omitempty" enum:"google_search,url_context,code_execution" doc:"The model's built-in tools the agent uses everywhere it answers. Modules' tools are offered per chat: see Tools, after the profiles."`
 	MaxToolRounds int      `json:"max_tool_rounds,omitempty" minimum:"0" doc:"The most rounds of tool calls in one reply; default 8."`
 }
 

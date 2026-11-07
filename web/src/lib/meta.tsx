@@ -131,9 +131,11 @@ export function moduleMeta(id: string): ModuleMeta {
 const agentTones: Tone[] = ["emerald", "violet", "sky", "amber", "rose", "indigo"];
 
 export type ListMeta = ModuleMeta & {
-  /** heading titles the list's chats; toggle says what a chat on it gets. */
+  /** heading titles the list's chats; toggle says what a chat on it gets;
+   * empty says what to do while it has none. */
   heading: string;
   toggle: string;
+  empty: string;
   /** agent marks a chat agent's list. */
   agent: boolean;
 };
@@ -149,18 +151,22 @@ export function listMeta(module: string, list: { title: string; about?: string }
       title: list.title,
       heading: list.title,
       toggle: `Agents may use ${about.title} here`,
+      empty: "Nowhere yet. Add the chats where agents may use them.",
       agent: false,
     };
   }
   const m = moduleMeta(module);
-  if (module !== "chat")
-    return { ...m, heading: "Allowed chats", toggle: `${m.title} answers in this chat`, agent: false };
+  const empty = "Nowhere yet. Add the chats it should answer in.";
+  if (module !== "chat") {
+    return { ...m, heading: "Allowed chats", toggle: `${m.title} answers in this chat`, empty, agent: false };
+  }
   return {
     ...m,
     title: list.title,
     tone: agentTones[index % agentTones.length] ?? "emerald",
     heading: `Where ${list.title} answers`,
     toggle: `${list.title} answers in this chat`,
+    empty,
     agent: true,
   };
 }

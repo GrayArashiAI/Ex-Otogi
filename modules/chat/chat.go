@@ -58,7 +58,7 @@ func (m *Module) Descriptor() otogi.ModuleDescriptor {
 	}
 	for _, t := range m.toolModules {
 		requires = append(requires, llm.ToolsService(t))
-		lists = append(lists, otogi.AllowlistSpec{Name: toolsList(t), Title: string(t) + " tools", Description: "Agents may use " + string(t) + "'s tools here.", About: t})
+		lists = append(lists, otogi.AllowlistSpec{Name: toolsList(t), Title: string(t) + " tools", Description: "Agents may use the " + string(t) + " module's tools here.", About: t})
 	}
 	return otogi.ModuleDescriptor{
 		ID:         "chat",

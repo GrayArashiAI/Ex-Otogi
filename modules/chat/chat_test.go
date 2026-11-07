@@ -431,7 +431,7 @@ func TestToolsPerChat(t *testing.T) {
 	}
 	d := h.m.Descriptor()
 	if len(d.Requires) != 1 || d.Requires[0] != "llm.tools/fun" || len(d.Allowlists) != 2 ||
-		d.Allowlists[1] != (otogi.AllowlistSpec{Name: "tools:fun", Title: "fun tools", Description: "Agents may use fun's tools here.", About: "fun"}) {
+		d.Allowlists[1] != (otogi.AllowlistSpec{Name: "tools:fun", Title: "fun tools", Description: "Agents may use the fun module's tools here.", About: "fun"}) {
 		t.Fatalf("requires %v, allowlists %+v", d.Requires, d.Allowlists)
 	}
 	h.m.now = func() time.Time { return h.now }

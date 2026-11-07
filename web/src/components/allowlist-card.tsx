@@ -54,9 +54,7 @@ export function AllowlistCard({
       <div className="surface-inset mx-3.5 mb-3.5 rounded-xl px-3">
         {isPending && <Skeleton className="my-3 h-9 w-full" />}
         {!isPending && chats.length === 0 && (
-          <p className="py-6 text-center text-muted-foreground text-sm">
-            Nowhere yet. Add the chats it should answer in.
-          </p>
+          <p className="py-6 text-center text-muted-foreground text-sm">{meta.empty}</p>
         )}
         <ul className="divide-y divide-border/80">
           {chats.map((c) => {
