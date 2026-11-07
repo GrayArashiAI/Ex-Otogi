@@ -30,7 +30,7 @@ It prompts for the phone number, the login code Telegram sends, and the 2FA pass
 ## How updates flow
 
 1. gotd's update manager receives updates and calls the driver's inbox handler.
-2. The handler writes new, edited, and deleted message updates to the `inbox` table. Writes are deduplicated by (box, pts), so gotd re-deliveries are harmless.
+2. The handler writes new, edited, and deleted message updates to the `inbox` table. Writes are deduplicated, so gotd re-deliveries are harmless: a new message by its box and message ID (messages gotd recovers from a difference carry no pts, and the same message may come both ways), an edit or deletion by its box and pts.
 3. gotd saves its position only after the handler returns.
 4. A dispatcher maps inbox rows to events in order and submits them to the kernel. A row is marked done when all its events finish.
 5. Other update kinds (typing, read receipts, and so on) are not stored yet.

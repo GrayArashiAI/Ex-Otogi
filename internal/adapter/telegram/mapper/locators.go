@@ -76,25 +76,33 @@ func unmarshal(what string, data []byte, v any) error {
 	return nil
 }
 
-// Routed reports whether update is a kind the adapter persists and routes, and
-// its position: the box ("common" or "channel:<id>") and pts. (box, pts)
-// identifies the update uniquely, so it serves as the inbox dedup key.
-func Routed(update tg.UpdateClass) (box string, pts int, ok bool) {
+// InboxKey reports whether update is a kind the adapter persists and routes,
+// and the key that identifies it in the inbox, so a delivery repeated is
+// stored once. Within a box ("common" or "channel:<id>"), a new message is
+// keyed by its message ID: gotd hands over messages it recovers from a
+// difference with pts -1, and a message is new only once, whether pushed
+// or recovered. Edits and deletions are keyed by their pts, which they
+// always carry.
+func InboxKey(update tg.UpdateClass) (key string, ok bool) {
+	newMessage := func(box string, m tg.MessageClass) (string, bool) {
+		return fmt.Sprintf("%s:msg:%d", box, m.GetID()), box != ""
+	}
+	at := func(box string, pts int) (string, bool) { return fmt.Sprintf("%s:%d", box, pts), box != "" }
 	switch u := update.(type) {
 	case *tg.UpdateNewMessage:
-		return NamespaceCommon, u.Pts, true
+		return newMessage(NamespaceCommon, u.Message)
 	case *tg.UpdateEditMessage:
-		return NamespaceCommon, u.Pts, true
+		return at(NamespaceCommon, u.Pts)
 	case *tg.UpdateDeleteMessages:
-		return NamespaceCommon, u.Pts, true
+		return at(NamespaceCommon, u.Pts)
 	case *tg.UpdateNewChannelMessage:
-		return channelBox(u.Message), u.Pts, channelBox(u.Message) != ""
+		return newMessage(channelBox(u.Message), u.Message)
 	case *tg.UpdateEditChannelMessage:
-		return channelBox(u.Message), u.Pts, channelBox(u.Message) != ""
+		return at(channelBox(u.Message), u.Pts)
 	case *tg.UpdateDeleteChannelMessages:
-		return fmt.Sprintf("channel:%d", u.ChannelID), u.Pts, true
+		return at(fmt.Sprintf("channel:%d", u.ChannelID), u.Pts)
 	default:
-		return "", 0, false
+		return "", false
 	}
 }
 

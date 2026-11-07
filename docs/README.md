@@ -23,7 +23,7 @@ These documents describe the design of the `next` runtime: a self-hosted, single
 | [`standards.md`](standards.md) | External references |
 | [`runbooks/core-runtime-smoke.md`](runbooks/core-runtime-smoke.md) | Build, gates, and offline smoke |
 | [`runbooks/telegram-mtproto.md`](runbooks/telegram-mtproto.md) | Telegram storage, login, backup, recovery, upgrade |
-| [`runbooks/control-panel.md`](runbooks/control-panel.md) | The control panel: serving it, passkeys, setting up modules, the API from scripts |
+| [`runbooks/control-panel.md`](runbooks/control-panel.md) | The control panel: serving it, sign-in, setting up modules, following what the bot does, the API from scripts |
 
 Design specs and plans of milestones are kept locally under `docs/superpowers/`, which is not part of the repository. These documents are the reference.
 

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strconv"
 	"sync/atomic"
 	"time"
 
@@ -71,7 +70,7 @@ func (h *inboxHandler) Handle(ctx context.Context, u tg.UpdatesClass) error {
 		h.log.Warn("telegram: save peers", "error", err)
 	}
 	for _, update := range batch {
-		box, pts, ok := mapper.Routed(update)
+		key, ok := mapper.InboxKey(update)
 		if !ok {
 			h.log.Debug("telegram: update kind not routed", "type", update.TypeName())
 			continue
@@ -80,7 +79,7 @@ func (h *inboxHandler) Handle(ctx context.Context, u tg.UpdatesClass) error {
 		if err := update.Encode(&buf); err != nil {
 			return h.trip(fmt.Errorf("encode %T: %w", update, err))
 		}
-		if _, err := h.store.InsertInbox(ctx, box+":"+strconv.Itoa(pts), buf.Buf, h.now()); err != nil {
+		if _, err := h.store.InsertInbox(ctx, key, buf.Buf, h.now()); err != nil {
 			return h.trip(err)
 		}
 	}

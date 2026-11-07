@@ -124,6 +124,25 @@ func TestInboxHandlerPersistsRoutedUpdatesOnce(t *testing.T) {
 	if n := pendingCount(t, store); n != 2 {
 		t.Fatalf("pending rows = %d, want 2 (routed, deduplicated)", n)
 	}
+	// gotd hands over the messages it recovers from a difference with pts
+	// -1: each is kept, and one already pushed is not kept again.
+	recovered := &tg.Updates{Updates: []tg.UpdateClass{
+		&tg.UpdateNewChannelMessage{Message: newMessage(10, &tg.PeerChannel{ChannelID: 9}, "b"), Pts: -1, PtsCount: -1},
+		&tg.UpdateNewChannelMessage{Message: newMessage(11, &tg.PeerChannel{ChannelID: 9}, "c"), Pts: -1, PtsCount: -1},
+	}}
+	if err := h.Handle(context.Background(), recovered); err != nil {
+		t.Fatal(err)
+	}
+	if n := pendingCount(t, store); n != 4 {
+		t.Fatalf("pending rows = %d, want 4: both recovered messages", n)
+	}
+	pushedBefore := &tg.Updates{Updates: []tg.UpdateClass{&tg.UpdateNewMessage{Message: newMessage(1, &tg.PeerUser{UserID: 2}, "a"), Pts: -1, PtsCount: -1}}}
+	if err := h.Handle(context.Background(), pushedBefore); err != nil {
+		t.Fatal(err)
+	}
+	if n := pendingCount(t, store); n != 4 {
+		t.Fatalf("pending rows = %d, want 4: a message pushed before and recovered again is kept once", n)
+	}
 	select {
 	case <-wake:
 	default:
