@@ -207,8 +207,9 @@ function ColumnHeader({ columns, children }: { columns: string; children: ReactN
 /** workers names who did something for a task: the modules running it and
  * the components that recorded work. */
 function workers(components: string[], running: Running[]): string[] {
-  const names = [...running.map((r) => r.module), ...components.map((c) => c.replace(/^module:/, ""))];
-  return [...new Set(names)];
+  const modules = components.filter((c) => c.startsWith("module:")).map((c) => c.slice("module:".length));
+  const others = components.filter((c) => !c.startsWith("module:"));
+  return [...new Set([...running.map((r) => r.module), ...modules, ...others])];
 }
 
 function TaskList({ filter, live, selected }: { filter: TaskFilter; live: boolean; selected?: string }) {
@@ -234,6 +235,7 @@ function TaskList({ filter, live, selected }: { filter: TaskFilter; live: boolea
       }
       render={(t) => {
         const running = t.outcome === "running";
+        const elapsed = took((running ? now : new Date(t.ended).getTime()) - new Date(t.started).getTime());
         return (
           <Link
             to="/events"
@@ -242,7 +244,8 @@ function TaskList({ filter, live, selected }: { filter: TaskFilter; live: boolea
           >
             <StatusDot tone={outcomeTone(t.outcome)} />
             <time className="order-3 font-mono text-[11.5px] text-muted-foreground sm:order-none" dateTime={t.started}>
-              {format(new Date(t.started), "MMM d HH:mm:ss")}
+              {running && <span className="font-medium text-sky-700 sm:hidden">{elapsed}</span>}
+              <span className={cn(running && "hidden sm:inline")}>{format(new Date(t.started), "MMM d HH:mm:ss")}</span>
             </time>
             <span className="truncate">
               <span className="font-mono text-xs">{workers(t.components, t.running).join(" · ")}</span>
@@ -260,7 +263,7 @@ function TaskList({ filter, live, selected }: { filter: TaskFilter; live: boolea
                 running ? "font-medium text-sky-700" : "text-muted-foreground",
               )}
             >
-              {took((running ? now : new Date(t.ended).getTime()) - new Date(t.started).getTime())}
+              {elapsed}
             </span>
           </Link>
         );
