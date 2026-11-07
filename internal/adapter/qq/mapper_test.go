@@ -139,3 +139,20 @@ func TestMapLearnsNames(t *testing.T) {
 		}
 	}
 }
+
+// QQ faces in content become the names they carry; a sticker's face goes,
+// and its picture, which comes as an attachment, is a sticker.
+func TestMapFaces(t *testing.T) {
+	m := testMapper(t)
+	e := mapOne(t, m, "GROUP_MESSAGE_CREATE", `{"id":"g1","group_openid":"G1","author":{"member_openid":"M1"},
+		"content":"冲<faceType=4,faceId=\"\",ext=\"eyJ0ZXh0IjoiW+i/m+aUu10ifQ==\">！"}`)
+	if got := e.Message.PlainText(); got != "冲[进攻]！" {
+		t.Fatalf("text = %q", got)
+	}
+	e = mapOne(t, m, "GROUP_MESSAGE_CREATE", `{"id":"g2","group_openid":"G1","author":{"member_openid":"M1"},
+		"content":"<faceType=6,faceId=\"0\",ext=\"eyJ0ZXh0IjoiIn0=\">",
+		"attachments":[{"content_type":"image/jpeg","url":"https://multimedia.nt.qq.com.cn/x","width":806,"height":806}]}`)
+	if len(e.Message.Parts) != 1 || e.Message.Parts[0].Media == nil || e.Message.Parts[0].Media.Role != otogi.MediaSticker {
+		t.Fatalf("parts = %+v", e.Message.Parts)
+	}
+}

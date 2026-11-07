@@ -2,6 +2,7 @@ package qq
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"regexp"
@@ -189,13 +190,40 @@ func (m *mapper) learnNames(ctx context.Context, msg message, actor string) erro
 	return nil
 }
 
+// faceToken is a QQ face in message content: <faceType=4,faceId="",
+// ext="<base64 JSON>">, where the JSON's text names it, such as "[进攻]".
+var faceToken = regexp.MustCompile(`<faceType=(\d+),faceId="[^"]*",ext="([^"]*)">`)
+
+// faceSticker is the face type of a sticker, whose picture comes as an
+// attachment of the same message.
+const faceSticker = "6"
+
+// faces replaces the faces in content with the names they carry, and drops
+// those without one; sticker reports a sticker among them.
+func faces(content string) (out string, sticker bool) {
+	out = faceToken.ReplaceAllStringFunc(content, func(token string) string {
+		m := faceToken.FindStringSubmatch(token)
+		if m[1] == faceSticker {
+			sticker = true
+		}
+		var ext struct {
+			Text string `json:"text"`
+		}
+		if data, err := base64.StdEncoding.DecodeString(m[2]); err == nil && json.Unmarshal(data, &ext) == nil {
+			return ext.Text
+		}
+		return "[表情]"
+	})
+	return out, sticker
+}
+
 var mentionToken = regexp.MustCompile(`<@!?([^>\s]+)>`)
 
 // content builds the message: text with mentions as annotations, then the
 // attachments, and a reply relation when it quotes another message.
 func (m *mapper) content(ctx context.Context, msg message, e *otogi.Event) (otogi.Message, error) {
 	var text otogi.RichText
-	content := msg.Content
+	content, sticker := faces(msg.Content)
 	if e.Mentioned {
 		content = strings.TrimLeft(content, " ")
 	}
@@ -239,6 +267,9 @@ func (m *mapper) content(ctx context.Context, msg message, e *otogi.Event) (otog
 	for i, a := range msg.Attachments {
 		part := attachmentPart(a)
 		part.ID = otogi.PartID(fmt.Sprintf("attachment-%d", i))
+		if sticker && part.Media != nil && part.Media.Role == otogi.MediaImage {
+			part.Media.Role = otogi.MediaSticker
+		}
 		out.Parts = append(out.Parts, part)
 		out.Roots = append(out.Roots, part.ID)
 	}
