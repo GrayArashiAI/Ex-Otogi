@@ -20,11 +20,11 @@ import (
 
 // Config is the module's settings; each unset field keeps the default.
 type Config struct {
-	Blur           *int     `json:"blur,omitempty" minimum:"0" maximum:"40" doc:"How far pictures their source marks sensitive (an X post's sensitive media, an R-18 BOOTH item) are blurred, in pixels of a card about 480 wide: enough to hide details, not what a picture shows. Default 9; 0 shows them plainly, still labeled."`
-	CoverRefused   *bool    `json:"cover_refused,omitempty" doc:"When a platform refuses a card for what its pictures show (QQ's 消息内容违规), send it once more with the sticker over each picture. Default on."`
-	Sticker        string   `json:"sticker,omitempty" doc:"An image file on the server (PNG, WebP, GIF, or JPEG) to use as the sticker; default the built-in one."`
-	StickerOpacity *float64 `json:"sticker_opacity,omitempty" minimum:"0.1" maximum:"1" doc:"How opaque the sticker is, from 0.1 to 1: lower lets more of the picture show through. Default 0.65."`
-	StickerSize    int      `json:"sticker_size,omitempty" minimum:"0" maximum:"100" doc:"How much of a picture the sticker spans, in percent of its width and height. Default 66."`
+	Blur           *int     `json:"blur,omitempty" minimum:"0" maximum:"40" default:"9" doc:"How far pictures their source marks sensitive (an X post's sensitive media, an R-18 BOOTH item) are blurred, in pixels of a card about 480 wide: enough to hide details, not what a picture shows. 0 shows them plainly, still labeled."`
+	CoverRefused   *bool    `json:"cover_refused,omitempty" default:"true" doc:"When a platform refuses a card for what its pictures show (QQ's 消息内容违规), send it once more with the sticker over each picture."`
+	Sticker        string   `json:"sticker,omitempty" doc:"An image file on the server (PNG, WebP, GIF, or JPEG) to use as the sticker; empty uses the built-in one."`
+	StickerOpacity *float64 `json:"sticker_opacity,omitempty" minimum:"0.1" maximum:"1" default:"0.65" doc:"How opaque the sticker is, from 0.1 to 1: lower lets more of the picture show through."`
+	StickerSize    int      `json:"sticker_size,omitempty" minimum:"0" maximum:"100" default:"66" doc:"How much of a picture the sticker spans, in percent of its width and height."`
 }
 
 // Module is the censor module.

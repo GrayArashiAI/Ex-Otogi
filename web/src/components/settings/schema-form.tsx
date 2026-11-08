@@ -143,7 +143,13 @@ function Control({ field, schema }: { field: AnyFieldApi; schema: JSONSchema }) 
   const kind = kindOf(schema);
   const value = field.state.value;
   if (kind === "boolean") {
-    return <Switch checked={Boolean(value)} onCheckedChange={(v) => field.handleChange(v)} />;
+    // An unset switch shows the value the module gives it.
+    return (
+      <Switch
+        checked={Boolean(value === undefined ? schema.default : value)}
+        onCheckedChange={(v) => field.handleChange(v)}
+      />
+    );
   }
   if (kind === "integer" || kind === "number") {
     return (
@@ -155,7 +161,7 @@ function Control({ field, schema }: { field: AnyFieldApi; schema: JSONSchema }) 
         min={schema.minimum}
         max={schema.maximum}
         step={kind === "integer" ? 1 : "any"}
-        placeholder="Default"
+        placeholder={schema.default === undefined ? "Default" : `Default ${schema.default}`}
         onChange={(e) => field.handleChange(e.target.value === "" ? undefined : Number(e.target.value))}
         onBlur={field.handleBlur}
       />
@@ -171,7 +177,7 @@ function Control({ field, schema }: { field: AnyFieldApi; schema: JSONSchema }) 
   }
   if (schema.enum) {
     const items = [
-      { value: "", label: "Default" },
+      { value: "", label: schema.default === undefined ? "Default" : `Default (${schema.default})` },
       ...schema.enum.map((v) => ({ value: String(v), label: String(v) })),
     ];
     return (

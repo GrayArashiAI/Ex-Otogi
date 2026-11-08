@@ -4,6 +4,8 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -65,6 +67,23 @@ func TestSettingsErrors(t *testing.T) {
 	} {
 		if _, err := New(cfg); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%+v: %v, want %q", cfg, err, want)
+		}
+	}
+}
+
+// The defaults the settings form shows are the ones an unset field gets.
+func TestSchemaDefaultsAreTheDefaults(t *testing.T) {
+	t.Parallel()
+	d := cardimage.DefaultPictures()
+	want := map[string]string{
+		"Blur": strconv.Itoa(d.Blur), "CoverRefused": strconv.FormatBool(d.CoverRefused),
+		"StickerOpacity": strconv.FormatFloat(d.StickerOpacity, 'f', -1, 64), "StickerSize": strconv.Itoa(d.StickerSize),
+	}
+	typ := reflect.TypeFor[Config]()
+	for name, value := range want {
+		f, _ := typ.FieldByName(name)
+		if got := f.Tag.Get("default"); got != value {
+			t.Errorf("%s: schema default %q, applied default %q", name, got, value)
 		}
 	}
 }

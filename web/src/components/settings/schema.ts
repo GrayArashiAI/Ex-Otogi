@@ -12,6 +12,8 @@ export type JSONSchema = {
   $defs?: Record<string, JSONSchema>;
   description?: string;
   enum?: unknown[];
+  /** default is the value an unset field has. */
+  default?: unknown;
   format?: string;
   minimum?: number;
   maximum?: number;
