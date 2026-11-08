@@ -16,7 +16,11 @@ import (
 //go:embed card.html
 var cardHTML string
 
-var cardTemplate = template.Must(template.New("card").Funcs(cardimage.Funcs()).Parse(cardHTML))
+// newTemplate parses the card's template, drawing the pictures it must not
+// show plainly as p says.
+func newTemplate(p cardimage.Pictures) *template.Template {
+	return template.Must(template.New("card").Funcs(p.Funcs()).Parse(cardHTML))
+}
 
 // card is what the template shows of an item.
 type card struct {
@@ -126,9 +130,9 @@ type image struct {
 func (i image) dataURI() template.URL { return cardimage.DataURI(i.data, i.mime) }
 
 // render draws a card as a PNG.
-func render(ctx context.Context, r cardimage.Renderer, c card) ([]byte, error) {
+func render(ctx context.Context, r cardimage.Renderer, t *template.Template, c card) ([]byte, error) {
 	var html bytes.Buffer
-	if err := cardTemplate.Execute(&html, c); err != nil {
+	if err := t.Execute(&html, c); err != nil {
 		return nil, fmt.Errorf("booth: card template: %w", err)
 	}
 	return r.Render(ctx, html.String(), ".card", cardWidth, cardScale)

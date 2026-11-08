@@ -1,0 +1,90 @@
+// Package censor is the one place that says how cards show the pictures
+// they must not show plainly: how far sensitive pictures are blurred, and
+// whether a card the platform refused for its pictures goes out again under
+// a sticker, which sticker, how see-through, and how large. It handles no
+// events; it offers its settings to the card modules as the service
+// cardimage.ServicePictures, and they restart with it when they change.
+package censor
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net/http"
+	"os"
+	"strings"
+
+	"github.com/TundraWork/Ex-Otogi/pkg/cardimage"
+	"github.com/TundraWork/Ex-Otogi/pkg/otogi"
+)
+
+// Config is the module's settings; each unset field keeps the default.
+type Config struct {
+	Blur           *int     `json:"blur,omitempty" minimum:"0" maximum:"40" doc:"How far pictures their source marks sensitive (an X post's sensitive media, an R-18 BOOTH item) are blurred, in pixels of a card about 480 wide: enough to hide details, not what a picture shows. Default 9; 0 shows them plainly, still labeled."`
+	CoverRefused   *bool    `json:"cover_refused,omitempty" doc:"When a platform refuses a card for what its pictures show (QQ's 消息内容违规), send it once more with the sticker over each picture. Default on."`
+	Sticker        string   `json:"sticker,omitempty" doc:"An image file on the server (PNG, WebP, GIF, or JPEG) to use as the sticker; default the built-in one."`
+	StickerOpacity *float64 `json:"sticker_opacity,omitempty" minimum:"0.1" maximum:"1" doc:"How opaque the sticker is, from 0.1 to 1: lower lets more of the picture show through. Default 0.65."`
+	StickerSize    int      `json:"sticker_size,omitempty" minimum:"0" maximum:"100" doc:"How much of a picture the sticker spans, in percent of its width and height. Default 66."`
+}
+
+// Module is the censor module.
+type Module struct {
+	pictures cardimage.Pictures
+}
+
+// New validates cfg, reads the sticker file when one is set, and returns
+// the module.
+func New(cfg Config) (*Module, error) {
+	p := cardimage.DefaultPictures()
+	var errs []error
+	if cfg.Blur != nil {
+		if *cfg.Blur < 0 || *cfg.Blur > 40 {
+			errs = append(errs, fmt.Errorf("blur %d: want 0 to 40", *cfg.Blur))
+		}
+		p.Blur = *cfg.Blur
+	}
+	if cfg.CoverRefused != nil {
+		p.CoverRefused = *cfg.CoverRefused
+	}
+	if cfg.StickerOpacity != nil {
+		if *cfg.StickerOpacity < 0.1 || *cfg.StickerOpacity > 1 {
+			errs = append(errs, fmt.Errorf("sticker_opacity %v: want 0.1 to 1", *cfg.StickerOpacity))
+		}
+		p.StickerOpacity = *cfg.StickerOpacity
+	}
+	if cfg.StickerSize != 0 {
+		if cfg.StickerSize < 0 || cfg.StickerSize > 100 {
+			errs = append(errs, fmt.Errorf("sticker_size %d: want 1 to 100", cfg.StickerSize))
+		}
+		p.StickerSize = cfg.StickerSize
+	}
+	if cfg.Sticker != "" {
+		data, err := os.ReadFile(cfg.Sticker)
+		switch mime := http.DetectContentType(data); {
+		case err != nil:
+			errs = append(errs, fmt.Errorf("sticker: %w", err))
+		case !strings.HasPrefix(mime, "image/"):
+			errs = append(errs, fmt.Errorf("sticker %s: not an image (%s)", cfg.Sticker, mime))
+		default:
+			p.Sticker = cardimage.DataURI(data, mime)
+		}
+	}
+	if err := errors.Join(errs...); err != nil {
+		return nil, fmt.Errorf("censor: %w", err)
+	}
+	return &Module{pictures: p}, nil
+}
+
+// Descriptor declares the module: it handles no events and offers the
+// cards' censoring.
+func (*Module) Descriptor() otogi.ModuleDescriptor {
+	return otogi.ModuleDescriptor{ID: "censor", Provides: []string{cardimage.ServicePictures}}
+}
+
+// Start offers the settings to the card modules.
+func (m *Module) Start(_ context.Context, host otogi.Host) error {
+	return host.Provide(cardimage.ServicePictures, m.pictures)
+}
+
+// Handle is never called: the module subscribes to nothing.
+func (*Module) Handle(context.Context, otogi.Event, otogi.Invocation) error { return nil }

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -173,5 +175,43 @@ func TestSettingsSchemas(t *testing.T) {
 	data, _ := json.Marshal(doc)
 	if !strings.Contains(string(data), `"format":"secret"`) || !strings.Contains(string(data), `"format":"duration"`) || !strings.Contains(string(data), `"$defs"`) {
 		t.Fatalf("todou schema %s", data)
+	}
+}
+
+// The card modules draw with the censor module's settings: they need it
+// running, it cannot be turned off under them, and changing it rebuilds
+// them with it.
+func TestCardsCensorThroughTheCensorModule(t *testing.T) {
+	ctx := context.Background()
+	storage, err := modulestore.Open(ctx, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = storage.Close() })
+	s, rec := settingsHarness(t, storage)
+	chrome := filepath.Join(t.TempDir(), "chrome-headless-shell")
+	if err := os.WriteFile(chrome, []byte("#!/bin/sh\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	on, off := true, false
+	booth := json.RawMessage(`{"chrome": "` + chrome + `"}`)
+	if _, err := s.save(ctx, "booth", 0, &on, booth, "x"); err == nil || !strings.Contains(err.Error(), "cardimage.pictures") {
+		t.Fatalf("BOOTH cards without the censor module: %v", err)
+	}
+	if _, err := s.save(ctx, "censor", 0, &on, json.RawMessage(`{}`), "x"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.save(ctx, "booth", 0, &on, booth, "x"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.save(ctx, "censor", 1, &off, nil, "x"); err == nil || !strings.Contains(err.Error(), "booth") {
+		t.Fatalf("turning off the censor module under BOOTH cards: %v", err)
+	}
+	if _, err := s.save(ctx, "censor", 1, nil, json.RawMessage(`{"blur": 4}`), "x"); err != nil {
+		t.Fatal(err)
+	}
+	last := rec.list[len(rec.list)-1]
+	if p := last.Payload.(map[string]any); last.Kind != "module.reconfigured" || !slices.Equal(p["restarted"].([]otogi.ModuleID), []otogi.ModuleID{"booth"}) {
+		t.Fatalf("record %+v", last)
 	}
 }

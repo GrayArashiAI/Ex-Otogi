@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"html/template"
+
 	"github.com/TundraWork/Ex-Otogi/pkg/cardimage"
 	"github.com/TundraWork/Ex-Otogi/pkg/llm"
 	"github.com/TundraWork/Ex-Otogi/pkg/otogi"
@@ -26,6 +28,8 @@ type Config struct {
 
 // Module is the twitter module.
 type Module struct {
+	censor     cardimage.Pictures // how cards censor pictures; set in Start
+	template   *template.Template // the card's, drawing pictures as censor says
 	zone       *time.Location
 	api        *client
 	translator *translator // nil: no translated cards
@@ -64,12 +68,13 @@ func New(cfg Config, providers func(string) (llm.Provider, error)) (*Module, err
 		return nil, fmt.Errorf("twitter: %w", err)
 	}
 	renderer := cardimage.Renderer{Chrome: cfg.Chrome}
-	return &Module{
+	m := &Module{
 		zone: zone, translator: tr,
-		api:    &client{fx: "https://api.fxtwitter.com", syndication: "https://cdn.syndication.twimg.com", http: &http.Client{Timeout: 20 * time.Second}},
-		render: func(ctx context.Context, c card) ([]byte, error) { return render(ctx, renderer, c) },
-		now:    time.Now,
-	}, nil
+		api: &client{fx: "https://api.fxtwitter.com", syndication: "https://cdn.syndication.twimg.com", http: &http.Client{Timeout: 20 * time.Second}},
+		now: time.Now,
+	}
+	m.render = func(ctx context.Context, c card) ([]byte, error) { return render(ctx, renderer, m.template, c) }
+	return m, nil
 }
 
 // Descriptor declares the module: people's new messages, in the chats on
@@ -80,6 +85,7 @@ func (*Module) Descriptor() otogi.ModuleDescriptor {
 		Subscribes: []otogi.EventAction{otogi.ActionMessageCreated},
 		Ordering:   otogi.OrderNone,
 		Timeout:    5 * time.Minute, // a translation waits on a language model
+		Requires:   []string{cardimage.ServicePictures},
 		Allowlists: []otogi.AllowlistSpec{{Name: list, Title: "X", Description: "Links to posts on X get a card."}},
 	}
 }
@@ -87,9 +93,14 @@ func (*Module) Descriptor() otogi.ModuleDescriptor {
 // list is the module's allowlist.
 const list = "twitter"
 
-// Start keeps the host for records.
+// Start keeps the host for records, and takes how cards censor pictures
+// from the censor module.
 func (m *Module) Start(_ context.Context, host otogi.Host) error {
-	m.host = host
+	p, err := otogi.Lookup[cardimage.Pictures](host, cardimage.ServicePictures)
+	if err != nil {
+		return err
+	}
+	m.host, m.censor, m.template = host, p, newTemplate(p)
 	return nil
 }
 
@@ -137,7 +148,7 @@ func (m *Module) answer(ctx context.Context, e otogi.Event, inv otogi.Invocation
 	msg := m.message(ctx, e, t, c, payload)
 	payload["rendered"] = m.now().Sub(drawing).String()
 	_, err = inv.Send(ctx, "card:"+id, msg)
-	if errors.Is(err, otogi.ErrRefused) && payload["render_error"] == nil && c.cover() {
+	if errors.Is(err, otogi.ErrRefused) && m.censor.CoverRefused && payload["render_error"] == nil && c.cover() {
 		// The platform refused what the pictures show: they go out covered.
 		m.host.Logger().Warn("twitter: card refused; sending it with its pictures covered", "post", id, "error", err)
 		payload["refused"] = err.Error()

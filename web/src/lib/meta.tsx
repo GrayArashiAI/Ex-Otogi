@@ -1,4 +1,4 @@
-import { AlarmClock, Bot, KanbanSquare, MessageSquare, NotebookPen, Repeat2, Wrench } from "lucide-react";
+import { AlarmClock, Bot, EyeOff, KanbanSquare, MessageSquare, NotebookPen, Repeat2, Wrench } from "lucide-react";
 import type { ComponentType, SVGProps } from "react";
 
 export type Tone =
@@ -96,6 +96,12 @@ const modules: Record<string, ModuleMeta> = {
     about: "Answers links to X posts with a card, and a translated one for posts not in Chinese.",
     icon: XGlyph,
     tone: "zinc",
+  },
+  censor: {
+    title: "Censoring",
+    about: "How cards blur sensitive pictures and cover pictures a platform refused, for every card module.",
+    icon: EyeOff,
+    tone: "slate",
   },
   notes: {
     title: "Notes",

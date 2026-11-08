@@ -181,11 +181,21 @@ func TestFallback(t *testing.T) {
 type host struct {
 	otogi.Host
 	records []otogi.Record
+	censor  *cardimage.Pictures
 }
 
 func (h *host) Logger() *slog.Logger                     { return slog.New(slog.DiscardHandler) }
 func (h *host) Record(_ context.Context, r otogi.Record) { h.records = append(h.records, r) }
 func (h *host) Allowed(l, chat string) bool              { return l == list && chat == "qq:group:G1" }
+
+// Service offers how cards censor pictures: the defaults, unless the test
+// sets censor.
+func (h *host) Service(name string) (any, bool) {
+	if h.censor != nil {
+		return *h.censor, name == cardimage.ServicePictures
+	}
+	return cardimage.DefaultPictures(), name == cardimage.ServicePictures
+}
 
 type invocation struct {
 	otogi.Invocation
@@ -366,7 +376,7 @@ func TestRenderWithChrome(t *testing.T) {
 	tw := tweet{Author: author{Name: "名字 🔥", Handle: "someone", Badge: "blue"}, Text: "Cat’s @x #y https://example.com", Time: time.Now(), Views: &views,
 		Media: []media{{Kind: "video", Seconds: 41}, {Kind: "photo"}, {Kind: "gif"}}, Sensitive: true, QuoteGone: "这个帖子不可用。",
 		Poll: &poll{Choices: []choice{{"A", 60}, {"B", 40}}, Votes: 10, Ended: true}, Note: "context", ReplyingTo: "other"}
-	png, err := render(ctx, cardimage.Renderer{Chrome: path}, newCard(tw, pictures{}, time.Local))
+	png, err := render(ctx, cardimage.Renderer{Chrome: path}, newTemplate(cardimage.DefaultPictures()), newCard(tw, pictures{}, time.Local))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -418,6 +428,15 @@ func TestRefusedCardGoesOutCovered(t *testing.T) {
 		t.Fatalf("record %+v", r)
 	}
 
+	// With covering turned off in the censor module, a refused card fails
+	// as it was.
+	h.censor = &cardimage.Pictures{CoverRefused: false}
+	_ = m.Start(context.Background(), h)
+	inv = &invocation{refused: map[string]bool{"card:2118034216503955710": true}}
+	if err := m.Handle(context.Background(), e, inv); !errors.Is(err, otogi.ErrRefused) || len(inv.keys) != 1 {
+		t.Fatalf("covering off: %v, sends %v", err, inv.keys)
+	}
+
 	fixture = "fx-quote.json"
 	inv = &invocation{refused: map[string]bool{"card:2112637394654822514": true}}
 	e.Message = otogi.TextMessage("x.com/SpaceX/status/2112637394654822514")
@@ -433,7 +452,7 @@ func TestCardMarksPicturesShownLessThanPlainly(t *testing.T) {
 	c := newCard(tweet{Author: author{Name: "a", Handle: "a"}, Media: []media{{Kind: "photo", Image: "p"}}, Sensitive: true}, pictures{"p": "data:image/png;base64,AA=="}, time.UTC)
 	c.cover()
 	var html bytes.Buffer
-	if err := cardTemplate.Execute(&html, c); err != nil {
+	if err := newTemplate(cardimage.DefaultPictures()).Execute(&html, c); err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{".blurred img:not(.cover)", `class="media n1 blurred covered"`, `<img class="cover sticker" src="data:image/webp;base64,`, "敏感内容"} {

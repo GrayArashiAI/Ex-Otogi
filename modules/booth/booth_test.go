@@ -97,11 +97,21 @@ func (t toFake) RoundTrip(r *http.Request) (*http.Response, error) {
 type host struct {
 	otogi.Host
 	records []otogi.Record
+	censor  *cardimage.Pictures
 }
 
 func (h *host) Logger() *slog.Logger                     { return slog.New(slog.DiscardHandler) }
 func (h *host) Record(_ context.Context, r otogi.Record) { h.records = append(h.records, r) }
 func (h *host) Allowed(l, chat string) bool              { return l == list && chat == "qq:group:G1" }
+
+// Service offers how cards censor pictures: the defaults, unless the test
+// sets censor.
+func (h *host) Service(name string) (any, bool) {
+	if h.censor != nil {
+		return *h.censor, name == cardimage.ServicePictures
+	}
+	return cardimage.DefaultPictures(), name == cardimage.ServicePictures
+}
 
 type invocation struct {
 	otogi.Invocation
@@ -266,7 +276,7 @@ func TestRenderWithChrome(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	png, err := render(ctx, cardimage.Renderer{Chrome: chrome}, card{Title: "袖まくりギミック 🔥 title", Shop: "shop", Category: "3Dモデル › 3D装飾品", Price: "免费 – ¥100", Wishes: "398",
+	png, err := render(ctx, cardimage.Renderer{Chrome: chrome}, newTemplate(cardimage.DefaultPictures()), card{Title: "袖まくりギミック 🔥 title", Shop: "shop", Category: "3Dモデル › 3D装飾品", Price: "免费 – ¥100", Wishes: "398",
 		Options: []option{{"無料版", "免费"}, {"支援版", "¥100"}}, More: 1, Tags: []string{"VRChat", "無料"}, Desc: "line\nline", ID: "9111596", Published: "2026-11-07 发布", Adult: true, SoldOut: true})
 	if err != nil {
 		t.Fatal(err)
@@ -286,7 +296,7 @@ func TestCardShowsPicturesLessThanPlainly(t *testing.T) {
 	c := newCard(item{ID: 1, Name: "x", Adult: true}, image{data: []byte("jpeg"), mime: "image/jpeg"}, image{})
 	c.Covered = true
 	var html bytes.Buffer
-	if err := cardTemplate.Execute(&html, c); err != nil {
+	if err := newTemplate(cardimage.DefaultPictures()).Execute(&html, c); err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{".blurred img:not(.cover)", `class="picture blurred"`, `<img class="cover sticker" src="data:image/webp;base64,`} {

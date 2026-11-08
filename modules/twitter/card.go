@@ -19,7 +19,11 @@ import (
 //go:embed card.html
 var cardHTML string
 
-var cardTemplate = template.Must(template.New("card").Funcs(cardimage.Funcs()).Funcs(template.FuncMap{"badge": badge}).Parse(cardHTML))
+// newTemplate parses the card's template, drawing the pictures it must not
+// show plainly as p says.
+func newTemplate(p cardimage.Pictures) *template.Template {
+	return template.Must(template.New("card").Funcs(p.Funcs()).Funcs(template.FuncMap{"badge": badge}).Parse(cardHTML))
+}
 
 // The card is laid out at the width chat apps show an image and drawn at
 // 3x, like X's own post page on a phone.
@@ -280,9 +284,9 @@ func trim(f float64) string {
 }
 
 // render draws a card as a PNG.
-func render(ctx context.Context, r cardimage.Renderer, c card) ([]byte, error) {
+func render(ctx context.Context, r cardimage.Renderer, t *template.Template, c card) ([]byte, error) {
 	var html bytes.Buffer
-	if err := cardTemplate.Execute(&html, c); err != nil {
+	if err := t.Execute(&html, c); err != nil {
 		return nil, fmt.Errorf("twitter: card template: %w", err)
 	}
 	return r.Render(ctx, html.String(), ".card", cardWidth, cardScale)

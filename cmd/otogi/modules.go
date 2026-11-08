@@ -14,6 +14,7 @@ import (
 
 	"github.com/TundraWork/Ex-Otogi/modules/bilibili"
 	"github.com/TundraWork/Ex-Otogi/modules/booth"
+	"github.com/TundraWork/Ex-Otogi/modules/censor"
 	"github.com/TundraWork/Ex-Otogi/modules/chat"
 	"github.com/TundraWork/Ex-Otogi/modules/echo"
 	"github.com/TundraWork/Ex-Otogi/modules/notes"
@@ -38,6 +39,7 @@ type moduleEnv struct {
 var moduleKinds = map[otogi.ModuleID]moduleKind{
 	"bilibili": kind(func(c bilibili.Config, _ moduleEnv) (otogi.Module, error) { return built(bilibili.New(c)) }),
 	"booth":    kind(func(c booth.Config, _ moduleEnv) (otogi.Module, error) { return built(booth.New(c)) }),
+	"censor":   kind(func(c censor.Config, _ moduleEnv) (otogi.Module, error) { return built(censor.New(c)) }),
 	"chat": kind(func(c chat.Config, env moduleEnv) (otogi.Module, error) {
 		return built(chat.New(c, env.llm))
 	}),

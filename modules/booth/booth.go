@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"time"
 
+	"html/template"
+
 	"github.com/TundraWork/Ex-Otogi/pkg/cardimage"
 	"github.com/TundraWork/Ex-Otogi/pkg/otogi"
 )
@@ -22,10 +24,12 @@ type Config struct {
 
 // Module is the booth module.
 type Module struct {
-	api    *client
-	render func(context.Context, card) ([]byte, error)
-	host   otogi.Host
-	now    func() time.Time
+	censor   cardimage.Pictures // how cards censor pictures; set in Start
+	template *template.Template // the card's, drawing pictures as censor says
+	api      *client
+	render   func(context.Context, card) ([]byte, error)
+	host     otogi.Host
+	now      func() time.Time
 }
 
 // New validates cfg and returns the module.
@@ -33,13 +37,14 @@ func New(cfg Config) (*Module, error) {
 	if err := cardimage.Check(cfg.Chrome); err != nil {
 		return nil, fmt.Errorf("booth: %w", err)
 	}
-	return &Module{
+	m := &Module{
 		api: &client{site: "https://booth.pm", http: &http.Client{Timeout: 20 * time.Second}},
-		render: func(ctx context.Context, c card) ([]byte, error) {
-			return render(ctx, cardimage.Renderer{Chrome: cfg.Chrome}, c)
-		},
 		now: time.Now,
-	}, nil
+	}
+	m.render = func(ctx context.Context, c card) ([]byte, error) {
+		return render(ctx, cardimage.Renderer{Chrome: cfg.Chrome}, m.template, c)
+	}
+	return m, nil
 }
 
 // Descriptor declares the module: people's new messages, in the chats on
@@ -50,6 +55,7 @@ func (*Module) Descriptor() otogi.ModuleDescriptor {
 		Subscribes: []otogi.EventAction{otogi.ActionMessageCreated},
 		Ordering:   otogi.OrderNone,
 		Timeout:    2 * time.Minute,
+		Requires:   []string{cardimage.ServicePictures},
 		Allowlists: []otogi.AllowlistSpec{{Name: list, Title: "BOOTH", Description: "Links to BOOTH items get a card."}},
 	}
 }
@@ -57,9 +63,14 @@ func (*Module) Descriptor() otogi.ModuleDescriptor {
 // list is the module's allowlist.
 const list = "booth"
 
-// Start keeps the host for records.
+// Start keeps the host for records, and takes how cards censor pictures
+// from the censor module.
 func (m *Module) Start(_ context.Context, host otogi.Host) error {
-	m.host = host
+	p, err := otogi.Lookup[cardimage.Pictures](host, cardimage.ServicePictures)
+	if err != nil {
+		return err
+	}
+	m.host, m.censor, m.template = host, p, newTemplate(p)
 	return nil
 }
 
@@ -105,7 +116,7 @@ func (m *Module) answer(ctx context.Context, e otogi.Event, inv otogi.Invocation
 	msg := m.message(ctx, e, it, c, picture, payload)
 	payload["rendered"] = m.now().Sub(fetched).String()
 	_, err = inv.Send(ctx, "card:"+id, msg)
-	if errors.Is(err, otogi.ErrRefused) && payload["render_error"] == nil && c.Picture != "" {
+	if errors.Is(err, otogi.ErrRefused) && m.censor.CoverRefused && payload["render_error"] == nil && c.Picture != "" {
 		// The platform refused what the picture shows: it goes out covered.
 		m.host.Logger().Warn("booth: card refused; sending it with its picture covered", "item", id, "error", err)
 		payload["refused"] = err.Error()
