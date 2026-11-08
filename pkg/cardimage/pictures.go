@@ -25,7 +25,7 @@ var coverSticker []byte
 // scaled up a little so the blur does not fade at its edges.
 const pictureStyles template.CSS = `
   .blurred img:not(.cover) { filter: blur(9px); transform: scale(1.06); }
-  img.cover.sticker { position: absolute; inset: 0; margin: auto; width: 66%; height: 66%; max-width: none; max-height: none; object-fit: contain; opacity: .8; filter: none; transform: none; }
+  img.cover.sticker { position: absolute; inset: 0; margin: auto; width: 66%; height: 66%; max-width: none; max-height: none; object-fit: contain; opacity: .65; filter: none; transform: none; }
 `
 
 var coverImage = template.HTML(`<img class="cover sticker" src="` + string(DataURI(coverSticker, "image/webp")) + `" alt="">`)
