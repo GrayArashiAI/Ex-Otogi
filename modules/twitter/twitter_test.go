@@ -87,6 +87,12 @@ func (f *fakeX) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write(fixture("syndication-quote.json"))
 	case r.URL.Path == "/tweet-result":
 		_, _ = w.Write([]byte(`{"__typename":"TweetTombstone","tombstone":{"text":{"text":"This Post was deleted by the Post author."}}}`))
+	case strings.HasSuffix(r.URL.Path, "/huge.mp4"):
+		w.Header().Set("Content-Length", "60000000") // announced, never sent
+		w.WriteHeader(http.StatusOK)
+	case strings.HasSuffix(r.URL.Path, ".mp4"):
+		w.Header().Set("Content-Type", "video/mp4")
+		_, _ = w.Write([]byte("mp4 bytes"))
 	default:
 		w.Header().Set("Content-Type", "image/jpeg")
 		_, _ = w.Write([]byte("picture"))
@@ -424,8 +430,14 @@ func TestRefusedCardGoesOutCovered(t *testing.T) {
 	if drawn[0].Media.Covered || !drawn[1].Media.Covered {
 		t.Fatalf("covered %v then %v", drawn[0].Media.Covered, drawn[1].Media.Covered)
 	}
-	if r := h.records[len(h.records)-1]; r.Outcome != "degraded" || !strings.Contains(r.Payload.(map[string]any)["refused"].(string), "40034006") {
-		t.Fatalf("record %+v", r)
+	var card otogi.Record
+	for _, r := range h.records {
+		if r.Kind == "twitter.card" {
+			card = r
+		}
+	}
+	if card.Outcome != "degraded" || !strings.Contains(card.Payload.(map[string]any)["refused"].(string), "40034006") {
+		t.Fatalf("card record %+v", card)
 	}
 
 	// With covering turned off in the censor module, a refused card fails
@@ -458,6 +470,66 @@ func TestCardMarksPicturesShownLessThanPlainly(t *testing.T) {
 	for _, want := range []string{".blurred img:not(.cover)", `class="media n1 blurred covered"`, `<img class="cover sticker" src="data:image/webp;base64,`, "敏感内容"} {
 		if !strings.Contains(html.String(), want) {
 			t.Errorf("card lacks %q", want)
+		}
+	}
+}
+
+// A post's video goes out after its card, as a video replying to the
+// message that linked it; a sensitive post's stays back, and one too large
+// is skipped.
+func TestVideosGoWithTheCard(t *testing.T) {
+	t.Parallel()
+	m, err := New(Config{Chrome: chrome(t)}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.api, _ = newClient(t, func(string) (int, string) { return 200, "fx-video.json" })
+	m.render = func(context.Context, card) ([]byte, error) { return []byte("PNG"), nil }
+	h := &host{}
+	_ = m.Start(context.Background(), h)
+	e := otogi.Event{Platform: "qq", Conversation: otogi.Conversation{ID: "group:G1"}, SourceID: "m1", Action: otogi.ActionMessageCreated,
+		Message: otogi.TextMessage("x.com/a/status/2118034216503955710")}
+	inv := &invocation{}
+	if err := m.Handle(context.Background(), e, inv); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(inv.keys, []string{"card:2118034216503955710", "video:2118034216503955710:1"}) {
+		t.Fatalf("sends %v", inv.keys)
+	}
+	v := inv.sent[1]
+	if md := v.Parts[0].Media; md.Role != otogi.MediaVideo || md.MediaType != "video/mp4" || string(md.Source.Inline) != "mp4 bytes" ||
+		md.Width != 1080 || md.Height != 1920 || md.Duration.Seconds() < 41 || v.Relations[0].Target.SourceEvent != "m1" {
+		t.Fatalf("video message %+v", md)
+	}
+	if r := h.records[len(h.records)-1]; r.Kind != "twitter.video" || r.Outcome != "ok" {
+		t.Fatalf("record %+v", r)
+	}
+
+	for reason, tw := range map[string]tweet{
+		"X marks the post sensitive": {ID: "1", Sensitive: true, Media: []media{{Kind: "video", Video: "https://video.twimg.com/a.mp4"}}},
+		"larger than 50 MB":          {ID: "2", Media: []media{{Kind: "gif", Video: "https://video.twimg.com/huge.mp4"}}},
+	} {
+		inv := &invocation{}
+		m.sendVideos(context.Background(), e, inv, tw, false)
+		if r := h.records[len(h.records)-1]; len(inv.keys) != 0 || r.Outcome != "skipped" || r.Payload.(map[string]any)["reason"] != reason {
+			t.Errorf("%s: sends %v, record %+v", reason, inv.keys, r)
+		}
+	}
+}
+
+// From the embed endpoint's encodings, a video goes out at the highest
+// bitrate that fits 50 MB.
+func TestBestVariant(t *testing.T) {
+	t.Parallel()
+	variants := []variant{
+		{ContentType: "application/x-mpegURL", URL: "playlist.m3u8"},
+		{Bitrate: 256000, ContentType: "video/mp4", URL: "low.mp4"},
+		{Bitrate: 2176000, ContentType: "video/mp4", URL: "mid.mp4"},
+		{Bitrate: 10368000, ContentType: "video/mp4", URL: "high.mp4"},
+	}
+	for seconds, want := range map[float64]string{30: "high.mp4", 120: "mid.mp4", 3600: "low.mp4"} {
+		if got := bestVariant(variants, seconds); got != want {
+			t.Errorf("%vs: %s, want %s", seconds, got, want)
 		}
 	}
 }

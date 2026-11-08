@@ -2,7 +2,9 @@ package kernel
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -91,10 +93,10 @@ func (i *invocation) apply(ctx context.Context, slot string, e otogi.Effect) (ot
 	ref, err := i.kernel.effector.Apply(ctx, e)
 	component, scope := "module:"+string(i.module), effectScope(i.event, e)
 	if err != nil {
-		i.kernel.record(scope, "effect.failed", component, "error", time.Since(started), map[string]any{"slot": slot, "effect": e, "error": err.Error()})
+		i.kernel.record(scope, "effect.failed", component, "error", time.Since(started), map[string]any{"slot": slot, "effect": recordable(e), "error": err.Error()})
 		return otogi.EventRef{}, err
 	}
-	i.kernel.record(scope, "effect.applied", component, "ok", time.Since(started), map[string]any{"slot": slot, "effect": e, "ref": ref})
+	i.kernel.record(scope, "effect.applied", component, "ok", time.Since(started), map[string]any{"slot": slot, "effect": recordable(e), "ref": ref})
 	return ref, nil
 }
 
@@ -133,4 +135,30 @@ func validContent(msg otogi.Message) error {
 		return fmt.Errorf("empty message: %w", otogi.ErrInvalid)
 	}
 	return msg.Validate()
+}
+
+// recordable is e as its record keeps it: inline media appear as their size
+// and SHA-256, as language model calls record them. The bytes are in the
+// platform message the effect made, and a video sent inline would put tens
+// of megabytes in the log.
+func recordable(e otogi.Effect) otogi.Effect {
+	var parts []otogi.Part
+	for i, p := range e.Message.Parts {
+		if p.Media == nil || p.Media.Source.Kind != otogi.MediaSourceInline {
+			continue
+		}
+		if parts == nil {
+			parts = slices.Clone(e.Message.Parts)
+		}
+		m := *p.Media
+		sum := sha256.Sum256(m.Source.Inline)
+		m.ByteSize = int64(len(m.Source.Inline))
+		m.Hashes = append(slices.Clone(m.Hashes), otogi.MediaHash{Algorithm: "sha256", Value: sum[:]})
+		m.Source.Inline = nil
+		parts[i].Media = &m
+	}
+	if parts != nil {
+		e.Message.Parts = parts
+	}
+	return e
 }

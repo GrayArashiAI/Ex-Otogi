@@ -299,7 +299,7 @@ func (x *effects) inputMedia(ctx context.Context, m *otogi.Media) (tg.InputMedia
 		if photo {
 			return &tg.InputMediaUploadedPhoto{File: file}, nil
 		}
-		return &tg.InputMediaUploadedDocument{File: file, MimeType: mime, Attributes: []tg.DocumentAttributeClass{&tg.DocumentAttributeFilename{FileName: name}}}, nil
+		return &tg.InputMediaUploadedDocument{File: file, MimeType: mime, Attributes: documentAttributes(m, name)}, nil
 	case otogi.MediaSourceExternal:
 		if photo {
 			return &tg.InputMediaPhotoExternal{URL: m.Source.URL}, nil
@@ -505,4 +505,21 @@ func parsePeer(conversation string) (kind string, id int64, err error) {
 		return "", 0, fmt.Errorf("telegram: invalid conversation %q: %w", conversation, otogi.ErrInvalid)
 	}
 	return kind, id, nil
+}
+
+// documentAttributes are what Telegram needs to show a document as what it
+// is: a video plays inline, and an animation also loops without sound, as
+// Telegram shows a GIF; anything else is a file with its name.
+func documentAttributes(m *otogi.Media, name string) []tg.DocumentAttributeClass {
+	attrs := []tg.DocumentAttributeClass{&tg.DocumentAttributeFilename{FileName: name}}
+	if m.Role != otogi.MediaVideo && m.Role != otogi.MediaAnimation {
+		return attrs
+	}
+	video := &tg.DocumentAttributeVideo{SupportsStreaming: true, Duration: m.Duration.Seconds(), W: m.Width, H: m.Height}
+	attrs = append(attrs, video)
+	if m.Role == otogi.MediaAnimation {
+		video.Nosound = true
+		attrs = append(attrs, &tg.DocumentAttributeAnimated{})
+	}
+	return attrs
 }

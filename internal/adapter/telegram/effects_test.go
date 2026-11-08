@@ -247,6 +247,42 @@ func TestSendMediaUploadsAndCaptions(t *testing.T) {
 	}
 }
 
+// A video goes out as a video Telegram plays inline, with its length and
+// size; an animation also loops without sound, as a GIF does.
+func TestSendVideoAndAnimation(t *testing.T) {
+	x, log, _ := newEffects(t, sentOK)
+	for slot, role := range map[string]otogi.MediaRole{"video": otogi.MediaVideo, "gif": otogi.MediaAnimation} {
+		msg := otogi.Message{Roots: []otogi.PartID{"v"}, Parts: []otogi.Part{{ID: "v", Kind: otogi.PartMedia, Media: &otogi.Media{Role: role, MediaType: "video/mp4", Filename: "post.mp4",
+			Width: 1080, Height: 1920, Duration: 41 * time.Second, Source: otogi.MediaSource{Kind: otogi.MediaSourceInline, Inline: []byte("mp4 bytes")}}}}}
+		before := len(log.requests)
+		if _, err := x.Apply(context.Background(), send(slot, msg)); err != nil {
+			t.Fatal(err)
+		}
+		var doc *tg.InputMediaUploadedDocument
+		for _, r := range log.requests[before:] {
+			if req, ok := r.(*tg.MessagesSendMediaRequest); ok {
+				doc, _ = req.Media.(*tg.InputMediaUploadedDocument)
+			}
+		}
+		if doc == nil || doc.MimeType != "video/mp4" {
+			t.Fatalf("%s sent as %+v", slot, doc)
+		}
+		var video *tg.DocumentAttributeVideo
+		animated := false
+		for _, a := range doc.Attributes {
+			switch a := a.(type) {
+			case *tg.DocumentAttributeVideo:
+				video = a
+			case *tg.DocumentAttributeAnimated:
+				animated = true
+			}
+		}
+		if video == nil || !video.SupportsStreaming || video.Duration != 41 || video.W != 1080 || video.H != 1920 || animated != (role == otogi.MediaAnimation) || video.Nosound != animated {
+			t.Fatalf("%s attributes %+v, animated %v", slot, video, animated)
+		}
+	}
+}
+
 func TestFetchMediaDownloadsByLocator(t *testing.T) {
 	x, log, _ := newEffects(t, func(r bin.Encoder, _ int) (bin.Encoder, error) {
 		if _, ok := r.(*tg.UploadGetFileRequest); ok {

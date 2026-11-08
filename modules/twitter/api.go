@@ -41,6 +41,7 @@ type author struct {
 type media struct {
 	Kind          string // photo, video, or gif
 	Image         string // the photo, or the video's poster frame
+	Video         string // a video's or GIF's MP4, to send with the card
 	Width, Height int
 	Seconds       float64 // a video's length
 }
@@ -199,7 +200,7 @@ func (s *fxStatus) tweet() tweet {
 		for _, m := range s.Media.All {
 			item := media{Kind: m.Type, Image: m.URL, Width: m.Width, Height: m.Height, Seconds: m.Duration}
 			if m.Type == "video" || m.Type == "gif" {
-				item.Image = m.ThumbnailURL
+				item.Image, item.Video = m.ThumbnailURL, m.URL
 			}
 			t.Media = append(t.Media, item)
 		}
@@ -295,7 +296,8 @@ type synStatus struct {
 			Height int `json:"height"`
 		} `json:"original_info"`
 		VideoInfo *struct {
-			DurationMillis float64 `json:"duration_millis"`
+			DurationMillis float64   `json:"duration_millis"`
+			Variants       []variant `json:"variants"`
 		} `json:"video_info"`
 	} `json:"mediaDetails"`
 	QuotedTweet *synStatus `json:"quoted_tweet"`
@@ -329,6 +331,7 @@ func (s *synStatus) tweet() tweet {
 		}
 		if m.VideoInfo != nil {
 			item.Seconds = m.VideoInfo.DurationMillis / 1000
+			item.Video = bestVariant(m.VideoInfo.Variants, item.Seconds)
 		}
 		t.Media = append(t.Media, item)
 	}
@@ -342,6 +345,73 @@ func (s *synStatus) tweet() tweet {
 // picture downloads an image. Photos come from X's media servers at a
 // size: "medium" fits 1200 px, for a photo across the card (1440 px drawn);
 // "small" fits 680 px, for grid cells and thumbnails.
+// variant is one encoding of a video the embed endpoint offers.
+type variant struct {
+	Bitrate     int    `json:"bitrate"` // bits per second; 0 for a GIF's one MP4
+	ContentType string `json:"content_type"`
+	URL         string `json:"url"`
+}
+
+// bestVariant is the MP4 of highest bitrate that fits maxVideoBytes for a
+// video seconds long, or else the smallest one.
+func bestVariant(variants []variant, seconds float64) string {
+	best, smallest := variant{Bitrate: -1}, variant{}
+	for _, v := range variants {
+		if v.ContentType != "video/mp4" {
+			continue
+		}
+		if smallest.URL == "" || v.Bitrate < smallest.Bitrate {
+			smallest = v
+		}
+		if float64(v.Bitrate)*seconds/8 <= maxVideoBytes && v.Bitrate > best.Bitrate {
+			best = v
+		}
+	}
+	if best.URL != "" {
+		return best.URL
+	}
+	return smallest.URL
+}
+
+// maxVideoBytes bounds a video the module downloads to send with a card.
+const maxVideoBytes = 50 << 20
+
+// errTooLarge is a video larger than maxVideoBytes.
+var errTooLarge = errors.New("twitter: video larger than 50 MB")
+
+// video downloads a post's video or GIF, up to maxVideoBytes. A video takes
+// longer than a picture, so it has its own time limit.
+func (c *client) video(ctx context.Context, src string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, src, nil)
+	if err != nil {
+		return nil, fmt.Errorf("twitter: video: %w", err)
+	}
+	req.Header.Set("User-Agent", userAgent)
+	hc := *c.http
+	hc.Timeout = 0 // ctx bounds it instead
+	resp, err := hc.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("twitter: video: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("twitter: video %s: HTTP %d", src, resp.StatusCode)
+	}
+	if resp.ContentLength > maxVideoBytes {
+		return nil, errTooLarge
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxVideoBytes+1))
+	switch {
+	case err != nil:
+		return nil, fmt.Errorf("twitter: video %s: %w", src, err)
+	case len(data) > maxVideoBytes:
+		return nil, errTooLarge
+	}
+	return data, nil
+}
+
 func (c *client) picture(ctx context.Context, src, size string) ([]byte, string, error) {
 	if src == "" {
 		return nil, "", nil

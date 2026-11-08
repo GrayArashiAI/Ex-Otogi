@@ -125,7 +125,7 @@ func (s *stream) close(ctx context.Context, msg otogi.Message, abandoned bool) (
 	}
 	effect := s.effect
 	effect.Message = msg
-	payload := map[string]any{"slot": s.slot, "effect": effect, "refs": s.refs, "updates": s.updates, "shown": s.shown, "abandoned": abandoned}
+	payload := map[string]any{"slot": s.slot, "effect": recordable(effect), "refs": s.refs, "updates": s.updates, "shown": s.shown, "abandoned": abandoned}
 	kind, outcome := "effect.applied", "ok"
 	if s.closeErr != nil {
 		kind, outcome, payload["error"] = "effect.failed", "error", s.closeErr.Error()

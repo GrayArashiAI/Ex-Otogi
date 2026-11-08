@@ -162,7 +162,63 @@ func (m *Module) answer(ctx context.Context, e otogi.Event, inv otogi.Invocation
 		outcome = "degraded"
 	}
 	m.host.Record(ctx, otogi.Record{Kind: "twitter.card", Outcome: outcome, Duration: m.now().Sub(started), Payload: payload})
+	m.sendVideos(ctx, e, inv, t, payload["refused"] != nil)
 	return nil
+}
+
+// sendVideos sends the post's videos and GIFs after its card, each as a
+// reply to the message that linked the post. A post X marks sensitive, or
+// whose card the platform refused, keeps them: the card censors its
+// pictures, and the videos would not be. A video that cannot be sent is
+// recorded and does not fail the card.
+func (m *Module) sendVideos(ctx context.Context, e otogi.Event, inv otogi.Invocation, t tweet, refused bool) {
+	for i, md := range t.Media[:min(len(t.Media), 4)] {
+		if md.Video == "" {
+			continue
+		}
+		started := m.now()
+		payload := map[string]any{"post": t.ID, "video": md.Video, "kind": md.Kind}
+		skip := func(reason string) {
+			payload["reason"] = reason
+			m.host.Record(ctx, otogi.Record{Kind: "twitter.video", Outcome: "skipped", Payload: payload})
+		}
+		switch {
+		case t.Sensitive:
+			skip("X marks the post sensitive")
+			continue
+		case refused:
+			skip("the platform refused the card")
+			continue
+		}
+		data, err := m.api.video(ctx, md.Video)
+		switch {
+		case errors.Is(err, errTooLarge):
+			skip("larger than 50 MB")
+			continue
+		case err != nil:
+			m.host.Logger().Warn("twitter: video not downloaded", "post", t.ID, "error", err)
+			payload["step"], payload["error"] = "download", err.Error()
+			m.host.Record(ctx, otogi.Record{Kind: "twitter.video", Outcome: "error", Duration: m.now().Sub(started), Payload: payload})
+			continue
+		}
+		role := otogi.MediaVideo
+		if md.Kind == "gif" {
+			role = otogi.MediaAnimation
+		}
+		msg := otogi.Message{Roots: []otogi.PartID{"video"}, Parts: []otogi.Part{{ID: "video", Kind: otogi.PartMedia, Media: &otogi.Media{
+			Role: role, MediaType: "video/mp4", Filename: fmt.Sprintf("%s-%d.mp4", t.ID, i+1), ByteSize: int64(len(data)),
+			Width: md.Width, Height: md.Height, Duration: time.Duration(md.Seconds * float64(time.Second)),
+			Source: otogi.MediaSource{Kind: otogi.MediaSourceInline, Inline: data},
+		}}}, Relations: []otogi.Relation{{Kind: otogi.RelationReply, Target: e.Ref()}}}
+		payload["bytes"], payload["downloaded"] = len(data), m.now().Sub(started).String()
+		if _, err := inv.Send(ctx, fmt.Sprintf("video:%s:%d", t.ID, i+1), msg); err != nil {
+			m.host.Logger().Warn("twitter: video not sent", "post", t.ID, "error", err)
+			payload["step"], payload["error"] = "send", err.Error()
+			m.host.Record(ctx, otogi.Record{Kind: "twitter.video", Outcome: "error", Duration: m.now().Sub(started), Payload: payload})
+			continue
+		}
+		m.host.Record(ctx, otogi.Record{Kind: "twitter.video", Outcome: "ok", Duration: m.now().Sub(started), Payload: payload})
+	}
 }
 
 // message is the card drawn as a reply to e, or the post in words when it
