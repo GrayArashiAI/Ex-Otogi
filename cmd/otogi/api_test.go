@@ -110,7 +110,7 @@ func TestManagementAPI(t *testing.T) {
 	do("PUT", "/api/modules/chat/settings", `"0"`, `{"profiles": [{"name": "Luna", "keywords": ["luna"], "provider": "gemini", "model": "m"}]}`, 200)
 	_, body = do("PATCH", "/api/modules/chat", "", `{"enabled": true}`, 200)
 	contains("chat", body, `"running":true`, `"allowlists":[{"name":"Luna","title":"Luna"`)
-	contains("chat ignores bots by default", body, `"ignore_bots":true`)
+	contains("chat ignores bots by default", body, `"ignore_bots":true`, `"handles":true`)
 	_, body = do("PATCH", "/api/modules/chat", "", `{"ignore_bots": false}`, 200)
 	contains("chat takes bots", body, `"ignore_bots":false`, `"running":true`)
 	do("PATCH", "/api/modules/chat", "", `{}`, 422)

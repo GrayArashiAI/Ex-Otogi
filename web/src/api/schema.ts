@@ -693,6 +693,8 @@ export interface components {
             counts: components["schemas"]["ModuleCounts"];
             /** @description Whether its current revision turns it on. */
             enabled: boolean;
+            /** @description Whether it handles messages or commands at all; ignore_bots means something only then. */
+            handles: boolean;
             id: string;
             /** @description Whether it ignores messages from bot accounts; on unless turned off. */
             ignore_bots: boolean;

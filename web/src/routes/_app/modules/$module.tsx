@@ -40,7 +40,7 @@ function ModulePage() {
           <p className="text-muted-foreground text-sm">{meta.about}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <IgnoreBots module={m} />
+          {m.handles && <IgnoreBots module={m} />}
           <Power module={m} />
         </div>
       </div>

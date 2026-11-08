@@ -64,6 +64,7 @@ type Module struct {
 	Commands   []Command    `json:"commands" nullable:"false"`
 	Counts     ModuleCounts `json:"counts" doc:"Its deliveries since the process started."`
 	IgnoreBots bool         `json:"ignore_bots" doc:"Whether it ignores messages from bot accounts; on unless turned off."`
+	Handles    bool         `json:"handles" doc:"Whether it handles messages or commands at all; ignore_bots means something only then."`
 }
 
 // Allowlist is a module's list of the chats it answers in.

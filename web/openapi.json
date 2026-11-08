@@ -937,6 +937,10 @@
             "description": "Whether its current revision turns it on.",
             "type": "boolean"
           },
+          "handles": {
+            "description": "Whether it handles messages or commands at all; ignore_bots means something only then.",
+            "type": "boolean"
+          },
           "id": {
             "type": "string"
           },
@@ -965,7 +969,8 @@
           "allowlists",
           "commands",
           "counts",
-          "ignore_bots"
+          "ignore_bots",
+          "handles"
         ],
         "type": "object"
       },
