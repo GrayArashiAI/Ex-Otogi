@@ -177,7 +177,7 @@ func TestLiveFunctionsAndSearch(t *testing.T) {
 	t.Run("function", func(t *testing.T) {
 		var calls []llm.CallRecord
 		out, err := llm.Run(ctx, p, llm.Request{Model: model, Thinking: "low", Turns: []llm.Turn{userTurn(otogi.Part{Kind: otogi.PartText, Text: "What is the code of locker 6?"})}},
-			tools, otogi.Event{}, 4, nil, func(c llm.CallRecord) { calls = append(calls, c) })
+			tools, otogi.Event{}, llm.Limits{Rounds: 4, Reserve: 2}, nil, func(c llm.CallRecord) { calls = append(calls, c) })
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -188,7 +188,7 @@ func TestLiveFunctionsAndSearch(t *testing.T) {
 	})
 	t.Run("search", func(t *testing.T) {
 		out, err := llm.Run(ctx, p, llm.Request{Model: model, Thinking: "low", Tools: []llm.ToolSpec{{Builtin: llm.BuiltinGoogleSearch}},
-			Turns: []llm.Turn{userTurn(otogi.Part{Kind: otogi.PartText, Text: "Search the web: what is the latest stable Go release? One sentence."})}}, nil, otogi.Event{}, 4, nil, nil)
+			Turns: []llm.Turn{userTurn(otogi.Part{Kind: otogi.PartText, Text: "Search the web: what is the latest stable Go release? One sentence."})}}, nil, otogi.Event{}, llm.Limits{Rounds: 4, Reserve: 2}, nil, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -199,7 +199,7 @@ func TestLiveFunctionsAndSearch(t *testing.T) {
 	})
 	t.Run("search and function together", func(t *testing.T) {
 		out, err := llm.Run(ctx, p, llm.Request{Model: model, Thinking: "low", Tools: []llm.ToolSpec{{Builtin: llm.BuiltinGoogleSearch}},
-			Turns: []llm.Turn{userTurn(otogi.Part{Kind: otogi.PartText, Text: "Tell me the code of locker 3, and search the web for today's date in Tokyo."})}}, tools, otogi.Event{}, 4, nil, nil)
+			Turns: []llm.Turn{userTurn(otogi.Part{Kind: otogi.PartText, Text: "Tell me the code of locker 3, and search the web for today's date in Tokyo."})}}, tools, otogi.Event{}, llm.Limits{Rounds: 4, Reserve: 2}, nil, nil)
 		if err != nil {
 			t.Fatal(err)
 		}

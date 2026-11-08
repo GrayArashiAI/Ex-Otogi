@@ -122,8 +122,8 @@ func quoteMedia(q *quoted) *grid {
 type pictures map[string]template.URL
 
 // newCard lays a post out as X shows it, times read in zone.
-func newCard(t tweet, pics pictures, zone *time.Location) card {
-	text, more := excerpt(t.Text, maxText)
+func newCard(t tweet, pics pictures, zone *time.Location, l textLimits) card {
+	text, more := excerpt(t.Text, l.post)
 	c := card{
 		Name: t.Author.Name, Handle: t.Author.Handle, Badge: t.Author.Badge, Avatar: pics[t.Author.Avatar],
 		ReplyingTo: t.ReplyingTo, Text: spans(text), More: more || t.Truncated,
@@ -140,7 +140,7 @@ func newCard(t tweet, pics pictures, zone *time.Location) card {
 		c.Views = count(*t.Views)
 	}
 	if q := t.Quote; q != nil {
-		qtext, _ := excerpt(q.Text, maxQuoteText)
+		qtext, _ := excerpt(q.Text, l.quote)
 		c.Quote = &quoted{
 			Name: q.Author.Name, Handle: q.Author.Handle, Badge: q.Author.Badge, Avatar: pics[q.Author.Avatar],
 			Date: day(q.Time.In(zone), t.Time.In(zone)), Text: spans(qtext), Media: newGrid(q.Media, q.Sensitive, pics),
@@ -162,12 +162,10 @@ func newCard(t tweet, pics pictures, zone *time.Location) card {
 	return c
 }
 
-// How much text a card shows: a long post is cut where X's timeline would
-// offer "Show more", and a quoted one shorter.
-const (
-	maxText      = 560
-	maxQuoteText = 280
-)
+// textLimits are how much text a card shows, in characters: a longer post
+// is cut where X's timeline would offer "Show more", and a quoted one at
+// quote.
+type textLimits struct{ post, quote int }
 
 // excerpt is text cut to about limit characters at a line or word break,
 // and whether it was cut.

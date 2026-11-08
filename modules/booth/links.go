@@ -12,13 +12,9 @@ import (
 // or a shop's own pyrite9.booth.pm/items/….
 var itemLink = regexp.MustCompile(`(?i)(?:https?://)?(?:[a-z0-9-]+\.)?booth\.pm/(?:[a-z]{2}(?:-[a-z]{2})?/)?items/(\d+)\b`)
 
-// maxItems is how many items of one message get a card: a message pasting
-// a list is not asking for a wall of cards.
-const maxItems = 3
-
-// itemsIn lists the item IDs a message names, in the order they appear and
-// without repeats: in its text, and behind formatted links.
-func itemsIn(msg otogi.Message) []string {
+// itemsIn lists the first limit item IDs a message names, in the order they
+// appear and without repeats: in its text, and behind formatted links.
+func itemsIn(msg otogi.Message, limit int) []string {
 	type at struct {
 		part, offset int
 		id           string
@@ -42,7 +38,7 @@ func itemsIn(msg otogi.Message) []string {
 	slices.SortStableFunc(all, func(a, b at) int { return cmp.Or(a.part-b.part, a.offset-b.offset) })
 	var out []string
 	for _, a := range all {
-		if !slices.Contains(out, a.id) && len(out) < maxItems {
+		if !slices.Contains(out, a.id) && len(out) < limit {
 			out = append(out, a.id)
 		}
 	}

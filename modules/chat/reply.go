@@ -11,9 +11,6 @@ import (
 	"github.com/TundraWork/Ex-Otogi/pkg/otogi"
 )
 
-// maxMediaBytes bounds one media part sent to a model.
-const maxMediaBytes = 20 << 20
-
 // cleanupTimeout bounds finishing a reply after its context ended.
 const cleanupTimeout = 30 * time.Second
 
@@ -43,7 +40,7 @@ func (m *Module) respond(ctx context.Context, e otogi.Event, inv otogi.Invocatio
 	req.Turns = append(req.Turns, sent)
 
 	stream := inv.Stream(ctx, "reply", e.Destination())
-	out, runErr := llm.Run(llm.ContextWithAgent(ctx, p.Name), p.provider, req, m.toolsIn(e.ChatKey()), e, p.MaxToolRounds, func(msg otogi.Message) error {
+	out, runErr := llm.Run(llm.ContextWithAgent(ctx, p.Name), p.provider, req, m.toolsIn(e.ChatKey()), e, llm.Limits{Rounds: p.MaxToolRounds, Reserve: *m.cfg.ToolReserve}, func(msg otogi.Message) error {
 		if len(msg.Parts) == 0 {
 			return nil
 		}
@@ -130,19 +127,22 @@ func (m *Module) userContent(ctx context.Context, e otogi.Event, inv otogi.Invoc
 	return msg
 }
 
+// maxMedia is the largest media part shown to the model, in bytes.
+func (m *Module) maxMedia() int64 { return int64(m.cfg.MaxMediaMB) << 20 }
+
 // mediaPart fetches media for the model, or describes it when it is too
 // large or cannot be fetched.
 func (m *Module) mediaPart(ctx context.Context, inv otogi.Invocation, from otogi.Destination, media otogi.Media) otogi.Message {
 	word := mediaWord(media)
 	skipped := func(reason string, err error, size int64) {
 		m.host.Logger().Warn("chat: media left out", "reason", reason, "media", word, "bytes", size, "error", err)
-		payload := map[string]any{"reason": reason, "from": from, "source": media.Source.Kind, "url": media.Source.URL, "locator": media.Source.Locator, "bytes": size, "limit": maxMediaBytes}
+		payload := map[string]any{"reason": reason, "from": from, "source": media.Source.Kind, "url": media.Source.URL, "locator": media.Source.Locator, "bytes": size, "limit": m.maxMedia()}
 		if err != nil {
 			payload["error"] = err.Error()
 		}
 		m.host.Record(ctx, otogi.Record{Kind: "chat.media_skipped", Outcome: "skipped", Payload: payload})
 	}
-	if media.ByteSize > maxMediaBytes {
+	if media.ByteSize > m.maxMedia() {
 		skipped("too large", nil, media.ByteSize)
 		return otogi.TextMessage("[" + word + ", too large to show]")
 	}
@@ -150,7 +150,7 @@ func (m *Module) mediaPart(ctx context.Context, inv otogi.Invocation, from otogi
 	if media.Source.Kind != otogi.MediaSourceInline {
 		data, err = inv.FetchMedia(ctx, from, media.Source)
 	}
-	if err != nil || len(data) > maxMediaBytes {
+	if err != nil || int64(len(data)) > m.maxMedia() {
 		skipped("could not be loaded", err, int64(len(data)))
 		return otogi.TextMessage("[" + word + ", could not be loaded]")
 	}

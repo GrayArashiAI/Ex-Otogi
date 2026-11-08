@@ -538,7 +538,7 @@ func TestSchemaDefaultsAreTheDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if unset.Retention != typed.Retention || unset.Timeout != typed.Timeout ||
+	if unset.Retention != typed.Retention || unset.Timeout != typed.Timeout || *unset.ToolReserve != *typed.ToolReserve || unset.MaxMediaMB != typed.MaxMediaMB ||
 		a[0].MaxTurns != b[0].MaxTurns || a[0].MaxToolRounds != b[0].MaxToolRounds || a[0].context != b[0].context {
 		t.Fatalf("schema defaults give %+v %+v, unset fields %+v %+v", typed, b[0], unset, a[0])
 	}

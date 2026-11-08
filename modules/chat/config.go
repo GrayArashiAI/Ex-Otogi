@@ -15,10 +15,12 @@ import (
 
 // Config is the module's settings.
 type Config struct {
-	Retention otogi.Duration  `json:"retention,omitempty" default:"720h" doc:"How long threads and the chat transcript are kept; 720h is 30 days."`
-	Timeout   otogi.Duration  `json:"timeout,omitempty" default:"5m" doc:"The longest one reply may take, tool calls included. When less is left than two of its slowest model rounds, the agent stops calling tools and answers with what it has found."`
-	Profiles  []ProfileConfig `json:"profiles" minItems:"1" doc:"The agents. Each answers in the chats on its allowlist."`
-	Tools     []string        `json:"tools,omitempty" enum:"notes,reminders,todou" doc:"Modules whose tools agents may use. Each gets a list of the chats where agents are offered its tools; a chat on none of them gets none."`
+	Retention   otogi.Duration  `json:"retention,omitempty" default:"720h" doc:"How long threads and the chat transcript are kept; 720h is 30 days."`
+	Timeout     otogi.Duration  `json:"timeout,omitempty" default:"5m" doc:"The longest one reply may take, tool calls included."`
+	ToolReserve *float64        `json:"tool_reserve,omitempty" minimum:"0" default:"2" doc:"When less of a reply's time is left than this many of its slowest model rounds, the agent stops calling tools and answers with what it has found. 0 calls tools until the time is up."`
+	MaxMediaMB  int             `json:"max_media_mb,omitempty" minimum:"1" default:"20" doc:"The largest picture or file the agent is shown, in megabytes; a larger one is named instead."`
+	Profiles    []ProfileConfig `json:"profiles" minItems:"1" doc:"The agents. Each answers in the chats on its allowlist."`
+	Tools       []string        `json:"tools,omitempty" enum:"notes,reminders,todou" doc:"Modules whose tools agents may use. Each gets a list of the chats where agents are offered its tools; a chat on none of them gets none."`
 }
 
 // ProfileConfig configures one agent.
@@ -81,6 +83,13 @@ func (c *Config) profiles(providers func(string) (llm.Provider, error)) ([]*prof
 	}
 	if c.Timeout == 0 {
 		c.Timeout = otogi.Duration(5 * time.Minute)
+	}
+	if c.ToolReserve == nil {
+		reserve := 2.0
+		c.ToolReserve = &reserve
+	}
+	if c.MaxMediaMB == 0 {
+		c.MaxMediaMB = 20
 	}
 	var errs []error
 	if c.Retention < 0 || c.Timeout < 0 {

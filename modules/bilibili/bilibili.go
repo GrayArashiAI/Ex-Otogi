@@ -16,15 +16,17 @@ import (
 
 // Config is the module's settings.
 type Config struct {
-	Chrome string `json:"chrome" minLength:"1" doc:"The path of the chrome-headless-shell binary that draws the cards."`
+	Chrome    string `json:"chrome" minLength:"1" doc:"The path of the chrome-headless-shell binary that draws the cards."`
+	MaxVideos int    `json:"max_videos,omitempty" minimum:"1" default:"3" doc:"How many videos of one message get a card, the first ones it links."`
 }
 
 // Module is the bilibili module.
 type Module struct {
-	api    *client
-	render func(context.Context, card) ([]byte, error)
-	host   otogi.Host
-	now    func() time.Time
+	maxVideos int
+	api       *client
+	render    func(context.Context, card) ([]byte, error)
+	host      otogi.Host
+	now       func() time.Time
 }
 
 // New validates cfg and returns the module.
@@ -32,8 +34,12 @@ func New(cfg Config) (*Module, error) {
 	if err := cardimage.Check(cfg.Chrome); err != nil {
 		return nil, fmt.Errorf("bilibili: %w", err)
 	}
+	if cfg.MaxVideos == 0 {
+		cfg.MaxVideos = 3
+	}
 	return &Module{
-		api: &client{api: "https://api.bilibili.com", http: &http.Client{Timeout: 20 * time.Second}, now: time.Now},
+		maxVideos: cfg.MaxVideos,
+		api:       &client{api: "https://api.bilibili.com", http: &http.Client{Timeout: 20 * time.Second}, now: time.Now},
 		render: func(ctx context.Context, c card) ([]byte, error) {
 			return render(ctx, cardimage.Renderer{Chrome: cfg.Chrome}, c)
 		},
@@ -68,7 +74,7 @@ func (m *Module) Handle(ctx context.Context, e otogi.Event, inv otogi.Invocation
 		return nil
 	}
 	answered := map[string]bool{} // a short link may name a video linked too
-	for _, f := range videosIn(e.Message) {
+	for _, f := range videosIn(e.Message, m.maxVideos) {
 		if err := m.answer(ctx, e, inv, f, answered); err != nil {
 			return err
 		}

@@ -36,15 +36,12 @@ type card struct {
 // option is one of the ways an item is sold, with its price.
 type option struct{ Name, Price string }
 
-// maxOptions and maxTags bound the lists a card shows.
-const (
-	maxOptions = 4
-	maxTags    = 6
-)
+// limits bound the lists a card shows; 0 leaves a list off.
+type limits struct{ options, tags int }
 
 // newCard lays out it with its picture and its shop's icon, already
-// downloaded.
-func newCard(it item, picture, icon image) card {
+// downloaded, its lists as long as l allows.
+func newCard(it item, picture, icon image, l limits) card {
 	c := card{
 		Title: it.Name, Shop: it.Shop.Name, Category: category(it), Price: price(it), Wishes: strconv.FormatInt(it.Wishes, 10),
 		Desc: lines(it.Description), ID: strconv.FormatInt(it.ID, 10),
@@ -54,9 +51,9 @@ func newCard(it item, picture, icon image) card {
 	if !it.PublishedAt.IsZero() {
 		c.Published = it.PublishedAt.In(japan).Format("2006-01-02") + " 发布"
 	}
-	if len(it.Variations) > 1 {
+	if len(it.Variations) > 1 && l.options > 0 {
 		for _, v := range it.Variations {
-			if len(c.Options) == maxOptions {
+			if len(c.Options) == l.options {
 				c.More++
 				continue
 			}
@@ -64,7 +61,7 @@ func newCard(it item, picture, icon image) card {
 		}
 	}
 	for _, t := range it.Tags {
-		if len(c.Tags) < maxTags {
+		if len(c.Tags) < l.tags {
 			c.Tags = append(c.Tags, t.Name)
 		}
 	}

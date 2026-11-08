@@ -5,6 +5,7 @@
 package twitter
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -21,15 +22,20 @@ import (
 
 // Config is the module's settings.
 type Config struct {
-	Chrome     string     `json:"chrome" minLength:"1" doc:"The path of the chrome-headless-shell binary that draws the cards."`
-	Timezone   string     `json:"timezone,omitempty" doc:"Where the cards' times are read, an IANA time zone such as Asia/Shanghai; default the server's."`
-	Translate  *Translate `json:"translate,omitempty" doc:"When set, the card of a post not in Chinese also shows the post translated by a language model, under the original."`
-	Videos     *bool      `json:"videos,omitempty" default:"true" doc:"Send a post's videos and GIFs after its card, as videos. Whether a post whose pictures the card censors sends them is Content safety's."`
-	MaxVideoMB int        `json:"max_video_mb,omitempty" minimum:"1" default:"50" doc:"The largest video sent, in megabytes; a larger one is skipped. A video is held in memory while it is sent. From the embed endpoint, the encoding of highest bitrate that fits is sent."`
+	Chrome       string     `json:"chrome" minLength:"1" doc:"The path of the chrome-headless-shell binary that draws the cards."`
+	Timezone     string     `json:"timezone,omitempty" doc:"Where the cards' times are read, an IANA time zone such as Asia/Shanghai; default the server's."`
+	Translate    *Translate `json:"translate,omitempty" doc:"When set, the card of a post not in Chinese also shows the post translated by a language model, under the original."`
+	MaxPosts     int        `json:"max_posts,omitempty" minimum:"1" default:"3" doc:"How many posts of one message get a card, the first ones it links."`
+	MaxText      int        `json:"max_text,omitempty" minimum:"50" default:"560" doc:"How much of a post's text a card shows, in characters; a longer one is cut where X would offer Show more."`
+	MaxQuoteText int        `json:"max_quote_text,omitempty" minimum:"50" default:"280" doc:"How much of a quoted post's text a card shows, in characters."`
+	Videos       *bool      `json:"videos,omitempty" default:"true" doc:"Send a post's videos and GIFs after its card, as videos. Whether a post whose pictures the card censors sends them is Content safety's."`
+	MaxVideoMB   int        `json:"max_video_mb,omitempty" minimum:"1" default:"50" doc:"The largest video sent, in megabytes; a larger one is skipped. A video is held in memory while it is sent. From the embed endpoint, the encoding of highest bitrate that fits is sent."`
 }
 
 // Module is the twitter module.
 type Module struct {
+	maxPosts   int
+	text       textLimits
 	videos     bool               // send a post's videos after its card
 	maxVideo   int64              // bytes
 	censor     cardimage.Pictures // how cards censor pictures; set in Start
@@ -72,11 +78,9 @@ func New(cfg Config, providers func(string) (llm.Provider, error)) (*Module, err
 		return nil, fmt.Errorf("twitter: %w", err)
 	}
 	renderer := cardimage.Renderer{Chrome: cfg.Chrome}
-	maxVideoMB := cfg.MaxVideoMB
-	if maxVideoMB == 0 {
-		maxVideoMB = 50
-	}
+	maxVideoMB := cmp.Or(cfg.MaxVideoMB, 50)
 	m := &Module{
+		maxPosts: cmp.Or(cfg.MaxPosts, 3), text: textLimits{post: cmp.Or(cfg.MaxText, 560), quote: cmp.Or(cfg.MaxQuoteText, 280)},
 		videos: cfg.Videos == nil || *cfg.Videos, maxVideo: int64(maxVideoMB) << 20,
 		zone: zone, translator: tr,
 		api: &client{fx: "https://api.fxtwitter.com", syndication: "https://cdn.syndication.twimg.com", http: &http.Client{Timeout: 20 * time.Second}},
@@ -118,7 +122,7 @@ func (m *Module) Handle(ctx context.Context, e otogi.Event, inv otogi.Invocation
 	if e.Command != nil || !m.host.Allowed(list, e.ChatKey()) {
 		return nil
 	}
-	for _, id := range postsIn(e.Message) {
+	for _, id := range postsIn(e.Message, m.maxPosts) {
 		if err := m.answer(ctx, e, inv, id); err != nil {
 			return err
 		}
@@ -149,7 +153,7 @@ func (m *Module) answer(ctx context.Context, e otogi.Event, inv otogi.Invocation
 		m.host.Logger().Warn("twitter: pictures not downloaded", "post", id, "error", picErr)
 		payload["picture_error"] = picErr.Error()
 	}
-	c := newCard(t, pics, m.zone)
+	c := newCard(t, pics, m.zone, m.text)
 	if m.translator != nil && t.Text != "" {
 		m.translate(ctx, t, &c)
 	}
@@ -244,7 +248,7 @@ func (m *Module) message(ctx context.Context, e otogi.Event, t tweet, c card, pa
 	if err != nil {
 		m.host.Logger().Warn("twitter: card not rendered; sending text", "post", t.ID, "error", err)
 		payload["render_error"] = err.Error()
-		msg = textCard(t, c.Translation)
+		msg = textCard(t, c.Translation, m.text.post)
 	} else {
 		payload["bytes"] = len(png)
 		msg = otogi.Message{Roots: []otogi.PartID{"card"}, Parts: []otogi.Part{{ID: "card", Kind: otogi.PartMedia,
@@ -272,10 +276,10 @@ func (m *Module) translate(ctx context.Context, t tweet, c *card) {
 		return
 	}
 	payload["language"] = tr.Language
-	text, more := excerpt(tr.Post, maxText)
+	text, more := excerpt(tr.Post, m.text.post)
 	c.Translation = &translatedText{By: "由 " + providerName(m.translator.cfg.Provider) + " 翻译自" + tr.Language, Plain: text, Text: spans(text), More: more}
 	if c.Quote != nil && tr.Quote != "" {
-		quote, _ := excerpt(tr.Quote, maxQuoteText)
+		quote, _ := excerpt(tr.Quote, m.text.quote)
 		c.Quote.Translation = spans(quote)
 	}
 	m.host.Record(ctx, otogi.Record{Kind: "twitter.translation", Outcome: "ok", Duration: m.now().Sub(started), Payload: payload})
@@ -325,10 +329,10 @@ func (m *Module) pictures(ctx context.Context, t tweet) (pictures, error) {
 // textCard is the post in words, and its translation when it has one, for
 // when the card cannot be drawn. It holds no link: the message it answers
 // has one, and QQ groups refuse messages with links.
-func textCard(t tweet, tr *translatedText) otogi.Message {
+func textCard(t tweet, tr *translatedText, limit int) otogi.Message {
 	var r otogi.RichText
 	r.Mark(otogi.AnnotationBold, "", func() { r.Write(t.Author.Name) })
-	text, _ := excerpt(t.Text, maxText)
+	text, _ := excerpt(t.Text, limit)
 	r.Write(" @" + t.Author.Handle + "\n" + text)
 	if tr != nil {
 		r.Write("\n\n" + tr.By + "：\n" + tr.Plain)

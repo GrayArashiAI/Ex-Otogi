@@ -13,13 +13,9 @@ import (
 // fxtwitter.com, vxtwitter.com, fixupx.com, fixvx.com, and /i/web/status/123.
 var statusLink = regexp.MustCompile(`(?i)(?:https?://)?(?:www\.|mobile\.)?(?:x|twitter|fxtwitter|vxtwitter|fixupx|fixvx)\.com/(?:[A-Za-z0-9_]{1,15}|i/web|i)/status(?:es)?/(\d{1,20})\b`)
 
-// maxPosts is how many posts of one message get a card: a message pasting
-// a list is not asking for a wall of cards.
-const maxPosts = 3
-
-// postsIn lists the posts a message links, in the order they appear and
-// without repeats: in its text, and behind formatted links.
-func postsIn(msg otogi.Message) []string {
+// postsIn lists the first limit posts a message links, in the order they
+// appear and without repeats: in its text, and behind formatted links.
+func postsIn(msg otogi.Message, limit int) []string {
 	type at struct {
 		part, offset int
 		id           string
@@ -43,7 +39,7 @@ func postsIn(msg otogi.Message) []string {
 	slices.SortStableFunc(found, func(a, b at) int { return cmp.Or(a.part-b.part, a.offset-b.offset) })
 	var ids []string
 	for _, f := range found {
-		if !slices.Contains(ids, f.id) && len(ids) < maxPosts {
+		if !slices.Contains(ids, f.id) && len(ids) < limit {
 			ids = append(ids, f.id)
 		}
 	}

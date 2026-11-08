@@ -17,19 +17,15 @@ var (
 	shortLink = regexp.MustCompile(`(?i)(?:https?://)?(?:b23\.tv|bili2233\.cn)/([0-9A-Za-z]+)\b`)
 )
 
-// maxVideos is how many videos of one message get a card: a message pasting
-// a list is not asking for a wall of cards.
-const maxVideos = 3
-
 // found is a video named in a message: its ID, or a short link to resolve.
 type found struct {
 	id    string // BV… or av…, empty until a short link is resolved
 	short string // https://b23.tv/…
 }
 
-// videosIn lists the videos a message names, in the order they appear and
-// without repeats: in its text, and behind formatted links.
-func videosIn(msg otogi.Message) []found {
+// videosIn lists the first limit videos a message names, in the order they
+// appear and without repeats: in its text, and behind formatted links.
+func videosIn(msg otogi.Message, limit int) []found {
 	type at struct {
 		part, offset int
 		f            found
@@ -55,7 +51,7 @@ func videosIn(msg otogi.Message) []found {
 	seen := map[string]bool{}
 	for _, a := range all {
 		key := strings.ToLower(a.f.id + a.f.short)
-		if !seen[key] && len(out) < maxVideos {
+		if !seen[key] && len(out) < limit {
 			seen[key] = true
 			out = append(out, a.f)
 		}

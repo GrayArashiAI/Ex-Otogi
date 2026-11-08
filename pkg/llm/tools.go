@@ -113,10 +113,20 @@ type RunResult struct {
 const (
 	// WrapUpRounds is a reply that used up its rounds of calls.
 	WrapUpRounds = "rounds"
-	// WrapUpTime is a reply whose context deadline is nearer than two of
-	// its slowest model rounds.
+	// WrapUpTime is a reply whose context deadline is nearer than
+	// Limits.Reserve of its slowest model rounds.
 	WrapUpTime = "time"
 )
+
+// Limits bound the function calls of one Run.
+type Limits struct {
+	// Rounds is the most rounds of calls Run runs.
+	Rounds int
+	// Reserve is how many of the slowest model rounds so far must be left
+	// before ctx's deadline for calls to run: the time the model needs to
+	// answer with what it has. 0 runs calls until the deadline.
+	Reserve float64
+}
 
 // wrapUpErrors answer the calls of a model told to wrap up.
 var wrapUpErrors = map[string]string{
@@ -130,13 +140,13 @@ var wrapUpErrors = map[string]string{
 // across rounds; onCall, if not nil, sees each call as it finishes.
 //
 // A call to an unknown function, or one that fails or panics, is answered
-// with an error the model sees. Calls are run for at most maxRounds rounds,
-// and not once ctx's deadline is nearer than two of the slowest model
-// rounds so far, which leaves the model time to answer: the calls are then
-// answered with an error asking the model to answer with what it has, and a
-// model that still calls functions is an error.
+// with an error the model sees. Calls are run for at most limits.Rounds
+// rounds, and not once ctx's deadline is nearer than limits.Reserve of the
+// slowest model rounds so far, which leaves the model time to answer: the
+// calls are then answered with an error asking the model to answer with
+// what it has, and a model that still calls functions is an error.
 func Run(ctx context.Context, p Provider, req Request, tools map[string]Tool, event otogi.Event,
-	maxRounds int, partial func(otogi.Message) error, onCall func(CallRecord)) (RunResult, error) {
+	limits Limits, partial func(otogi.Message) error, onCall func(CallRecord)) (RunResult, error) {
 	for _, t := range tools {
 		f := t.Function()
 		req.Tools = append(req.Tools, ToolSpec{Function: &f})
@@ -166,10 +176,10 @@ func Run(ctx context.Context, p Provider, req Request, tools map[string]Tool, ev
 		if out.WrappedUp != "" {
 			return out, fmt.Errorf("the model still called functions after it was told to answer (%s): %w", out.WrappedUp, otogi.ErrUnavailable)
 		}
-		if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) < 2*slowest {
+		if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) < time.Duration(limits.Reserve*float64(slowest)) {
 			out.WrappedUp = WrapUpTime
 		}
-		if round > maxRounds {
+		if round > limits.Rounds {
 			out.WrappedUp = WrapUpRounds
 		}
 		results := make([]Result, len(resp.Turn.Calls))

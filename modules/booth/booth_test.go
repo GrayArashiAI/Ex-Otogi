@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/TundraWork/Ex-Otogi/internal/settingstest"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -34,7 +35,7 @@ func TestItemsIn(t *testing.T) {
 		"behind formatting, shop domains, at most three": {r.Message(), []string{"42", "9111596", "7"}},
 		"nothing": {otogi.TextMessage("booth.pm is a site; booth.pm/ja/browse/3D is no item; items/123 alone is not a link"), nil},
 	} {
-		if got := itemsIn(c.msg); !slices.Equal(got, c.want) {
+		if got := itemsIn(c.msg, 3); !slices.Equal(got, c.want) {
 			t.Errorf("%s: %v, want %v", name, got, c.want)
 		}
 	}
@@ -178,7 +179,7 @@ func TestCards(t *testing.T) {
 	}
 	c := drawn[0]
 	if !strings.HasPrefix(c.Title, "(v0.1.0) [FREE] Pyrite9 Sleeve Roll") || c.Shop != "pyrite9" || c.Category != "3Dモデル › 3D装飾品" || c.Price != "免费 – ¥100" ||
-		c.Wishes != "398" || c.Published != "2026-11-07 发布" || len(c.Options) != 2 || c.Options[1] != (option{"支援版 / Support", "¥100"}) || len(c.Tags) != maxTags || c.Adult {
+		c.Wishes != "398" || c.Published != "2026-11-07 发布" || len(c.Options) != 2 || c.Options[1] != (option{"支援版 / Support", "¥100"}) || len(c.Tags) != 6 || c.Adult {
 		t.Fatalf("card %+v", c)
 	}
 	picture, _ := url.Parse(h.records[0].Payload.(map[string]any)["picture"].(string))
@@ -293,7 +294,7 @@ func TestRenderWithChrome(t *testing.T) {
 // sticker: both as the card package draws them.
 func TestCardShowsPicturesLessThanPlainly(t *testing.T) {
 	t.Parallel()
-	c := newCard(item{ID: 1, Name: "x", Adult: true}, image{data: []byte("jpeg"), mime: "image/jpeg"}, image{})
+	c := newCard(item{ID: 1, Name: "x", Adult: true}, image{data: []byte("jpeg"), mime: "image/jpeg"}, image{}, limits{options: 4, tags: 6})
 	c.Covered = true
 	var html bytes.Buffer
 	if err := newTemplate(cardimage.DefaultPictures()).Execute(&html, c); err != nil {
@@ -303,5 +304,27 @@ func TestCardShowsPicturesLessThanPlainly(t *testing.T) {
 		if !strings.Contains(html.String(), want) {
 			t.Errorf("card lacks %q", want)
 		}
+	}
+}
+
+// The lists a card shows are as long as the settings say, or left off; the
+// defaults the form shows are the ones unset fields get.
+func TestCardLimits(t *testing.T) {
+	t.Parallel()
+	it := item{ID: 1, Name: "x", Variations: []variation{{"a", 0}, {"b", 1}, {"c", 2}}, Tags: []struct {
+		Name string `json:"name"`
+	}{{"t1"}, {"t2"}, {"t3"}}}
+	if c := newCard(it, image{}, image{}, limits{options: 2, tags: 1}); len(c.Options) != 2 || c.More != 1 || len(c.Tags) != 1 {
+		t.Fatalf("limited card: options %v more %d tags %v", c.Options, c.More, c.Tags)
+	}
+	if c := newCard(it, image{}, image{}, limits{}); len(c.Options) != 0 || c.More != 0 || len(c.Tags) != 0 {
+		t.Fatalf("lists off: options %v more %d tags %v", c.Options, c.More, c.Tags)
+	}
+	chrome := filepath.Join(t.TempDir(), "chrome-headless-shell")
+	_ = os.WriteFile(chrome, []byte("#!/bin/sh\n"), 0o700)
+	unset, _ := New(Config{Chrome: chrome})
+	typed, err := New(settingstest.WithDefaults(t, Config{Chrome: chrome}))
+	if err != nil || typed.maxItems != unset.maxItems || typed.limits != unset.limits {
+		t.Fatalf("schema defaults give %d %+v (%v), unset fields %d %+v", typed.maxItems, typed.limits, err, unset.maxItems, unset.limits)
 	}
 }

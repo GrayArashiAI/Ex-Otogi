@@ -65,7 +65,7 @@ func TestRunRunsCallsUntilTheModelAnswers(t *testing.T) {
 	}}
 	var partials []string
 	var calls []CallRecord
-	out, err := Run(context.Background(), p, Request{Model: "m", Tools: []ToolSpec{{Builtin: BuiltinGoogleSearch}}}, map[string]Tool{"add": add}, otogi.Event{}, 4,
+	out, err := Run(context.Background(), p, Request{Model: "m", Tools: []ToolSpec{{Builtin: BuiltinGoogleSearch}}}, map[string]Tool{"add": add}, otogi.Event{}, Limits{Rounds: 4, Reserve: 2},
 		func(m otogi.Message) error { partials = append(partials, m.PlainText()); return nil },
 		func(c CallRecord) { calls = append(calls, c) })
 	if err != nil {
@@ -98,7 +98,7 @@ func TestRunAnswersFailingCallsWithErrors(t *testing.T) {
 		say("Sorry."),
 	}}
 	var calls []CallRecord
-	out, err := Run(context.Background(), p, Request{}, map[string]Tool{"fail": failing, "panic": panicking}, otogi.Event{}, 4, nil, func(c CallRecord) { calls = append(calls, c) })
+	out, err := Run(context.Background(), p, Request{}, map[string]Tool{"fail": failing, "panic": panicking}, otogi.Event{}, Limits{Rounds: 4, Reserve: 2}, nil, func(c CallRecord) { calls = append(calls, c) })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +116,7 @@ func TestRunLimitsRounds(t *testing.T) {
 	runs := 0
 	counting := toolFunc(func(json.RawMessage) (any, error) { runs++; return "ok", nil })
 	p := &script{responses: []Response{say("", Call{ID: "c", Name: "add"})}}
-	out, err := Run(context.Background(), p, Request{}, map[string]Tool{"add": counting}, otogi.Event{}, 2, nil, nil)
+	out, err := Run(context.Background(), p, Request{}, map[string]Tool{"add": counting}, otogi.Event{}, Limits{Rounds: 2, Reserve: 2}, nil, nil)
 	if !errors.Is(err, otogi.ErrUnavailable) || runs != 2 || len(p.requests) != 4 {
 		t.Fatalf("err %v, runs %d, requests %d", err, runs, len(p.requests))
 	}
@@ -138,7 +138,7 @@ func TestRunWrapsUpBeforeTheDeadline(t *testing.T) {
 		time.Sleep(30 * time.Millisecond)
 		return p.Generate(ctx, req, partial)
 	})
-	out, err := Run(ctx, slow, Request{}, map[string]Tool{"add": counting}, otogi.Event{}, 8, nil, nil)
+	out, err := Run(ctx, slow, Request{}, map[string]Tool{"add": counting}, otogi.Event{}, Limits{Rounds: 8, Reserve: 2}, nil, nil)
 	if err != nil || runs != 0 || out.WrappedUp != WrapUpTime || out.Reply.PlainText() != "Here is what I found." {
 		t.Fatalf("err %v, runs %d, wrapped up %q, reply %q", err, runs, out.WrappedUp, out.Reply.PlainText())
 	}
@@ -157,7 +157,7 @@ func TestRunStopsWhenPartialFails(t *testing.T) {
 	t.Parallel()
 	p := &script{responses: []Response{say("hi")}}
 	gone := errors.New("gone")
-	if _, err := Run(context.Background(), p, Request{}, nil, otogi.Event{}, 1, func(otogi.Message) error { return gone }, nil); !errors.Is(err, gone) {
+	if _, err := Run(context.Background(), p, Request{}, nil, otogi.Event{}, Limits{Rounds: 1, Reserve: 2}, func(otogi.Message) error { return gone }, nil); !errors.Is(err, gone) {
 		t.Fatalf("err %v", err)
 	}
 }

@@ -28,10 +28,10 @@ func TestPostsIn(t *testing.T) {
 	r.Write("see https://x.com/SpaceX/status/2112637394654822514?s=20 and twitter.com/NASA/status/2118034216503955710, ")
 	r.Mark(otogi.AnnotationLink, "https://fxtwitter.com/i/status/111", func() { r.Write("this") })
 	r.Write(" mobile.twitter.com/a/statuses/222 vxtwitter.com/b/status/333 x.com/SpaceX/status/2112637394654822514")
-	if got := postsIn(r.Message()); !slices.Equal(got, []string{"2112637394654822514", "2118034216503955710", "111"}) {
+	if got := postsIn(r.Message(), 3); !slices.Equal(got, []string{"2112637394654822514", "2118034216503955710", "111"}) {
 		t.Fatalf("posts = %v", got)
 	}
-	if got := postsIn(otogi.TextMessage("x.com/SpaceX and example.com/a/status/1 and x.com/home")); got != nil {
+	if got := postsIn(otogi.TextMessage("x.com/SpaceX and example.com/a/status/1 and x.com/home"), 3); got != nil {
 		t.Fatalf("not posts: %v", got)
 	}
 }
@@ -383,7 +383,7 @@ func TestRenderWithChrome(t *testing.T) {
 	tw := tweet{Author: author{Name: "名字 🔥", Handle: "someone", Badge: "blue"}, Text: "Cat’s @x #y https://example.com", Time: time.Now(), Views: &views,
 		Media: []media{{Kind: "video", Seconds: 41}, {Kind: "photo"}, {Kind: "gif"}}, Sensitive: true, QuoteGone: "这个帖子不可用。",
 		Poll: &poll{Choices: []choice{{"A", 60}, {"B", 40}}, Votes: 10, Ended: true}, Note: "context", ReplyingTo: "other"}
-	png, err := render(ctx, cardimage.Renderer{Chrome: path}, newTemplate(cardimage.DefaultPictures()), newCard(tw, pictures{}, time.Local))
+	png, err := render(ctx, cardimage.Renderer{Chrome: path}, newTemplate(cardimage.DefaultPictures()), newCard(tw, pictures{}, time.Local, textLimits{post: 560, quote: 280}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -399,7 +399,7 @@ func TestRenderWithChrome(t *testing.T) {
 func TestTextCardCarriesTheTranslation(t *testing.T) {
 	t.Parallel()
 	tw := tweet{Author: author{Name: "SpaceX", Handle: "SpaceX"}, Text: "Earnings are out → https://ir.spacex.com/q3-2026-results"}
-	msg := textCard(tw, &translatedText{By: "由 Gemini 翻译自英语", Plain: "财报已发布 → https://ir.spacex.com/q3-2026-results"})
+	msg := textCard(tw, &translatedText{By: "由 Gemini 翻译自英语", Plain: "财报已发布 → https://ir.spacex.com/q3-2026-results"}, 560)
 	if got := msg.PlainText(); got != "SpaceX @SpaceX\nEarnings are out → https://ir.spacex.com/q3-2026-results\n\n由 Gemini 翻译自英语：\n财报已发布 → https://ir.spacex.com/q3-2026-results" {
 		t.Fatalf("text card %q", got)
 	}
@@ -462,7 +462,7 @@ func TestRefusedCardGoesOutCovered(t *testing.T) {
 // sticker: both as the card package draws them.
 func TestCardMarksPicturesShownLessThanPlainly(t *testing.T) {
 	t.Parallel()
-	c := newCard(tweet{Author: author{Name: "a", Handle: "a"}, Media: []media{{Kind: "photo", Image: "p"}}, Sensitive: true}, pictures{"p": "data:image/png;base64,AA=="}, time.UTC)
+	c := newCard(tweet{Author: author{Name: "a", Handle: "a"}, Media: []media{{Kind: "photo", Image: "p"}}, Sensitive: true}, pictures{"p": "data:image/png;base64,AA=="}, time.UTC, textLimits{post: 560, quote: 280})
 	c.cover()
 	var html bytes.Buffer
 	if err := newTemplate(cardimage.DefaultPictures()).Execute(&html, c); err != nil {
@@ -560,8 +560,14 @@ func TestSchemaDefaultsAreTheDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 	typed, err := New(settingstest.WithDefaults(t, cfg), nil)
-	if err != nil || typed.videos != unset.videos || typed.maxVideo != unset.maxVideo {
-		t.Fatalf("schema defaults give %v %v (%v), unset fields %v %v", typed.videos, typed.maxVideo, err, unset.videos, unset.maxVideo)
+	if err != nil || typed.videos != unset.videos || typed.maxVideo != unset.maxVideo || typed.maxPosts != unset.maxPosts || typed.text != unset.text {
+		t.Fatalf("schema defaults give %v %v %d %+v (%v), unset fields %v %v %d %+v", typed.videos, typed.maxVideo, typed.maxPosts, typed.text, err,
+			unset.videos, unset.maxVideo, unset.maxPosts, unset.text)
+	}
+	// The text limits are what the card shows.
+	short, _ := New(Config{Chrome: chrome(t), MaxText: 50}, nil)
+	if c := newCard(tweet{Text: strings.Repeat("word ", 40)}, pictures{}, time.UTC, short.text); !c.More || len([]rune(c.Text[0].Text)) > 51 {
+		t.Fatalf("max_text 50 shows %q", c.Text[0].Text)
 	}
 }
 

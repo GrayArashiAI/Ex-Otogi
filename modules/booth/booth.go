@@ -19,11 +19,16 @@ import (
 
 // Config is the module's settings.
 type Config struct {
-	Chrome string `json:"chrome" minLength:"1" doc:"The path of the chrome-headless-shell binary that draws the cards."`
+	Chrome     string `json:"chrome" minLength:"1" doc:"The path of the chrome-headless-shell binary that draws the cards."`
+	MaxItems   int    `json:"max_items,omitempty" minimum:"1" default:"3" doc:"How many items of one message get a card, the first ones it links."`
+	MaxOptions *int   `json:"max_options,omitempty" minimum:"0" default:"4" doc:"How many of an item's options (the ways it is sold, with their prices) a card lists; the rest are counted. 0 lists none."`
+	MaxTags    *int   `json:"max_tags,omitempty" minimum:"0" default:"6" doc:"How many of an item's tags a card shows. 0 shows none."`
 }
 
 // Module is the booth module.
 type Module struct {
+	maxItems int
+	limits   limits
 	censor   cardimage.Pictures // how cards censor pictures; set in Start
 	template *template.Template // the card's, drawing pictures as censor says
 	api      *client
@@ -38,8 +43,18 @@ func New(cfg Config) (*Module, error) {
 		return nil, fmt.Errorf("booth: %w", err)
 	}
 	m := &Module{
+		maxItems: 3, limits: limits{options: 4, tags: 6},
 		api: &client{site: "https://booth.pm", http: &http.Client{Timeout: 20 * time.Second}},
 		now: time.Now,
+	}
+	if cfg.MaxItems != 0 {
+		m.maxItems = cfg.MaxItems
+	}
+	if cfg.MaxOptions != nil {
+		m.limits.options = *cfg.MaxOptions
+	}
+	if cfg.MaxTags != nil {
+		m.limits.tags = *cfg.MaxTags
 	}
 	m.render = func(ctx context.Context, c card) ([]byte, error) {
 		return render(ctx, cardimage.Renderer{Chrome: cfg.Chrome}, m.template, c)
@@ -79,7 +94,7 @@ func (m *Module) Handle(ctx context.Context, e otogi.Event, inv otogi.Invocation
 	if e.Command != nil || !m.host.Allowed(list, e.ChatKey()) {
 		return nil
 	}
-	for _, id := range itemsIn(e.Message) {
+	for _, id := range itemsIn(e.Message, m.maxItems) {
 		if err := m.answer(ctx, e, inv, id); err != nil {
 			return err
 		}
@@ -112,7 +127,7 @@ func (m *Module) answer(ctx context.Context, e otogi.Event, inv otogi.Invocation
 		m.host.Logger().Warn("booth: picture not downloaded", "item", id, "error", err)
 		payload["picture_error"] = err.Error()
 	}
-	c := newCard(it, picture, icon)
+	c := newCard(it, picture, icon, m.limits)
 	msg := m.message(ctx, e, it, c, picture, payload)
 	payload["rendered"] = m.now().Sub(fetched).String()
 	_, err = inv.Send(ctx, "card:"+id, msg)

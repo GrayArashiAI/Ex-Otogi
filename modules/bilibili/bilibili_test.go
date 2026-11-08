@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/TundraWork/Ex-Otogi/internal/settingstest"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -36,7 +37,7 @@ func TestVideosIn(t *testing.T) {
 		"nothing":       {otogi.TextMessage("bilibili.com is a site; BV1gm4a6yEor alone is not a link; bilibili.com/video/BV1gm4a6yEorX is too long"), nil},
 		"case of an av": {otogi.TextMessage("bilibili.com/video/AV42"), []found{{id: "av42"}}},
 	} {
-		if got := videosIn(c.msg); !slices.Equal(got, c.want) {
+		if got := videosIn(c.msg, 3); !slices.Equal(got, c.want) {
 			t.Errorf("%s: %+v, want %+v", name, got, c.want)
 		}
 	}
@@ -247,5 +248,18 @@ func TestRenderWithChrome(t *testing.T) {
 	}
 	if out := os.Getenv("OTOGI_CARD_OUT"); out != "" {
 		_ = os.WriteFile(out, png, 0o600)
+	}
+}
+
+// The defaults the settings form shows are the ones an unset field gets.
+func TestSchemaDefaultsAreTheDefaults(t *testing.T) {
+	t.Parallel()
+	m, _, _ := newTestModule(t, nil)
+	unset := m.maxVideos
+	chrome := filepath.Join(t.TempDir(), "chrome-headless-shell")
+	_ = os.WriteFile(chrome, []byte("#!/bin/sh\n"), 0o700)
+	typed, err := New(settingstest.WithDefaults(t, Config{Chrome: chrome}))
+	if err != nil || typed.maxVideos != unset {
+		t.Fatalf("schema defaults give %d (%v), unset fields %d", typed.maxVideos, err, unset)
 	}
 }
