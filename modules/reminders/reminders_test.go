@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"github.com/TundraWork/Ex-Otogi/internal/settingstest"
 	"log/slog"
 	"strings"
 	"testing"
@@ -128,5 +129,13 @@ func TestSetReminderTool(t *testing.T) {
 		if err := json.Unmarshal(timer.Payload, &r); err != nil || r.Text != "tea" || r.Ref.SourceEvent != "m1" || r.To.Conversation != "chat" {
 			t.Fatalf("reminder %+v, %v", r, err)
 		}
+	}
+}
+
+// The defaults the settings form shows are the ones an unset field gets.
+func TestSchemaDefaultsAreTheDefaults(t *testing.T) {
+	t.Parallel()
+	if typed, unset := New(settingstest.WithDefaults(t, Config{})), New(Config{}); typed.max != unset.max {
+		t.Fatalf("schema defaults give %v, unset fields %v", typed.max, unset.max)
 	}
 }

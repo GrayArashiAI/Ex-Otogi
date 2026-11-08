@@ -15,28 +15,28 @@ import (
 
 // Config is the module's settings.
 type Config struct {
-	Retention otogi.Duration  `json:"retention,omitempty" doc:"How long threads and the chat transcript are kept; default 720h (30 days)."`
-	Timeout   otogi.Duration  `json:"timeout,omitempty" doc:"The longest one reply may take, tool calls included; default 5m. When less is left than two of its slowest model rounds, the agent stops calling tools and answers with what it has found."`
+	Retention otogi.Duration  `json:"retention,omitempty" default:"720h" doc:"How long threads and the chat transcript are kept; 720h is 30 days."`
+	Timeout   otogi.Duration  `json:"timeout,omitempty" default:"5m" doc:"The longest one reply may take, tool calls included. When less is left than two of its slowest model rounds, the agent stops calling tools and answers with what it has found."`
 	Profiles  []ProfileConfig `json:"profiles" minItems:"1" doc:"The agents. Each answers in the chats on its allowlist."`
-	Tools     []string        `json:"tools,omitempty" doc:"Modules whose tools agents may use, by module ID (notes, reminders, todou). Each has a list of the chats where agents get its tools; a chat on none of them gets none."`
+	Tools     []string        `json:"tools,omitempty" enum:"notes,reminders,todou" doc:"Modules whose tools agents may use. Each gets a list of the chats where agents are offered its tools; a chat on none of them gets none."`
 }
 
 // ProfileConfig configures one agent.
 type ProfileConfig struct {
 	Name          string   `json:"name" minLength:"1" doc:"Identifies the agent and names its allowlist. Its threads are stored under it: keep it stable."`
 	Label         string   `json:"label,omitempty" doc:"When set, starts each reply in bold."`
-	Keywords      []string `json:"keywords,omitempty" doc:"A message starting with one of them triggers the agent; so does replying to it."`
+	Keywords      []string `json:"keywords" minItems:"1" doc:"A message starting with one of them triggers the agent; so does replying to it."`
 	Mention       bool     `json:"mention,omitempty" doc:"A message mentioning the bot triggers the agent too, as people address a bot in a QQ group. When several agents in a chat set it, the first answers."`
 	Provider      string   `json:"provider" minLength:"1" doc:"A language model provider configured under llm in otogi.yaml, such as gemini."`
 	Model         string   `json:"model" minLength:"1" doc:"The provider's model ID."`
 	Thinking      string   `json:"thinking,omitempty" enum:"minimal,low,medium,high" doc:"How much the model thinks before answering; unset is the model's default."`
-	MaxOutput     int      `json:"max_output,omitempty" minimum:"0" doc:"The most tokens a reply may have; 0 is the model's default."`
+	MaxOutput     int      `json:"max_output,omitempty" minimum:"1" doc:"The most tokens a reply may have; unset is the model's default."`
 	Temperature   *float64 `json:"temperature,omitempty" minimum:"0" maximum:"2" doc:"Sampling temperature, 0 to 2; unset is the model's default (1 for Gemini). Higher is livelier, lower more predictable."`
 	System        string   `json:"system,omitempty" format:"markdown" doc:"The system prompt: who the agent is and how it talks, in Markdown."`
-	Context       *int     `json:"context,omitempty" minimum:"0" doc:"How many recent chat messages the agent sees; default 30, 0 for none."`
-	MaxTurns      int      `json:"max_turns,omitempty" minimum:"0" doc:"How many turns of a thread are sent, newest kept; default 40."`
+	Context       *int     `json:"context,omitempty" minimum:"0" default:"30" doc:"How many recent chat messages the agent sees; 0 for none."`
+	MaxTurns      int      `json:"max_turns,omitempty" minimum:"1" default:"40" doc:"How many turns of a thread are sent, newest kept."`
 	Tools         []string `json:"tools,omitempty" enum:"google_search,url_context,code_execution" doc:"The model's built-in tools the agent uses everywhere it answers. Modules' tools are offered per chat: see Tools, after the profiles."`
-	MaxToolRounds int      `json:"max_tool_rounds,omitempty" minimum:"0" doc:"The most rounds of tool calls in one reply; default 8."`
+	MaxToolRounds int      `json:"max_tool_rounds,omitempty" minimum:"1" default:"8" doc:"The most rounds of tool calls in one reply."`
 }
 
 // profile is a validated agent.

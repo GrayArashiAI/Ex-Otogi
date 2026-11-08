@@ -28,12 +28,12 @@ import (
 type Config struct {
 	CLI          string                 `json:"cli" minLength:"1" doc:"The path of the todou CLI binary."`
 	Agents       map[string]AgentConfig `json:"agents" minProperties:"1" doc:"The todou accounts chats can link projects through, by name: lowercase letters, digits, - and _."`
-	MinInterval  otogi.Duration         `json:"min_interval,omitempty" doc:"The least time between two digests to one chat; activity meanwhile waits and goes out together. Default 5m. A chat can set its own with /todou cooldown."`
-	Debounce     otogi.Duration         `json:"debounce,omitempty" doc:"How long a burst of activity is held together after its first entry; default 10s."`
-	CLITimeout   otogi.Duration         `json:"cli_timeout,omitempty" doc:"The longest one CLI call may take; default 60s."`
-	Events       []string               `json:"events,omitempty" doc:"The activity types to notify; unset is the default set, an empty list every type."`
-	MaxBodyChars int                    `json:"max_body_chars,omitempty" minimum:"0" maximum:"3000" doc:"Where each quoted body is cut; default 800, at most 3000. A digest message holds 4000 characters, so 800 keeps about four entries in one."`
-	MaxAttempts  int                    `json:"max_attempts,omitempty" minimum:"0" doc:"How many times a digest message is tried, a minute apart, before it is marked failed; default 60."`
+	MinInterval  otogi.Duration         `json:"min_interval,omitempty" default:"5m" doc:"The least time between two digests to one chat; activity meanwhile waits and goes out together. A chat can set its own with /todou cooldown."`
+	Debounce     otogi.Duration         `json:"debounce,omitempty" default:"10s" doc:"How long a burst of activity is held together after its first entry."`
+	CLITimeout   otogi.Duration         `json:"cli_timeout,omitempty" default:"60s" doc:"The longest one CLI call may take."`
+	Events       []string               `json:"events,omitempty" minItems:"1" enum:"comment,opened,closed,reopened,status_changed,title_changed,label_added,label_removed,assigned,unassigned,referenced,cross_referenced,attachment_added,attachment_deleted,question_answered,spec_pushed,spec_withdrawn,spec_review,spec_comments_resolved,deleted,restored,moved_out,moved_in,block_added,block_removed,block_cleared,block_reblocked" default:"[\"comment\",\"opened\",\"closed\",\"reopened\",\"status_changed\",\"assigned\",\"spec_pushed\",\"spec_review\",\"question_answered\",\"block_added\",\"block_removed\",\"block_cleared\"]" doc:"The activity types digests include."`
+	MaxBodyChars int                    `json:"max_body_chars,omitempty" minimum:"100" maximum:"3000" default:"800" doc:"Where each quoted body is cut, in characters. A digest message holds 4000 characters, so 800 keeps about four entries in one."`
+	MaxAttempts  int                    `json:"max_attempts,omitempty" minimum:"1" default:"60" doc:"How many times a digest message is tried, a minute apart, before it is marked failed."`
 }
 
 // AgentConfig is one todou account.

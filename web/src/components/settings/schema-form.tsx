@@ -171,7 +171,9 @@ function Control({ field, schema }: { field: AnyFieldApi; schema: JSONSchema }) 
     const choices = (schema.items as { enum?: unknown[] } | undefined)?.enum;
     const words = (value as string[] | undefined) ?? [];
     if (choices) {
-      return <Choices options={choices.map(String)} value={words} onChange={(v) => field.handleChange(v)} />;
+      // An unset list shows the choices the module makes for it.
+      const chosen = (value ?? schema.default ?? []) as string[];
+      return <Choices options={choices.map(String)} value={chosen} onChange={(v) => field.handleChange(v)} />;
     }
     return <Tags value={words} onChange={(v) => field.handleChange(v)} />;
   }
@@ -218,9 +220,11 @@ function Control({ field, schema }: { field: AnyFieldApi; schema: JSONSchema }) 
         schema.format === "secret"
           ? // biome-ignore lint/suspicious/noTemplateCurlyInString: the placeholder shows a ${NAME} reference
             "${ENVIRONMENT_VARIABLE}"
-          : schema.format === "duration"
-            ? "Default, or like 5m"
-            : ""
+          : schema.default !== undefined
+            ? `Default ${schema.default}`
+            : schema.format === "duration"
+              ? "Like 5m"
+              : ""
       }
       spellCheck={!mono}
       onChange={(e) => field.handleChange(e.target.value)}

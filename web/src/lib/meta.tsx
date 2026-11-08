@@ -1,4 +1,4 @@
-import { AlarmClock, Bot, EyeOff, KanbanSquare, MessageSquare, NotebookPen, Repeat2, Wrench } from "lucide-react";
+import { AlarmClock, Bot, KanbanSquare, MessageSquare, NotebookPen, Repeat2, ShieldCheck, Wrench } from "lucide-react";
 import type { ComponentType, SVGProps } from "react";
 
 export type Tone =
@@ -12,7 +12,8 @@ export type Tone =
   | "amber"
   | "indigo"
   | "slate"
-  | "teal";
+  | "teal"
+  | "cyan";
 
 type Icon = ComponentType<SVGProps<SVGSVGElement> & { className?: string }>;
 
@@ -97,11 +98,11 @@ const modules: Record<string, ModuleMeta> = {
     icon: XGlyph,
     tone: "zinc",
   },
-  censor: {
-    title: "Censoring",
-    about: "How cards blur sensitive pictures and cover pictures a platform refused, for every card module.",
-    icon: EyeOff,
-    tone: "slate",
+  safety: {
+    title: "Content safety",
+    about: "How card modules show sensitive pictures, and pictures a platform refused.",
+    icon: ShieldCheck,
+    tone: "cyan",
   },
   notes: {
     title: "Notes",

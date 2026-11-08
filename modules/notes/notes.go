@@ -19,7 +19,7 @@ import (
 
 // Config is the module's settings.
 type Config struct {
-	MaxNotes int `json:"max_notes,omitempty" minimum:"0" doc:"The most notes one chat may keep; default 50."`
+	MaxNotes int `json:"max_notes,omitempty" minimum:"1" default:"50" doc:"The most notes one chat may keep."`
 }
 
 // Module handles /note and offers agents its tools.

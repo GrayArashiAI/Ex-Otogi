@@ -6,9 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/TundraWork/Ex-Otogi/internal/settingstest"
 	"io/fs"
 	"log/slog"
 	"os"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -926,5 +928,19 @@ func TestToolsSayWhenNothingIsLinked(t *testing.T) {
 		if _, err := tool.Call(context.Background(), e, json.RawMessage(args)); name != "todou_create" && (err == nil || !strings.HasPrefix(err.Error(), "No todou projects are linked to this chat. An operator can link one")) {
 			t.Errorf("%s: %v", name, err)
 		}
+	}
+}
+
+// The defaults the settings form shows are the ones an unset field gets.
+func TestSchemaDefaultsAreTheDefaults(t *testing.T) {
+	t.Setenv("OTOGI_TEST_TODOU_TOKEN", "todou_pat_x")
+	cfg := Config{CLI: "todou", Agents: map[string]AgentConfig{"neptune": {Server: "https://todou.test", Token: "${OTOGI_TEST_TODOU_TOKEN}"}}}
+	unset, err := New(cfg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	typed, err := New(settingstest.WithDefaults(t, cfg), nil)
+	if err != nil || !reflect.DeepEqual(typed.cfg, unset.cfg) {
+		t.Fatalf("schema defaults give %+v (%v), unset fields %+v", typed.cfg, err, unset.cfg)
 	}
 }

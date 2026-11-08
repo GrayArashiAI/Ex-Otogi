@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"github.com/TundraWork/Ex-Otogi/internal/settingstest"
 	"log/slog"
 	"strings"
 	"testing"
@@ -118,5 +119,13 @@ func TestNoteTools(t *testing.T) {
 	}
 	if len(inv.replies) != 1 || inv.replies[0] != "1. milk\n2. eggs" {
 		t.Fatalf("/note replied %q", inv.replies)
+	}
+}
+
+// The defaults the settings form shows are the ones an unset field gets.
+func TestSchemaDefaultsAreTheDefaults(t *testing.T) {
+	t.Parallel()
+	if typed, unset := New(settingstest.WithDefaults(t, Config{})), New(Config{}); typed.max != unset.max {
+		t.Fatalf("schema defaults give %d, unset fields %d", typed.max, unset.max)
 	}
 }

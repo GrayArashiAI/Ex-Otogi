@@ -178,10 +178,10 @@ func TestSettingsSchemas(t *testing.T) {
 	}
 }
 
-// The card modules draw with the censor module's settings: they need it
+// The card modules draw with the content safety module's settings: they need it
 // running, it cannot be turned off under them, and changing it rebuilds
 // them with it.
-func TestCardsCensorThroughTheCensorModule(t *testing.T) {
+func TestCardsCensorThroughTheSafetyModule(t *testing.T) {
 	ctx := context.Background()
 	storage, err := modulestore.Open(ctx, t.TempDir())
 	if err != nil {
@@ -196,18 +196,18 @@ func TestCardsCensorThroughTheCensorModule(t *testing.T) {
 	on, off := true, false
 	booth := json.RawMessage(`{"chrome": "` + chrome + `"}`)
 	if _, err := s.save(ctx, "booth", 0, &on, booth, "x"); err == nil || !strings.Contains(err.Error(), "cardimage.pictures") {
-		t.Fatalf("BOOTH cards without the censor module: %v", err)
+		t.Fatalf("BOOTH cards without the content safety module: %v", err)
 	}
-	if _, err := s.save(ctx, "censor", 0, &on, json.RawMessage(`{}`), "x"); err != nil {
+	if _, err := s.save(ctx, "safety", 0, &on, json.RawMessage(`{}`), "x"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.save(ctx, "booth", 0, &on, booth, "x"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.save(ctx, "censor", 1, &off, nil, "x"); err == nil || !strings.Contains(err.Error(), "booth") {
-		t.Fatalf("turning off the censor module under BOOTH cards: %v", err)
+	if _, err := s.save(ctx, "safety", 1, &off, nil, "x"); err == nil || !strings.Contains(err.Error(), "booth") {
+		t.Fatalf("turning off the content safety module under BOOTH cards: %v", err)
 	}
-	if _, err := s.save(ctx, "censor", 1, nil, json.RawMessage(`{"blur": 4}`), "x"); err != nil {
+	if _, err := s.save(ctx, "safety", 1, nil, json.RawMessage(`{"blur": 4}`), "x"); err != nil {
 		t.Fatal(err)
 	}
 	last := rec.list[len(rec.list)-1]

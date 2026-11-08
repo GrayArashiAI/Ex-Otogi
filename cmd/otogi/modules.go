@@ -14,11 +14,11 @@ import (
 
 	"github.com/TundraWork/Ex-Otogi/modules/bilibili"
 	"github.com/TundraWork/Ex-Otogi/modules/booth"
-	"github.com/TundraWork/Ex-Otogi/modules/censor"
 	"github.com/TundraWork/Ex-Otogi/modules/chat"
 	"github.com/TundraWork/Ex-Otogi/modules/echo"
 	"github.com/TundraWork/Ex-Otogi/modules/notes"
 	"github.com/TundraWork/Ex-Otogi/modules/reminders"
+	"github.com/TundraWork/Ex-Otogi/modules/safety"
 	"github.com/TundraWork/Ex-Otogi/modules/todou"
 	"github.com/TundraWork/Ex-Otogi/modules/twitter"
 	"github.com/TundraWork/Ex-Otogi/modules/utility"
@@ -39,13 +39,13 @@ type moduleEnv struct {
 var moduleKinds = map[otogi.ModuleID]moduleKind{
 	"bilibili": kind(func(c bilibili.Config, _ moduleEnv) (otogi.Module, error) { return built(bilibili.New(c)) }),
 	"booth":    kind(func(c booth.Config, _ moduleEnv) (otogi.Module, error) { return built(booth.New(c)) }),
-	"censor":   kind(func(c censor.Config, _ moduleEnv) (otogi.Module, error) { return built(censor.New(c)) }),
 	"chat": kind(func(c chat.Config, env moduleEnv) (otogi.Module, error) {
 		return built(chat.New(c, env.llm))
 	}),
 	"echo":      kind(func(struct{}, moduleEnv) (otogi.Module, error) { return echo.New(), nil }),
 	"notes":     kind(func(c notes.Config, _ moduleEnv) (otogi.Module, error) { return notes.New(c), nil }),
 	"reminders": kind(func(c reminders.Config, _ moduleEnv) (otogi.Module, error) { return reminders.New(c), nil }),
+	"safety":    kind(func(c safety.Config, _ moduleEnv) (otogi.Module, error) { return built(safety.New(c)) }),
 	"todou": kind(func(c todou.Config, env moduleEnv) (otogi.Module, error) {
 		return built(todou.New(c, env.operators))
 	}),

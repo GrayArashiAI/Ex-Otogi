@@ -1,14 +1,13 @@
-package censor
+package safety
 
 import (
 	"context"
 	"os"
 	"path/filepath"
-	"reflect"
-	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/TundraWork/Ex-Otogi/internal/settingstest"
 	"github.com/TundraWork/Ex-Otogi/pkg/cardimage"
 	"github.com/TundraWork/Ex-Otogi/pkg/otogi"
 )
@@ -49,7 +48,7 @@ func TestSettings(t *testing.T) {
 	if got.Blur != 0 || got.CoverRefused || got.StickerOpacity != 0.5 || got.StickerSize != 40 || !strings.HasPrefix(string(got.Sticker), "data:image/png;base64,") {
 		t.Fatalf("provided %+v", got)
 	}
-	if d := m.Descriptor(); d.ID != "censor" || len(d.Provides) != 1 || d.Provides[0] != cardimage.ServicePictures {
+	if d := m.Descriptor(); d.ID != "safety" || len(d.Provides) != 1 || d.Provides[0] != cardimage.ServicePictures {
 		t.Fatalf("descriptor %+v", d)
 	}
 }
@@ -74,16 +73,9 @@ func TestSettingsErrors(t *testing.T) {
 // The defaults the settings form shows are the ones an unset field gets.
 func TestSchemaDefaultsAreTheDefaults(t *testing.T) {
 	t.Parallel()
-	d := cardimage.DefaultPictures()
-	want := map[string]string{
-		"Blur": strconv.Itoa(d.Blur), "CoverRefused": strconv.FormatBool(d.CoverRefused),
-		"StickerOpacity": strconv.FormatFloat(d.StickerOpacity, 'f', -1, 64), "StickerSize": strconv.Itoa(d.StickerSize),
-	}
-	typ := reflect.TypeFor[Config]()
-	for name, value := range want {
-		f, _ := typ.FieldByName(name)
-		if got := f.Tag.Get("default"); got != value {
-			t.Errorf("%s: schema default %q, applied default %q", name, got, value)
-		}
+	unset, _ := New(Config{})
+	typed, err := New(settingstest.WithDefaults(t, Config{}))
+	if err != nil || typed.pictures != unset.pictures {
+		t.Fatalf("schema defaults give %+v (%v), unset fields %+v", typed.pictures, err, unset.pictures)
 	}
 }

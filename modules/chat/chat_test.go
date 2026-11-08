@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/TundraWork/Ex-Otogi/internal/settingstest"
 	"log/slog"
 	"strings"
 	"sync"
@@ -520,5 +521,25 @@ func TestSystemPromptAndTemperature(t *testing.T) {
 	req := p.requests[0]
 	if !strings.HasPrefix(req.System, "# Role: 水月\n\n称呼你为「博士」。") || req.Temperature == nil || *req.Temperature != 1.2 {
 		t.Fatalf("system %q, temperature %v", req.System, req.Temperature)
+	}
+}
+
+// The defaults the settings form shows are the ones an unset field gets.
+func TestSchemaDefaultsAreTheDefaults(t *testing.T) {
+	t.Parallel()
+	providers := func(string) (llm.Provider, error) { return &provider{}, nil }
+	unset := Config{Profiles: []ProfileConfig{{Name: "luna", Keywords: []string{"luna"}, Provider: "p", Model: "m"}}}
+	typed := settingstest.WithDefaults(t, unset)
+	a, err := unset.profiles(providers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := typed.profiles(providers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unset.Retention != typed.Retention || unset.Timeout != typed.Timeout ||
+		a[0].MaxTurns != b[0].MaxTurns || a[0].MaxToolRounds != b[0].MaxToolRounds || a[0].context != b[0].context {
+		t.Fatalf("schema defaults give %+v %+v, unset fields %+v %+v", typed, b[0], unset, a[0])
 	}
 }

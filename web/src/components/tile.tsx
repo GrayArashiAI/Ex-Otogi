@@ -14,6 +14,7 @@ const tones: Record<Tone, string> = {
   indigo: "from-indigo-50 to-indigo-100/80 border-indigo-200/90 text-indigo-600",
   slate: "from-slate-50 to-slate-100/90 border-slate-200 text-slate-600",
   teal: "from-teal-50 to-teal-100/80 border-teal-200/90 text-teal-600",
+  cyan: "from-cyan-50 to-cyan-100/80 border-cyan-200/90 text-cyan-700",
 };
 
 const sizes = {

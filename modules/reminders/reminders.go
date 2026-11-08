@@ -18,7 +18,7 @@ import (
 
 // Config is the module's settings.
 type Config struct {
-	MaxDelay otogi.Duration `json:"max_delay,omitempty" doc:"How far ahead a reminder may be set; default 720h (30 days)."`
+	MaxDelay otogi.Duration `json:"max_delay,omitempty" default:"720h" doc:"How far ahead a reminder may be set; 720h is 30 days."`
 }
 
 // Module handles /remind and offers set_reminder to agents.
