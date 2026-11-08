@@ -90,6 +90,8 @@ type TelegramAccount struct {
 	AppHash  string `yaml:"app_hash"`
 	Session  string `yaml:"session"`
 	Database string `yaml:"database"`
+	// UploadThreads is how many parts of a file upload at once; default 8.
+	UploadThreads int `yaml:"upload_threads"`
 }
 
 // QQAccount configures one QQ bot (QQ Open Platform, q.qq.com).
@@ -154,6 +156,9 @@ func (c *Config) applyDefaults() {
 	}
 	for i := range c.Telegram {
 		a := &c.Telegram[i]
+		if a.UploadThreads == 0 {
+			a.UploadThreads = 8
+		}
 		if a.Session == "" {
 			a.Session = filepath.Join(c.DataDir, "telegram", a.Account, "session.json")
 		}
@@ -212,6 +217,9 @@ func (c Config) validate() error {
 		seen[a.Account] = true
 		if a.AppID <= 0 || a.AppHash == "" {
 			errs = append(errs, fmt.Errorf("%s: app_id and app_hash are required", field))
+		}
+		if a.UploadThreads < 1 {
+			errs = append(errs, fmt.Errorf("%s.upload_threads %d: want at least 1", field, a.UploadThreads))
 		}
 	}
 	seen = map[string]bool{}

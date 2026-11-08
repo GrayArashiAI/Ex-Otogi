@@ -109,7 +109,7 @@ func run(ctx context.Context, cfg Config, log *slog.Logger) (failure error) {
 	for _, a := range cfg.Telegram {
 		d := telegram.New(telegram.Config{
 			AppID: a.AppID, AppHash: a.AppHash, AccountKey: a.Account,
-			SessionPath: a.Session, DatabasePath: a.Database,
+			SessionPath: a.Session, DatabasePath: a.Database, UploadThreads: a.UploadThreads,
 			Kernel: k, Logger: log, Recorder: events,
 		})
 		routes[destination{telegram.Platform, otogi.AccountID(a.Account)}] = d

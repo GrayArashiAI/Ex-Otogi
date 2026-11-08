@@ -39,13 +39,14 @@ type sendStore interface {
 // duplicate. Edit, delete, and react are naturally idempotent. RPC results
 // reach the update manager through the client's update hook middleware.
 type effects struct {
-	api     *tg.Client
-	store   sendStore
-	peers   func(context.Context, string) (tg.InputPeerClass, error)
-	channel func(context.Context, int64) (tg.InputChannelClass, error)
-	ref     func(conversation string, messageID int) otogi.EventRef
-	log     *slog.Logger
-	now     func() time.Time
+	api           *tg.Client
+	uploadThreads int // file parts uploaded at once
+	store         sendStore
+	peers         func(context.Context, string) (tg.InputPeerClass, error)
+	channel       func(context.Context, int64) (tg.InputChannelClass, error)
+	ref           func(conversation string, messageID int) otogi.EventRef
+	log           *slog.Logger
+	now           func() time.Time
 	// noDrafts is set once Telegram says live drafts need a bot account.
 	noDrafts atomic.Bool
 	// streamRenew overrides streamKeepAlive in tests.
@@ -292,7 +293,7 @@ func (x *effects) inputMedia(ctx context.Context, m *otogi.Media) (tg.InputMedia
 			// extension (PHOTO_EXT_INVALID).
 			name = "file" + extension(mime)
 		}
-		file, err := uploader.NewUploader(x.api).FromBytes(ctx, name, m.Source.Inline)
+		file, err := uploader.NewUploader(x.api).WithThreads(x.uploadThreads).FromBytes(ctx, name, m.Source.Inline)
 		if err != nil {
 			return nil, fmt.Errorf("telegram upload: %w", err)
 		}

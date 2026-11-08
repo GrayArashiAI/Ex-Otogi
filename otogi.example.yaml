@@ -40,6 +40,7 @@ telegram:
     app_hash: ${OTOGI_TELEGRAM_APP_HASH}
     # session: data/telegram/main/session.json
     # database: data/telegram/main/state.sqlite
+    # upload_threads: 8   # parts of a file uploaded at once; more is faster far from Telegram's servers
 
 # QQ bots on the official QQ Bot API (create one at q.qq.com; set its events
 # to WebSocket in the console). Each is optional.

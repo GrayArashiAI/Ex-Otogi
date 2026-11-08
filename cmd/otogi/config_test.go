@@ -34,7 +34,7 @@ telegram:
 		t.Fatal(err)
 	}
 	a := cfg.Telegram[0]
-	if a.AppHash != "secret" || a.Session != "/srv/otogi/telegram/main/session.json" || a.Database != "/srv/otogi/telegram/main/state.sqlite" {
+	if a.AppHash != "secret" || a.Session != "/srv/otogi/telegram/main/session.json" || a.Database != "/srv/otogi/telegram/main/state.sqlite" || a.UploadThreads != 8 {
 		t.Fatalf("account = %+v", a)
 	}
 	if cfg.ShutdownTimeout != 30*time.Second || cfg.Log.Level != "info" || cfg.Log.Format != "json" {
@@ -66,6 +66,7 @@ func TestLoadConfigRejections(t *testing.T) {
 		"unset variable":     {"telegram:\n  - account: a\n    app_id: 1\n    app_hash: ${OTOGI_TEST_UNSET}\n", "OTOGI_TEST_UNSET"},
 		"duplicate":          {"telegram:\n  - {account: a, app_id: 1, app_hash: h}\n  - {account: a, app_id: 1, app_hash: h}\n", "used twice"},
 		"missing app hash":   {"telegram:\n  - {account: a, app_id: 1}\n", "app_hash"},
+		"no upload threads":  {"telegram:\n  - {account: a, app_id: 1, app_hash: h, upload_threads: -1}\n", "upload_threads -1"},
 		"bad level":          {"log: {level: loud}\n", "log.level"},
 		"panel without oidc": {"management: {public_url: https://otogi.example.com}\n", "management.oidc.issuer"},
 		"oidc without allow": {"management: {public_url: https://otogi.example.com, oidc: {issuer: https://opus.name, client_id: c, client_secret: s}}\n", "management.oidc.allow"},

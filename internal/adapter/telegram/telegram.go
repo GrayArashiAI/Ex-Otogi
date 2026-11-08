@@ -45,6 +45,10 @@ type Config struct {
 	SessionPath string
 	// DatabasePath is the account's SQLite database.
 	DatabasePath string
+	// UploadThreads is how many parts of a file are uploaded at once: each
+	// part waits for Telegram's answer, so one at a time is slow far from
+	// the account's data center.
+	UploadThreads int
 	// Kernel receives events.
 	Kernel Submitter
 	// Logger receives driver logs; nil means slog.Default().
@@ -189,7 +193,7 @@ func (d *Driver) connected(ctx context.Context, c client, store *telegramstore.S
 	}
 	m := mapper.New(mapper.Config{Platform: Platform, Account: otogi.AccountID(d.cfg.AccountKey)})
 	d.mu.Lock()
-	d.effects = &effects{api: c.API(), store: store, peers: peerResolver(handler.peers), channel: channelResolver(handler.peers), ref: m.MessageRef, log: d.log, now: time.Now}
+	d.effects = &effects{api: c.API(), uploadThreads: d.cfg.UploadThreads, store: store, peers: peerResolver(handler.peers), channel: channelResolver(handler.peers), ref: m.MessageRef, log: d.log, now: time.Now}
 	d.mu.Unlock()
 
 	g, ctx := errgroup.WithContext(ctx)

@@ -283,6 +283,30 @@ func TestSendVideoAndAnimation(t *testing.T) {
 	}
 }
 
+// A file of many parts uploads them at once, every part once.
+func TestUploadsPartsInParallel(t *testing.T) {
+	x, log, _ := newEffects(t, sentOK)
+	x.uploadThreads = 8
+	data := bytes.Repeat([]byte("v"), 3<<20) // several of gotd's parts
+	msg := otogi.Message{Roots: []otogi.PartID{"v"}, Parts: []otogi.Part{{ID: "v", Kind: otogi.PartMedia, Media: &otogi.Media{Role: otogi.MediaVideo, MediaType: "video/mp4",
+		Source: otogi.MediaSource{Kind: otogi.MediaSourceInline, Inline: data}}}}}
+	if _, err := x.Apply(context.Background(), send("big", msg)); err != nil {
+		t.Fatal(err)
+	}
+	parts, size := map[int]bool{}, 0
+	for _, r := range log.requests {
+		if p, ok := r.(*tg.UploadSaveFilePartRequest); ok {
+			if parts[p.FilePart] {
+				t.Fatalf("part %d uploaded twice", p.FilePart)
+			}
+			parts[p.FilePart], size = true, size+len(p.Bytes)
+		}
+	}
+	if len(parts) < 2 || size != len(data) {
+		t.Fatalf("%d parts, %d bytes of %d", len(parts), size, len(data))
+	}
+}
+
 func TestFetchMediaDownloadsByLocator(t *testing.T) {
 	x, log, _ := newEffects(t, func(r bin.Encoder, _ int) (bin.Encoder, error) {
 		if _, ok := r.(*tg.UploadGetFileRequest); ok {
