@@ -234,8 +234,8 @@ func TestRefusedCardGoesOutCovered(t *testing.T) {
 	if !slices.Equal(inv.keys, []string{"card:9111596", "card:9111596:covered"}) || len(inv.sent) != 1 {
 		t.Fatalf("sends %v, %d delivered", inv.keys, len(inv.sent))
 	}
-	if drawn[0].Cover != "" || drawn[1].Cover == "" || drawn[1].Picture == "" {
-		t.Fatalf("covers %q then %q", drawn[0].Cover, drawn[1].Cover)
+	if drawn[0].Covered || !drawn[1].Covered || drawn[1].Picture == "" {
+		t.Fatalf("covered %v then %v", drawn[0].Covered, drawn[1].Covered)
 	}
 	if r := h.records[len(h.records)-1]; r.Outcome != "degraded" || r.Payload.(map[string]any)["refused"] == nil {
 		t.Fatalf("record %+v", r)
@@ -276,5 +276,22 @@ func TestRenderWithChrome(t *testing.T) {
 	}
 	if out := os.Getenv("OTOGI_CARD_OUT"); out != "" {
 		_ = os.WriteFile(out, png, 0o600)
+	}
+}
+
+// An R-18 item's picture is blurred, and a refused one is under the cover
+// sticker: both as the card package draws them.
+func TestCardShowsPicturesLessThanPlainly(t *testing.T) {
+	t.Parallel()
+	c := newCard(item{ID: 1, Name: "x", Adult: true}, image{data: []byte("jpeg"), mime: "image/jpeg"}, image{})
+	c.Covered = true
+	var html bytes.Buffer
+	if err := cardTemplate.Execute(&html, c); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{".blurred img:not(.cover)", `class="picture blurred"`, `<img class="cover sticker" src="data:image/webp;base64,`} {
+		if !strings.Contains(html.String(), want) {
+			t.Errorf("card lacks %q", want)
+		}
 	}
 }

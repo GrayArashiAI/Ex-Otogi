@@ -109,7 +109,7 @@ func (m *Module) answer(ctx context.Context, e otogi.Event, inv otogi.Invocation
 		// The platform refused what the picture shows: it goes out covered.
 		m.host.Logger().Warn("booth: card refused; sending it with its picture covered", "item", id, "error", err)
 		payload["refused"] = err.Error()
-		c.Cover = cardimage.Cover()
+		c.Covered = true
 		_, err = inv.Send(ctx, "card:"+id+":covered", m.message(ctx, e, it, c, picture, payload))
 	}
 	if err != nil {

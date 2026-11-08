@@ -19,7 +19,7 @@ import (
 //go:embed card.html
 var cardHTML string
 
-var cardTemplate = template.Must(template.New("card").Funcs(template.FuncMap{"badge": badge}).Parse(cardHTML))
+var cardTemplate = template.Must(template.New("card").Funcs(cardimage.Funcs()).Funcs(template.FuncMap{"badge": badge}).Parse(cardHTML))
 
 // The card is laid out at the width chat apps show an image and drawn at
 // 3x, like X's own post page on a phone.
@@ -60,8 +60,8 @@ type span struct {
 type grid struct {
 	Items     []cell
 	Sensitive bool
-	Ratio     string       // of a lone item: "w / h"
-	Cover     template.URL // over each item, see-through, when the platform refused the pictures
+	Ratio     string // of a lone item: "w / h"
+	Covered   bool   // each item under the cover sticker: the platform refused the pictures
 }
 
 type cell struct {
@@ -101,7 +101,7 @@ func (c *card) cover() bool {
 	covered := false
 	for _, g := range []*grid{&c.Media, quoteMedia(c.Quote)} {
 		if g != nil && len(g.Items) > 0 {
-			g.Cover, covered = cardimage.Cover(), true
+			g.Covered, covered = true, true
 		}
 	}
 	return covered

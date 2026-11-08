@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <style>
+{{pictureStyles}}
   * { box-sizing: border-box; margin: 0; }
   html, body { background: #fff; color: #1f1f1f; }
   body { font-family: "Inter", "Noto Sans", "Noto Sans CJK JP", "Noto Sans CJK SC", "Hiragino Sans", "Noto Color Emoji", sans-serif; -webkit-font-smoothing: antialiased; }
@@ -13,11 +14,6 @@
   .picture { position: relative; overflow: hidden; background: #f2f2f2; }
   .picture img { display: block; width: 100%; height: auto; max-height: 600px; object-fit: cover; }
   .picture.none { aspect-ratio: 16 / 9; }
-  /* An R-18 picture is blurred enough to hide its details, not what it
-     is; scaled up so the blur does not fade at the edges. */
-  .adult img:not(.cover) { filter: blur(9px); transform: scale(1.06); }
-  /* A picture the platform refused shows through the sticker over it. */
-  img.cover { position: absolute; inset: 0; margin: auto; width: 60%; height: 60%; max-height: none; object-fit: contain; opacity: .8; }
   .badges { position: absolute; left: 10px; top: 10px; display: flex; gap: 6px; }
   .badge { padding: 2px 8px; border-radius: 6px; background: rgba(0, 0, 0, .7); color: #fff; font-size: 13px; font-weight: 700; line-height: 1.4; }
   .badge.r18 { background: #e0383e; }
@@ -47,9 +43,9 @@
 </head>
 <body>
 <div class="card">
-  <div class="picture{{if not .Picture}} none{{end}}{{if .Adult}} adult{{end}}{{if .Cover}} covered{{end}}">
+  <div class="picture{{if not .Picture}} none{{end}}{{if .Adult}} blurred{{end}}">
     {{if .Picture}}<img src="{{.Picture}}" alt="">{{end}}
-    {{if .Cover}}<img class="cover" src="{{.Cover}}" alt="">{{end}}
+    {{if .Covered}}{{cover}}{{end}}
     <div class="badges">
       {{if .Adult}}<span class="badge r18">R-18</span>{{end}}
       {{if .EndOfSale}}<span class="badge">停止销售</span>{{else if .SoldOut}}<span class="badge">已售罄</span>{{end}}

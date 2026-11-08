@@ -16,13 +16,13 @@ import (
 //go:embed card.html
 var cardHTML string
 
-var cardTemplate = template.Must(template.New("card").Parse(cardHTML))
+var cardTemplate = template.Must(template.New("card").Funcs(cardimage.Funcs()).Parse(cardHTML))
 
 // card is what the template shows of an item.
 type card struct {
 	Title, Shop, Category, Price, Published, Wishes, Desc, ID string
 	Picture, Icon                                             template.URL // data: URIs
-	Cover                                                     template.URL // over the picture, see-through, when the platform refused it
+	Covered                                                   bool         // the picture under the cover sticker: the platform refused it
 	Adult, SoldOut, EndOfSale                                 bool
 	Options                                                   []option
 	More                                                      int // options left out

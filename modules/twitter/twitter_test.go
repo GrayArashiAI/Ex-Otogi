@@ -411,8 +411,8 @@ func TestRefusedCardGoesOutCovered(t *testing.T) {
 	if !slices.Equal(inv.keys, []string{"card:2118034216503955710", "card:2118034216503955710:covered"}) || len(inv.sent) != 1 {
 		t.Fatalf("sends %v, %d delivered", inv.keys, len(inv.sent))
 	}
-	if drawn[0].Media.Cover != "" || drawn[1].Media.Cover == "" {
-		t.Fatalf("covers %q then %q", drawn[0].Media.Cover, drawn[1].Media.Cover)
+	if drawn[0].Media.Covered || !drawn[1].Media.Covered {
+		t.Fatalf("covered %v then %v", drawn[0].Media.Covered, drawn[1].Media.Covered)
 	}
 	if r := h.records[len(h.records)-1]; r.Outcome != "degraded" || !strings.Contains(r.Payload.(map[string]any)["refused"].(string), "40034006") {
 		t.Fatalf("record %+v", r)
@@ -423,5 +423,22 @@ func TestRefusedCardGoesOutCovered(t *testing.T) {
 	e.Message = otogi.TextMessage("x.com/SpaceX/status/2112637394654822514")
 	if err := m.Handle(context.Background(), e, inv); !errors.Is(err, otogi.ErrRefused) || len(inv.keys) != 1 {
 		t.Fatalf("a card with nothing to cover: %v, sends %v", err, inv.keys)
+	}
+}
+
+// Sensitive media is blurred and marked; refused media is under the cover
+// sticker: both as the card package draws them.
+func TestCardMarksPicturesShownLessThanPlainly(t *testing.T) {
+	t.Parallel()
+	c := newCard(tweet{Author: author{Name: "a", Handle: "a"}, Media: []media{{Kind: "photo", Image: "p"}}, Sensitive: true}, pictures{"p": "data:image/png;base64,AA=="}, time.UTC)
+	c.cover()
+	var html bytes.Buffer
+	if err := cardTemplate.Execute(&html, c); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{".blurred img:not(.cover)", `class="media n1 blurred covered"`, `<img class="cover sticker" src="data:image/webp;base64,`, "敏感内容"} {
+		if !strings.Contains(html.String(), want) {
+			t.Errorf("card lacks %q", want)
+		}
 	}
 }
