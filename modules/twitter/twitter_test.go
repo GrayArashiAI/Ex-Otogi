@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/TundraWork/Ex-Otogi/internal/settingstest"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -515,10 +516,57 @@ func TestVideosGoWithTheCard(t *testing.T) {
 			t.Errorf("%s: sends %v, record %+v", reason, inv.keys, r)
 		}
 	}
+
+	// Content safety may send a censored post's videos; the size limit is a
+	// setting; and videos may be turned off.
+	h.censor = &cardimage.Pictures{CensoredVideos: true}
+	_ = m.Start(context.Background(), h)
+	inv = &invocation{}
+	m.sendVideos(context.Background(), e, inv, tweet{ID: "1", Sensitive: true, Media: []media{{Kind: "video", Video: "https://video.twimg.com/a.mp4"}}}, false)
+	if len(inv.keys) != 1 {
+		t.Errorf("a sensitive post's video with censored_videos on: sends %v", inv.keys)
+	}
+	small, err := New(Config{Chrome: chrome(t), MaxVideoMB: 1}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	small.api = m.api
+	_ = small.Start(context.Background(), h)
+	inv = &invocation{}
+	small.sendVideos(context.Background(), e, inv, tweet{ID: "2", Media: []media{{Kind: "video", Video: "https://video.twimg.com/huge.mp4"}}}, false)
+	if r := h.records[len(h.records)-1]; len(inv.keys) != 0 || r.Payload.(map[string]any)["reason"] != "larger than 1 MB" {
+		t.Errorf("max_video_mb 1: sends %v, record %+v", inv.keys, r)
+	}
+	off, err := New(Config{Chrome: chrome(t), Videos: ptr(false)}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	off.api, off.render = m.api, m.render
+	_ = off.Start(context.Background(), h)
+	inv = &invocation{}
+	if err := off.Handle(context.Background(), e, inv); err != nil || !slices.Equal(inv.keys, []string{"card:2118034216503955710"}) {
+		t.Errorf("videos off: %v, sends %v", err, inv.keys)
+	}
+}
+
+func ptr[T any](v T) *T { return &v }
+
+// The defaults the settings form shows are the ones an unset field gets.
+func TestSchemaDefaultsAreTheDefaults(t *testing.T) {
+	t.Parallel()
+	cfg := Config{Chrome: chrome(t)}
+	unset, err := New(cfg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	typed, err := New(settingstest.WithDefaults(t, cfg), nil)
+	if err != nil || typed.videos != unset.videos || typed.maxVideo != unset.maxVideo {
+		t.Fatalf("schema defaults give %v %v (%v), unset fields %v %v", typed.videos, typed.maxVideo, err, unset.videos, unset.maxVideo)
+	}
 }
 
 // From the embed endpoint's encodings, a video goes out at the highest
-// bitrate that fits 50 MB.
+// bitrate that fits the size limit.
 func TestBestVariant(t *testing.T) {
 	t.Parallel()
 	variants := []variant{
@@ -528,7 +576,7 @@ func TestBestVariant(t *testing.T) {
 		{Bitrate: 10368000, ContentType: "video/mp4", URL: "high.mp4"},
 	}
 	for seconds, want := range map[float64]string{30: "high.mp4", 120: "mid.mp4", 3600: "low.mp4"} {
-		if got := bestVariant(variants, seconds); got != want {
+		if got := bestVariant(variants, seconds, 50<<20); got != want {
 			t.Errorf("%vs: %s, want %s", seconds, got, want)
 		}
 	}

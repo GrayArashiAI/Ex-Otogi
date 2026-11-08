@@ -35,6 +35,10 @@ type Pictures struct {
 	// StickerSize is how much of a picture the sticker spans, in percent of
 	// its width and height.
 	StickerSize int
+	// CensoredVideos sends the videos of a post whose pictures a card
+	// censors (its source marks it sensitive, or the platform refused the
+	// card); unset keeps them back, as a raw video would undo the censoring.
+	CensoredVideos bool
 }
 
 // ServicePictures names the service through which the censor module offers

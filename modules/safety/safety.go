@@ -25,6 +25,7 @@ type Config struct {
 	Sticker        string   `json:"sticker,omitempty" doc:"An image file on the server (PNG, WebP, GIF, or JPEG) to use as the sticker; empty uses the built-in one."`
 	StickerOpacity *float64 `json:"sticker_opacity,omitempty" minimum:"0.1" maximum:"1" default:"0.65" doc:"How opaque the sticker is, from 0.1 to 1: lower lets more of the picture show through."`
 	StickerSize    int      `json:"sticker_size,omitempty" minimum:"10" maximum:"100" default:"66" doc:"How much of a picture the sticker spans, in percent of its width and height."`
+	CensoredVideos bool     `json:"censored_videos,omitempty" default:"false" doc:"Send the videos of a post whose pictures a card censors: one its source marks sensitive, or whose card the platform refused. Off keeps them back, as a raw video would undo the censoring."`
 }
 
 // Module is the content safety module.
@@ -46,6 +47,7 @@ func New(cfg Config) (*Module, error) {
 	if cfg.CoverRefused != nil {
 		p.CoverRefused = *cfg.CoverRefused
 	}
+	p.CensoredVideos = cfg.CensoredVideos
 	if cfg.StickerOpacity != nil {
 		if *cfg.StickerOpacity < 0.1 || *cfg.StickerOpacity > 1 {
 			errs = append(errs, fmt.Errorf("sticker_opacity %v: want 0.1 to 1", *cfg.StickerOpacity))

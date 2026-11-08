@@ -21,13 +21,17 @@ import (
 
 // Config is the module's settings.
 type Config struct {
-	Chrome    string     `json:"chrome" minLength:"1" doc:"The path of the chrome-headless-shell binary that draws the cards."`
-	Timezone  string     `json:"timezone,omitempty" doc:"Where the cards' times are read, an IANA time zone such as Asia/Shanghai; default the server's."`
-	Translate *Translate `json:"translate,omitempty" doc:"When set, the card of a post not in Chinese also shows the post translated by a language model, under the original."`
+	Chrome     string     `json:"chrome" minLength:"1" doc:"The path of the chrome-headless-shell binary that draws the cards."`
+	Timezone   string     `json:"timezone,omitempty" doc:"Where the cards' times are read, an IANA time zone such as Asia/Shanghai; default the server's."`
+	Translate  *Translate `json:"translate,omitempty" doc:"When set, the card of a post not in Chinese also shows the post translated by a language model, under the original."`
+	Videos     *bool      `json:"videos,omitempty" default:"true" doc:"Send a post's videos and GIFs after its card, as videos. Whether a post whose pictures the card censors sends them is Content safety's."`
+	MaxVideoMB int        `json:"max_video_mb,omitempty" minimum:"1" default:"50" doc:"The largest video sent, in megabytes; a larger one is skipped. A video is held in memory while it is sent. From the embed endpoint, the encoding of highest bitrate that fits is sent."`
 }
 
 // Module is the twitter module.
 type Module struct {
+	videos     bool               // send a post's videos after its card
+	maxVideo   int64              // bytes
 	censor     cardimage.Pictures // how cards censor pictures; set in Start
 	template   *template.Template // the card's, drawing pictures as censor says
 	zone       *time.Location
@@ -68,7 +72,12 @@ func New(cfg Config, providers func(string) (llm.Provider, error)) (*Module, err
 		return nil, fmt.Errorf("twitter: %w", err)
 	}
 	renderer := cardimage.Renderer{Chrome: cfg.Chrome}
+	maxVideoMB := cfg.MaxVideoMB
+	if maxVideoMB == 0 {
+		maxVideoMB = 50
+	}
 	m := &Module{
+		videos: cfg.Videos == nil || *cfg.Videos, maxVideo: int64(maxVideoMB) << 20,
 		zone: zone, translator: tr,
 		api: &client{fx: "https://api.fxtwitter.com", syndication: "https://cdn.syndication.twimg.com", http: &http.Client{Timeout: 20 * time.Second}},
 		now: time.Now,
@@ -162,38 +171,44 @@ func (m *Module) answer(ctx context.Context, e otogi.Event, inv otogi.Invocation
 		outcome = "degraded"
 	}
 	m.host.Record(ctx, otogi.Record{Kind: "twitter.card", Outcome: outcome, Duration: m.now().Sub(started), Payload: payload})
-	m.sendVideos(ctx, e, inv, t, payload["refused"] != nil)
+	if m.videos {
+		m.sendVideos(ctx, e, inv, t, payload["refused"] != nil)
+	}
 	return nil
 }
 
 // sendVideos sends the post's videos and GIFs after its card, each as a
-// reply to the message that linked the post. A post X marks sensitive, or
-// whose card the platform refused, keeps them: the card censors its
-// pictures, and the videos would not be. A video that cannot be sent is
-// recorded and does not fail the card.
+// reply to the message that linked the post. Unless Content safety says to
+// send them, a post X marks sensitive, or whose card the platform refused,
+// keeps them: the card censors its pictures, and the videos would not be.
+// A video that cannot be sent is recorded and does not fail the card.
 func (m *Module) sendVideos(ctx context.Context, e otogi.Event, inv otogi.Invocation, t tweet, refused bool) {
-	for i, md := range t.Media[:min(len(t.Media), 4)] {
-		if md.Video == "" {
+	for i, md := range t.Media {
+		src := md.Video
+		if len(md.Variants) > 0 {
+			src = bestVariant(md.Variants, md.Seconds, m.maxVideo)
+		}
+		if src == "" {
 			continue
 		}
 		started := m.now()
-		payload := map[string]any{"post": t.ID, "video": md.Video, "kind": md.Kind}
+		payload := map[string]any{"post": t.ID, "video": src, "kind": md.Kind}
 		skip := func(reason string) {
 			payload["reason"] = reason
 			m.host.Record(ctx, otogi.Record{Kind: "twitter.video", Outcome: "skipped", Payload: payload})
 		}
 		switch {
-		case t.Sensitive:
+		case t.Sensitive && !m.censor.CensoredVideos:
 			skip("X marks the post sensitive")
 			continue
-		case refused:
+		case refused && !m.censor.CensoredVideos:
 			skip("the platform refused the card")
 			continue
 		}
-		data, err := m.api.video(ctx, md.Video)
+		data, err := m.api.video(ctx, src, m.maxVideo)
 		switch {
 		case errors.Is(err, errTooLarge):
-			skip("larger than 50 MB")
+			skip(fmt.Sprintf("larger than %d MB", m.maxVideo>>20))
 			continue
 		case err != nil:
 			m.host.Logger().Warn("twitter: video not downloaded", "post", t.ID, "error", err)

@@ -39,9 +39,10 @@ type author struct {
 }
 
 type media struct {
-	Kind          string // photo, video, or gif
-	Image         string // the photo, or the video's poster frame
-	Video         string // a video's or GIF's MP4, to send with the card
+	Kind          string    // photo, video, or gif
+	Image         string    // the photo, or the video's poster frame
+	Video         string    // a video's or GIF's MP4, to send with the card
+	Variants      []variant // the encodings to choose Video from, when the source offers several
 	Width, Height int
 	Seconds       float64 // a video's length
 }
@@ -331,7 +332,7 @@ func (s *synStatus) tweet() tweet {
 		}
 		if m.VideoInfo != nil {
 			item.Seconds = m.VideoInfo.DurationMillis / 1000
-			item.Video = bestVariant(m.VideoInfo.Variants, item.Seconds)
+			item.Variants = m.VideoInfo.Variants
 		}
 		t.Media = append(t.Media, item)
 	}
@@ -352,9 +353,9 @@ type variant struct {
 	URL         string `json:"url"`
 }
 
-// bestVariant is the MP4 of highest bitrate that fits maxVideoBytes for a
+// bestVariant is the MP4 of highest bitrate that fits limit bytes for a
 // video seconds long, or else the smallest one.
-func bestVariant(variants []variant, seconds float64) string {
+func bestVariant(variants []variant, seconds float64, limit int64) string {
 	best, smallest := variant{Bitrate: -1}, variant{}
 	for _, v := range variants {
 		if v.ContentType != "video/mp4" {
@@ -363,7 +364,7 @@ func bestVariant(variants []variant, seconds float64) string {
 		if smallest.URL == "" || v.Bitrate < smallest.Bitrate {
 			smallest = v
 		}
-		if float64(v.Bitrate)*seconds/8 <= maxVideoBytes && v.Bitrate > best.Bitrate {
+		if float64(v.Bitrate)*seconds/8 <= float64(limit) && v.Bitrate > best.Bitrate {
 			best = v
 		}
 	}
@@ -373,24 +374,20 @@ func bestVariant(variants []variant, seconds float64) string {
 	return smallest.URL
 }
 
-// maxVideoBytes bounds a video the module downloads to send with a card.
-const maxVideoBytes = 50 << 20
+// errTooLarge is a video larger than the module sends.
+var errTooLarge = errors.New("twitter: video too large")
 
-// errTooLarge is a video larger than maxVideoBytes.
-var errTooLarge = errors.New("twitter: video larger than 50 MB")
-
-// video downloads a post's video or GIF, up to maxVideoBytes. A video takes
-// longer than a picture, so it has its own time limit.
-func (c *client) video(ctx context.Context, src string) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
-	defer cancel()
+// video downloads a post's video or GIF, up to limit bytes. It takes
+// longer than a picture, so the module's own timeout bounds it rather than
+// the client's.
+func (c *client) video(ctx context.Context, src string, limit int64) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, src, nil)
 	if err != nil {
 		return nil, fmt.Errorf("twitter: video: %w", err)
 	}
 	req.Header.Set("User-Agent", userAgent)
 	hc := *c.http
-	hc.Timeout = 0 // ctx bounds it instead
+	hc.Timeout = 0 // the module's timeout, through ctx, bounds it instead
 	resp, err := hc.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("twitter: video: %w", err)
@@ -399,14 +396,14 @@ func (c *client) video(ctx context.Context, src string) ([]byte, error) {
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("twitter: video %s: HTTP %d", src, resp.StatusCode)
 	}
-	if resp.ContentLength > maxVideoBytes {
+	if resp.ContentLength > limit {
 		return nil, errTooLarge
 	}
-	data, err := io.ReadAll(io.LimitReader(resp.Body, maxVideoBytes+1))
+	data, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
 	switch {
 	case err != nil:
 		return nil, fmt.Errorf("twitter: video %s: %w", src, err)
-	case len(data) > maxVideoBytes:
+	case int64(len(data)) > limit:
 		return nil, errTooLarge
 	}
 	return data, nil
