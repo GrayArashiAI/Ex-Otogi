@@ -15,6 +15,26 @@ func testConfig(t *testing.T) Config {
 	return Config{Platform: "telegram", Account: "deployment:42", IngestedAt: func() time.Time { return time.Unix(200, 0).UTC() }}
 }
 
+// Telegram's mention flag (an @ to the account, or a reply to one of its
+// messages) marks the event mentioned, as QQ marks a reply to the bot.
+func TestMapMentions(t *testing.T) {
+	reply := &tg.Message{ID: 12, PeerID: &tg.PeerChannel{ChannelID: 7}, Date: 100, Message: "what does it say?", Mentioned: true}
+	reply.SetFromID(&tg.PeerUser{UserID: 9})
+	reply.SetReplyTo(&tg.MessageReplyHeader{ReplyToMsgID: 11})
+	result, err := New(testConfig(t)).Map(&tg.UpdateNewChannelMessage{Message: reply, Pts: 5, PtsCount: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Events[0].Mentioned {
+		t.Fatalf("a reply Telegram counts as a mention: %+v", result.Events[0])
+	}
+	plain := &tg.Message{ID: 13, PeerID: &tg.PeerChannel{ChannelID: 7}, Date: 100, Message: "hi"}
+	plain.SetFromID(&tg.PeerUser{UserID: 9})
+	if result, err = New(testConfig(t)).Map(&tg.UpdateNewChannelMessage{Message: plain, Pts: 6, PtsCount: 1}); err != nil || result.Events[0].Mentioned {
+		t.Fatalf("a plain message: %+v, %v", result.Events, err)
+	}
+}
+
 func TestMapNewAndEditMessages(t *testing.T) {
 	m := &tg.Message{ID: 11, PeerID: &tg.PeerUser{UserID: 9}, Date: 100, Message: "hello"}
 	m.SetFromID(&tg.PeerUser{UserID: 9})

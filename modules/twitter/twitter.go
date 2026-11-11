@@ -155,7 +155,9 @@ func (m *Module) answer(ctx context.Context, e otogi.Event, inv otogi.Invocation
 	}
 	c := newCard(t, pics, m.zone, m.text)
 	if m.translator != nil && t.Text != "" {
-		m.translate(ctx, t, &c)
+		if err := m.translate(ctx, t, &c); err != nil {
+			payload["translation_error"] = err.Error()
+		}
 	}
 	drawing := m.now()
 	msg := m.message(ctx, e, t, c, payload)
@@ -171,7 +173,7 @@ func (m *Module) answer(ctx context.Context, e otogi.Event, inv otogi.Invocation
 		return err
 	}
 	outcome := "ok"
-	if payload["render_error"] != nil || payload["refused"] != nil {
+	if payload["render_error"] != nil || payload["refused"] != nil || payload["translation_error"] != nil {
 		outcome = "degraded"
 	}
 	m.host.Record(ctx, otogi.Record{Kind: "twitter.card", Outcome: outcome, Duration: m.now().Sub(started), Payload: payload})
@@ -259,9 +261,9 @@ func (m *Module) message(ctx context.Context, e otogi.Event, t tweet, c card, pa
 }
 
 // translate adds the post in Chinese to its card, under the original,
-// unless it is in Chinese already. A failed translation is recorded, and
-// the card goes out without it.
-func (m *Module) translate(ctx context.Context, t tweet, c *card) {
+// unless it is in Chinese already. A failed translation is recorded and
+// returned, and the card goes out without it.
+func (m *Module) translate(ctx context.Context, t tweet, c *card) error {
 	started := m.now()
 	tr, needed, err := m.translator.translate(ctx, t)
 	payload := map[string]any{"post": t.ID, "model": m.translator.cfg.Model, "took": m.now().Sub(started).String()}
@@ -270,10 +272,10 @@ func (m *Module) translate(ctx context.Context, t tweet, c *card) {
 		m.host.Logger().Warn("twitter: translation failed", "post", t.ID, "error", err)
 		payload["error"] = err.Error()
 		m.host.Record(ctx, otogi.Record{Kind: "twitter.translation", Outcome: "error", Payload: payload})
-		return
+		return err
 	case !needed:
 		m.host.Logger().Debug("twitter: post is in Chinese; no translation", "post", t.ID)
-		return
+		return nil
 	}
 	payload["language"] = tr.Language
 	text, more := excerpt(tr.Post, m.text.post)
@@ -283,6 +285,7 @@ func (m *Module) translate(ctx context.Context, t tweet, c *card) {
 		c.Quote.Translation = spans(quote)
 	}
 	m.host.Record(ctx, otogi.Record{Kind: "twitter.translation", Outcome: "ok", Duration: m.now().Sub(started), Payload: payload})
+	return nil
 }
 
 // providerName is a provider as a card names it: gemini is Gemini.

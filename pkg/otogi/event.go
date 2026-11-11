@@ -157,10 +157,11 @@ type Event struct {
 	// parser middleware or by a driver with native commands.
 	Command *Command `json:"command,omitempty"`
 	// Mentioned reports that the message mentions the receiving account, as
-	// with an @ to a bot. It means the same in every conversation, private
-	// or group. A mention in the text has a mention annotation whose Target
-	// is the account's own actor ID; a platform may also strip it and only
-	// set Mentioned.
+	// with an @ to a bot, or replies to one of its messages where the
+	// platform counts that as a mention (Telegram and QQ both do). It means
+	// the same in every conversation, private or group. A mention in the
+	// text has a mention annotation whose Target is the account's own actor
+	// ID; a platform may also strip it and only set Mentioned.
 	Mentioned bool `json:"mentioned,omitempty"`
 	// Extensions carry platform data that has no portable meaning yet.
 	Extensions []Extension `json:"extensions,omitempty"`

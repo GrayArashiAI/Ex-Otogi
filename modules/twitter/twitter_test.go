@@ -349,6 +349,16 @@ func TestTranslatedCards(t *testing.T) {
 			if got != c.record {
 				t.Fatalf("translation record %q, want %q", got, c.record)
 			}
+			// A failed translation leaves the card degraded, saying why.
+			for _, r := range h.records {
+				if r.Kind != "twitter.card" {
+					continue
+				}
+				failed := c.record == "error"
+				if (r.Outcome == "degraded") != failed || (r.Payload.(map[string]any)["translation_error"] != nil) != failed {
+					t.Fatalf("card record %+v with translation %q", r, c.record)
+				}
+			}
 		})
 	}
 }

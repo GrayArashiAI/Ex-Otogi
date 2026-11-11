@@ -102,10 +102,14 @@ func (m *Mapper) mapMessage(message tg.MessageClass, action otogi.EventAction, n
 	messageAction := action
 	var rich otogi.Message
 	var editedAt time.Time
+	var mentioned bool
 
 	switch value := message.(type) {
 	case *tg.Message:
 		peer, id, date = value.PeerID, value.ID, value.Date
+		// Telegram's own flag: an @ to the account, or a reply to one of its
+		// messages, which Telegram counts as a mention too.
+		mentioned = value.Mentioned
 		var err error
 		direction, actor, err = messageFlow(value)
 		if err != nil {
@@ -168,7 +172,7 @@ func (m *Mapper) mapMessage(message tg.MessageClass, action otogi.EventAction, n
 		Conversation: otogi.Conversation{ID: otogi.ConversationID(conversation), Kind: conversationKind(conversation)},
 		SourceID:     sourceID(namespace, conversation, id),
 		Actor:        otogi.Actor{ID: otogi.ActorID(actor)},
-		Action:       messageAction, Direction: direction,
+		Action:       messageAction, Direction: direction, Mentioned: mentioned,
 		OccurredAt: occurred, ReceivedAt: received, EditedAt: editedAt,
 		Completeness: completeness, Locator: messageLocator(locatorData), Message: rich,
 	}
