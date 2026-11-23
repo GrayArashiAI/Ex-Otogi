@@ -74,6 +74,11 @@ func TestLoadConfigRejections(t *testing.T) {
 		"bad operator":       {"operators: [\"123\"]\n", "<platform>:<actor id>"},
 		"gemini without key": {"llm:\n  gemini: {base_url: https://g.example}\n", "llm.gemini.api_key"},
 		"gemini bad url":     {"llm:\n  gemini: {api_key: k, base_url: g.example/v1}\n", "llm.gemini.base_url"},
+		"openai bad name":    {"llm:\n  openai: {DeepSeek: {api_key: k, base_url: https://d.example}}\n", "llm.openai.DeepSeek"},
+		"openai gemini name": {"llm:\n  openai: {gemini: {api_key: k, base_url: https://d.example}}\n", "the Gemini provider's"},
+		"openai without url": {"llm:\n  openai: {deepseek: {api_key: k}}\n", "llm.openai.deepseek.base_url"},
+		"openai bad url":     {"llm:\n  openai: {deepseek: {api_key: k, base_url: d.example}}\n", "llm.openai.deepseek.base_url"},
+		"openai without key": {"llm:\n  openai: {deepseek: {base_url: https://d.example}}\n", "llm.openai.deepseek.api_key"},
 	}
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -87,7 +92,7 @@ func TestLoadConfigRejections(t *testing.T) {
 
 func TestLLMProviders(t *testing.T) {
 	t.Setenv("TEST_GEMINI_KEY", "k")
-	cfg, err := loadConfig(writeConfig(t, "llm:\n  gemini:\n    api_key: ${TEST_GEMINI_KEY}\n    base_url: https://gateway.example/gemini\n"))
+	cfg, err := loadConfig(writeConfig(t, "llm:\n  gemini:\n    api_key: ${TEST_GEMINI_KEY}\n    base_url: https://gateway.example/gemini\n  openai:\n    deepseek: {api_key: k, base_url: https://api.deepseek.com}\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,8 +101,10 @@ func TestLLMProviders(t *testing.T) {
 		t.Fatal(err)
 	}
 	lookup := providerLookup(providers)
-	if p, err := lookup("gemini"); p == nil || err != nil {
-		t.Fatalf("gemini: %v, %v", p, err)
+	for _, name := range []string{"gemini", "deepseek"} {
+		if p, err := lookup(name); p == nil || err != nil {
+			t.Fatalf("%s: %v, %v", name, p, err)
+		}
 	}
 	if _, err := lookup("openai"); !errors.Is(err, otogi.ErrInvalid) {
 		t.Fatalf("openai: %v, want ErrInvalid", err)

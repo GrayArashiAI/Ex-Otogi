@@ -55,6 +55,10 @@ telegram:
 #   gemini:
 #     api_key: ${OTOGI_GEMINI_API_KEY}
 #     # base_url: https://generativelanguage.googleapis.com/v1beta   # the default; or a proxy/gateway speaking the Gemini API
+#   openai:               # services that speak the OpenAI Chat Completions API, by the provider name agents use
+#     deepseek:
+#       base_url: https://api.deepseek.com
+#       api_key: ${OTOGI_DEEPSEEK_API_KEY}
 
 # Modules are not set up here. Which modules run, their settings, and where
 # they answer are runtime data, changed through the management API and kept
