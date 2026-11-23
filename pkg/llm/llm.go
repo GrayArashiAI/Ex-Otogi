@@ -75,7 +75,9 @@ type Turn struct {
 	// Role says who the turn is from.
 	Role Role `json:"role"`
 	// Content is the turn as rich text and media, in order. Text parts with
-	// their annotations, media parts, and file parts are sent; media and
+	// their annotations, media parts, and file parts are sent; a media or
+	// file type the provider's model cannot take becomes a short text mark,
+	// listed in the call's record, and does not fail the call. Media and
 	// files must be inline (see Inline). Other part kinds are an
 	// otogi.ErrUnsupported error: the caller decides how to describe a
 	// location, a poll, and so on. Who said what in a group is content too:

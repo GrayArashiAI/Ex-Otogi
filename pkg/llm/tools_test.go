@@ -65,7 +65,7 @@ func TestRunRunsCallsUntilTheModelAnswers(t *testing.T) {
 	}}
 	var partials []string
 	var calls []CallRecord
-	out, err := Run(context.Background(), p, Request{Model: "m", Tools: []ToolSpec{{Builtin: BuiltinGoogleSearch}}}, map[string]Tool{"add": add}, otogi.Event{}, Limits{Rounds: 4, Reserve: 2},
+	out, err := Run(context.Background(), p, Request{Model: "m", Tools: []ToolSpec{{Builtin: BuiltinWebSearch}}}, map[string]Tool{"add": add}, otogi.Event{}, Limits{Rounds: 4, Reserve: 2},
 		func(m otogi.Message) error { partials = append(partials, m.PlainText()); return nil },
 		func(c CallRecord) { calls = append(calls, c) })
 	if err != nil {
@@ -81,7 +81,7 @@ func TestRunRunsCallsUntilTheModelAnswers(t *testing.T) {
 		t.Fatalf("turns %+v usage %+v", out.Turns, out.Usage)
 	}
 	second := p.requests[1]
-	if len(second.Turns) != 2 || len(second.Tools) != 2 || second.Tools[0].Builtin != BuiltinGoogleSearch || second.Tools[1].Function.Name != "add" {
+	if len(second.Turns) != 2 || len(second.Tools) != 2 || second.Tools[0].Builtin != BuiltinWebSearch || second.Tools[1].Function.Name != "add" {
 		t.Fatalf("second request %+v", second)
 	}
 	if len(calls) != 1 || calls[0].Result.Error != "" {

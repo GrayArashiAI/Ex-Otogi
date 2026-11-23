@@ -228,8 +228,9 @@ func convert(from, to any) error {
 	return nil
 }
 
-// builtins are the built-in tools Gemini runs itself.
-var builtins = map[string]bool{llm.BuiltinGoogleSearch: true, llm.BuiltinURLContext: true, llm.BuiltinCodeExecution: true}
+// builtins are the built-in tools Gemini runs itself, by their wire type:
+// web search is Google Search.
+var builtins = map[string]string{llm.BuiltinWebSearch: "google_search", llm.BuiltinURLContext: "url_context", llm.BuiltinCodeExecution: "code_execution"}
 
 // toolList declares the request's tools on the wire.
 func toolList(specs []llm.ToolSpec) ([]map[string]any, error) {
@@ -242,8 +243,8 @@ func toolList(specs []llm.ToolSpec) ([]map[string]any, error) {
 				tool["parameters"] = s.Function.Parameters
 			}
 			tools = append(tools, tool)
-		case builtins[s.Builtin]:
-			tools = append(tools, map[string]any{"type": s.Builtin})
+		case builtins[s.Builtin] != "":
+			tools = append(tools, map[string]any{"type": builtins[s.Builtin]})
 		default:
 			return nil, fmt.Errorf("gemini: tool %q: %w", s.Builtin, otogi.ErrUnsupported)
 		}
