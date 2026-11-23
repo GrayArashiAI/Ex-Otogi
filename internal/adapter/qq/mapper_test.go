@@ -156,14 +156,26 @@ func TestMapLearnsNames(t *testing.T) {
 	}
 }
 
-// QQ faces in content become the names they carry; a sticker's face goes,
-// and its picture, which comes as an attachment, is a sticker.
+// QQ faces in content become the names they carry, marked as emoji; a
+// sticker's face goes, and its picture, which comes as an attachment, is a
+// sticker.
 func TestMapFaces(t *testing.T) {
 	m := testMapper(t)
+	// A store sticker's face (type 4) has a name and no ID; a built-in face
+	// (type 3) has both; a face whose name cannot be read is [表情].
 	e := mapOne(t, m, "GROUP_MESSAGE_CREATE", `{"id":"g1","group_openid":"G1","author":{"member_openid":"M1"},
-		"content":"冲<faceType=4,faceId=\"\",ext=\"eyJ0ZXh0IjoiW+i/m+aUu10ifQ==\">！"}`)
-	if got := e.Message.PlainText(); got != "冲[进攻]！" {
-		t.Fatalf("text = %q", got)
+		"content":"冲<faceType=4,faceId=\"\",ext=\"eyJ0ZXh0IjoiW+i/m+aUu10ifQ==\">！<faceType=3,faceId=\"5\",ext=\"eyJ0ZXh0IjoiW+a1geazql0ifQ==\"><faceType=3,faceId=\"9\",ext=\"!\">"}`)
+	p := e.Message.Parts[0]
+	if p.Text != "冲[进攻]！[流泪][表情]" {
+		t.Fatalf("text = %q", p.Text)
+	}
+	want := []otogi.Annotation{
+		{Offset: 3, Length: 8, Kind: otogi.AnnotationEmoji, Target: "qq:face:4"},
+		{Offset: 14, Length: 8, Kind: otogi.AnnotationEmoji, Target: "qq:face:3:5"},
+		{Offset: 22, Length: 8, Kind: otogi.AnnotationEmoji, Target: "qq:face:3:9"},
+	}
+	if !reflect.DeepEqual(p.Annotations, want) {
+		t.Fatalf("annotations = %+v", p.Annotations)
 	}
 	e = mapOne(t, m, "GROUP_MESSAGE_CREATE", `{"id":"g2","group_openid":"G1","author":{"member_openid":"M1"},
 		"content":"<faceType=6,faceId=\"0\",ext=\"eyJ0ZXh0IjoiIn0=\">",
