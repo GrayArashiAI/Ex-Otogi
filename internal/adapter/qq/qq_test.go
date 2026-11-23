@@ -46,7 +46,12 @@ func TestGatewayIdentifiesPersistsAndResumes(t *testing.T) {
 	if !e.OccurredAt.Equal(time.Date(2026, 11, 6, 2, 0, 0, 0, time.UTC)) {
 		t.Errorf("occurred at %v", e.OccurredAt)
 	}
-	waitFor(t, "seq 3 stored", func() bool { return d.Status(context.Background()).Seq == 3 })
+	// The submitted message leaves the inbox after it is handed over, so
+	// the inbox can trail the stored sequence number.
+	waitFor(t, "seq 3 stored and the inbox drained", func() bool {
+		s := d.Status(context.Background())
+		return s.Seq == 3 && s.PendingInbox == 0
+	})
 	if s := d.Status(context.Background()); s.Session != "S1" || s.Bot != "B1 Otogi" || s.PendingInbox != 0 {
 		t.Fatalf("status = %+v", s)
 	}
