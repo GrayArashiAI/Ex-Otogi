@@ -20,11 +20,15 @@ pkg/otogi            ──> standard library only
 - **`internal/adapter/*`:** platform drivers and infrastructure (storage, management HTTP, and so on). Adapters translate I/O. They do not make routing or module decisions.
 - **`cmd/otogi`:** loads configuration, constructs everything, and runs the process lifecycle.
 
-Kernel, modules, and adapters import only `pkg/...` from this repository: `pkg/otogi`, helper libraries for modules such as `pkg/markdown` (Markdown to and from rich text), and contract packages such as `pkg/llm` (language model providers). Third-party libraries are welcome anywhere except `pkg/otogi`, which stays standard-library-only so the module SDK carries no dependency baggage; platform and provider SDKs stay inside their adapter (gotd in `internal/adapter/telegram`, the Gemini SDK in `internal/adapter/gemini`). Sub-packages of one adapter may import each other. depguard rules in `.golangci.yml` enforce this as part of `make lint`. Tests may import collaborators, such as the real kernel, for integration tests.
+Kernel, modules, and adapters import only `pkg/...` from this repository: `pkg/otogi`, helper libraries for modules such as `pkg/markdown` (Markdown to and from rich text), and contract packages such as `pkg/llm` (language model providers) and `pkg/decision` (yes/no judgments). Third-party libraries are welcome anywhere except `pkg/otogi`, which stays standard-library-only so the module SDK carries no dependency baggage; platform and provider SDKs stay inside their adapter (gotd in `internal/adapter/telegram`, the Gemini SDK in `internal/adapter/gemini`). Sub-packages of one adapter may import each other. depguard rules in `.golangci.yml` enforce this as part of `make lint`. Tests may import collaborators, such as the real kernel, for integration tests.
 
 ## Language model providers
 
 Modules that use language models depend only on `pkg/llm`: `Provider.Generate` takes a conversation of `otogi.Message` turns and streams back the reply as `otogi.Message` (rich text and any generated images). The composition root builds the providers configured under `llm:` (`internal/adapter/gemini`, and `internal/adapter/openai` for each service that speaks the OpenAI Chat Completions API, such as DeepSeek) and hands module factories a lookup by name, so several modules share one provider. A provider's own encoding of a model turn (`llm.Native`: Gemini's steps, a Chat Completions service's assistant message) goes back to that provider exactly; another provider reads the turn's content. A provider records every call itself, attributed to the module and event through `otogi.WorkFrom(ctx)`; it keeps no state, and conversations live in the calling module's own storage.
+
+## Decisions
+
+Modules that ask yes/no questions about a conversation depend only on `pkg/decision`. The decision module (`modules/decision`, today backed by TypeSafe Jev) provides `decision.Service`; a module that asks lists it in `Requires` and looks it up with `otogi.Lookup[decision.Decider]`. The decision module records every request, attributed to the asking module and its event through `otogi.WorkFrom(ctx)`.
 
 ## Platform types stay in their adapter
 
