@@ -49,7 +49,7 @@ func (h *decisionHost) Record(_ context.Context, r otogi.Record) {
 //
 // OTOGI_CHAT_REPLAY_AGENT is the agent's name and keyword (default luna);
 // OTOGI_CHAT_REPLAY_RULES, its judge.rules. Messages starting with the name
-// are triggered, not judged.
+// are judged too, as in a group with judge.wake on.
 func TestReplayWake(t *testing.T) {
 	file := os.Getenv("OTOGI_CHAT_REPLAY")
 	if file == "" || os.Getenv("OTOGI_TYPESAFE_API_KEY") == "" {

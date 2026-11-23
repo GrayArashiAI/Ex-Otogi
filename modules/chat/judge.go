@@ -56,8 +56,11 @@ type (
 
 // wake asks the decision service whether a group message no trigger caught
 // is addressed to an agent that is judged in its chat, and returns the surest
-// one past its threshold. A failed request is no decision: nobody answers, and
-// the decision module has recorded why. Only reading the chat fails Handle.
+// one past its threshold, with the judgment. A failed request is no decision,
+// and the decision module has recorded why: nobody answers, except an agent
+// whose name the message starts with, as a keyword would have triggered it
+// without the judgment; it comes back with no judgment. Only reading the chat
+// fails Handle.
 func (m *Module) wake(ctx context.Context, e otogi.Event) (*profile, *judgment, error) {
 	if e.Conversation.Kind != otogi.ConversationGroup {
 		return nil, nil, nil
@@ -85,6 +88,12 @@ func (m *Module) wake(ctx context.Context, e otogi.Event) (*profile, *judgment, 
 	}
 	answers, err := m.decider.Decide(ctx, decision.Request{State: state, Questions: questions})
 	if err != nil {
+		text := firstText(e.Message)
+		for _, p := range judged {
+			if p.keyword(text) {
+				return p, nil, nil
+			}
+		}
 		return nil, nil, nil
 	}
 	var best *profile

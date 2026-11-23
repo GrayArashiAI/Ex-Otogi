@@ -95,7 +95,7 @@ func TestWhatIsNotJudged(t *testing.T) {
 	h := newJudged(t, d, judgedProfile("luna", 0.7), plain, away)
 	delete(h.host.lists, [2]string{"mizuki", group})
 
-	h.mustHandle(h.message("Alice", "luna, hello"))
+	h.mustHandle(h.message("Alice", "otogi, hello"))
 	h.mustHandle(h.message("Alice", "hi there", func(e *otogi.Event) { e.Conversation.Kind = otogi.ConversationDirect }))
 	if len(d.requests) != 0 {
 		t.Fatalf("asked %d times", len(d.requests))
@@ -115,6 +115,51 @@ func TestWhatIsNotJudged(t *testing.T) {
 	state := d.requests[0].State.(judgeState)
 	if len(state.Agents) != 2 || state.Agents[1].Name != "otogi" || len(d.requests[0].Questions) != 1 {
 		t.Fatalf("agents %+v, questions %v", state.Agents, d.requests[0].Questions)
+	}
+}
+
+// In a group, a message starting with a judged agent's name is judged, not
+// triggered; a mention still triggers with the name picking the agent; when
+// the judgment fails, the name triggers the agent; private chats keep the
+// keyword; a reply to a card that starts with the name is judged too.
+func TestNameIsJudged(t *testing.T) {
+	d := &decider{scores: map[string]float64{"a1": 0.2}}
+	h := newJudged(t, d, judgedProfile("luna", 0.7))
+	luna := h.llm["luna"]
+
+	h.mustHandle(h.message("Alice", "luna wrote that script, not me"))
+	if len(d.requests) != 1 || len(luna.requests) != 0 {
+		t.Fatalf("decision requests %d, replies %d", len(d.requests), len(luna.requests))
+	}
+	d.scores["a1"] = 0.9
+	h.mustHandle(h.message("Alice", "luna, what do you think?"))
+	if len(d.requests) != 2 || len(luna.requests) != 1 || lastReply(h)["trigger"] != "decision" {
+		t.Fatalf("decision requests %d, replies %d, reply %v", len(d.requests), len(luna.requests), lastReply(h))
+	}
+
+	d.err = errors.New("unavailable")
+	h.mustHandle(h.message("Alice", "luna, are you there?"))
+	if len(luna.requests) != 2 || lastReply(h)["trigger"] != "keyword" {
+		t.Fatalf("a failed judgment: replies %d, reply %v", len(luna.requests), lastReply(h))
+	}
+	h.mustHandle(h.message("Alice", "is anyone there?"))
+	if len(luna.requests) != 2 {
+		t.Fatal("a failed judgment woke an agent the message does not name")
+	}
+	d.err = nil
+
+	asked := len(d.requests)
+	h.mustHandle(h.message("Alice", "luna hi", func(e *otogi.Event) { e.Mentioned = true }))
+	h.mustHandle(h.message("Alice", "luna hi", func(e *otogi.Event) { e.Conversation.Kind = otogi.ConversationDirect }))
+	if len(d.requests) != asked || len(luna.requests) != 4 {
+		t.Fatalf("a mention or a private chat was judged: asked %d more, replies %d", len(d.requests)-asked, len(luna.requests))
+	}
+
+	card := h.message("bot", "a card", func(e *otogi.Event) { e.Direction, e.SourceID = otogi.DirectionOutgoing, "card-1" })
+	h.mustHandle(card)
+	h.mustHandle(h.message("Alice", "luna, what is this video?", replyingTo("card-1")))
+	if len(d.requests) != asked+1 {
+		t.Fatalf("a reply to a card starting with the name: asked %d more", len(d.requests)-asked)
 	}
 }
 
@@ -149,7 +194,9 @@ func TestJudgeState(t *testing.T) {
 	for range judgeHistory {
 		h.mustHandle(h.message("Bob", "filler"))
 	}
-	h.mustHandle(h.message("Alice", "luna, look")) // a keyword: luna answers, as agent-1
+	d.scores["a1"] = 0.9
+	h.mustHandle(h.message("Alice", "luna, look")) // judged addressed: luna answers, as agent-1
+	d.scores["a1"] = 0.1
 	h.mustHandle(h.message("bot", "a cat", func(e *otogi.Event) { e.Direction, e.SourceID = otogi.DirectionOutgoing, "agent-1" }))
 	shown := h.message("Carol", long)
 	h.mustHandle(shown)
