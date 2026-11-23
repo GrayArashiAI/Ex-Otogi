@@ -197,47 +197,54 @@ func (m *mapper) learnNames(ctx context.Context, msg message, actor string) erro
 	return nil
 }
 
-// faceToken is a QQ face in message content: <faceType=4,faceId="",
-// ext="<base64 JSON>">, where the JSON's text names it, such as "[进攻]".
-var faceToken = regexp.MustCompile(`<faceType=(\d+),faceId="[^"]*",ext="([^"]*)">`)
-
 // faceSticker is the face type of a sticker, whose picture comes as an
 // attachment of the same message.
 const faceSticker = "6"
 
-// faces replaces the faces in content with the names they carry, and drops
-// those without one; sticker reports a sticker among them.
-func faces(content string) (out string, sticker bool) {
-	out = faceToken.ReplaceAllStringFunc(content, func(token string) string {
-		m := faceToken.FindStringSubmatch(token)
-		if m[1] == faceSticker {
-			sticker = true
-		}
-		var ext struct {
-			Text string `json:"text"`
-		}
-		if data, err := base64.StdEncoding.DecodeString(m[2]); err == nil && json.Unmarshal(data, &ext) == nil {
-			return ext.Text
-		}
-		return "[表情]"
-	})
-	return out, sticker
+// face is the name a QQ face carries in its ext, base64 JSON whose text names
+// it, such as "[进攻]"; a sticker's is empty. A face whose name cannot be
+// read is "[表情]".
+func face(ext string) string {
+	var f struct {
+		Text string `json:"text"`
+	}
+	if data, err := base64.StdEncoding.DecodeString(ext); err == nil && json.Unmarshal(data, &f) == nil {
+		return f.Text
+	}
+	return "[表情]"
 }
 
-var mentionToken = regexp.MustCompile(`<@!?([^>\s]+)>`)
+// tagToken is a tag QQ writes into message content: a mention, <@openid> or
+// <@!openid>, or a face, <faceType=4,faceId="",ext="<base64 JSON>">.
+var tagToken = regexp.MustCompile(`<@!?([^>\s]+)>|<faceType=(\d+),faceId="([^"]*)",ext="([^"]*)">`)
 
-// content builds the message: text with mentions as annotations, then the
-// attachments, and a reply relation when it quotes another message.
+// content builds the message: text with mentions and faces as annotations,
+// then the attachments, and a reply relation when it quotes another message.
+// A face is its name, marked as an emoji whose target is qq:face:<type>, with
+// :<id> when it has one; a sticker's face leaves nothing, and its picture,
+// which comes as an attachment, is a sticker.
 func (m *mapper) content(ctx context.Context, msg message, e *otogi.Event) (otogi.Message, error) {
 	var text otogi.RichText
-	content, sticker := faces(msg.Content)
+	content, sticker := msg.Content, false
 	if e.Mentioned {
 		content = strings.TrimLeft(content, " ")
 	}
 	last := 0
-	for _, loc := range mentionToken.FindAllStringSubmatchIndex(content, -1) {
+	for _, loc := range tagToken.FindAllStringSubmatchIndex(content, -1) {
 		text.Write(content[last:loc[0]])
 		last = loc[1]
+		if loc[2] < 0 {
+			kind, id := content[loc[4]:loc[5]], content[loc[6]:loc[7]]
+			sticker = sticker || kind == faceSticker
+			if name := face(content[loc[8]:loc[9]]); name != "" {
+				target := "qq:face:" + kind
+				if id != "" {
+					target += ":" + id
+				}
+				text.Mark(otogi.AnnotationEmoji, target, func() { text.Write(name) })
+			}
+			continue
+		}
 		id := content[loc[2]:loc[3]]
 		name, target := id, otogi.ActorID("user:"+id)
 		if known, err := m.names.Peer(ctx, "user:"+id); err != nil {
