@@ -76,7 +76,9 @@ func TestGotdSavesPositionOnlyAfterHandlerReturns(t *testing.T) {
 	}()
 	defer func() {
 		cancel()
-		<-stopped
+		if err := <-stopped; err != nil && !errors.Is(err, context.Canceled) {
+			t.Errorf("run: %v", err)
+		}
 	}()
 	<-started
 
