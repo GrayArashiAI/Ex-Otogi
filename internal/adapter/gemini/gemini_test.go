@@ -475,7 +475,9 @@ func TestRecordsShowWhereTimeWent(t *testing.T) {
 	}
 	payload := rec.only(t).Payload.(map[string]any)
 	quiet := payload["longest_silence"].(silence)
-	if d, _ := time.ParseDuration(quiet.For); d < 300*time.Millisecond || quiet.After != "step.start" {
+	// The silence is timed from when the last event arrived, a little after
+	// the server sent it, so it reads somewhat under the server's 300ms.
+	if d, _ := time.ParseDuration(quiet.For); d < 250*time.Millisecond || quiet.After != "step.start" {
 		t.Errorf("longest silence %+v", quiet)
 	}
 	if ids := payload["interactions"].([]string); len(ids) != 1 || ids[0] != "int-9" {
