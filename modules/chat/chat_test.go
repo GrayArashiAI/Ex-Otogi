@@ -561,7 +561,10 @@ func TestSystemPromptAndTemperature(t *testing.T) {
 func TestSchemaDefaultsAreTheDefaults(t *testing.T) {
 	t.Parallel()
 	providers := func(string) (llm.Provider, error) { return &provider{}, nil }
-	unset := Config{Profiles: []ProfileConfig{{Name: "luna", Keywords: []string{"luna"}, Provider: "p", Model: "m"}}}
+	unset := Config{Profiles: []ProfileConfig{
+		{Name: "luna", Keywords: []string{"luna"}, Provider: "p", Model: "m"},
+		{Name: "mizuki", Keywords: []string{"mizuki"}, Provider: "p", Model: "m", Judge: &JudgeConfig{Wake: &WakeConfig{}}},
+	}}
 	typed := settingstest.WithDefaults(t, unset)
 	a, err := unset.profiles(providers)
 	if err != nil {
@@ -572,7 +575,7 @@ func TestSchemaDefaultsAreTheDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 	if unset.Retention != typed.Retention || unset.Timeout != typed.Timeout || *unset.ToolReserve != *typed.ToolReserve || unset.MaxMediaMB != typed.MaxMediaMB ||
-		a[0].MaxTurns != b[0].MaxTurns || a[0].MaxToolRounds != b[0].MaxToolRounds || a[0].context != b[0].context {
-		t.Fatalf("schema defaults give %+v %+v, unset fields %+v %+v", typed, b[0], unset, a[0])
+		a[0].MaxTurns != b[0].MaxTurns || a[0].MaxToolRounds != b[0].MaxToolRounds || a[0].context != b[0].context || a[1].wake != b[1].wake {
+		t.Fatalf("schema defaults give %+v %+v wake %v, unset fields %+v %+v wake %v", typed, b[0], b[1].wake, unset, a[0], a[1].wake)
 	}
 }
