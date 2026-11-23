@@ -54,10 +54,11 @@ type (
 
 // wake asks the decision service whether a group message no trigger caught
 // is addressed to an agent that is judged in its chat, and returns the surest
-// one past its threshold. A failed request is no decision: nobody answers.
-func (m *Module) wake(ctx context.Context, e otogi.Event) (*profile, *judgment) {
+// one past its threshold. A failed request is no decision: nobody answers, and
+// the decision module has recorded why. Only reading the chat fails Handle.
+func (m *Module) wake(ctx context.Context, e otogi.Event) (*profile, *judgment, error) {
 	if e.Conversation.Kind != otogi.ConversationGroup {
-		return nil, nil
+		return nil, nil, nil
 	}
 	var present, judged []*profile
 	for _, p := range m.profiles {
@@ -69,12 +70,11 @@ func (m *Module) wake(ctx context.Context, e otogi.Event) (*profile, *judgment) 
 		}
 	}
 	if len(judged) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 	state, msg, err := m.judgeState(ctx, e, present)
 	if err != nil {
-		m.host.Logger().Warn("chat: cannot judge", "error", err)
-		return nil, nil
+		return nil, nil, err
 	}
 	ids := agentIDs(present)
 	questions := map[string]decision.Question{}
@@ -83,8 +83,7 @@ func (m *Module) wake(ctx context.Context, e otogi.Event) (*profile, *judgment) 
 	}
 	answers, err := m.decider.Decide(ctx, decision.Request{State: state, Questions: questions})
 	if err != nil {
-		m.host.Logger().Warn("chat: no decision", "error", err)
-		return nil, nil
+		return nil, nil, nil
 	}
 	var best *profile
 	var score float64
@@ -94,9 +93,9 @@ func (m *Module) wake(ctx context.Context, e otogi.Event) (*profile, *judgment) 
 		}
 	}
 	if best == nil {
-		return nil, nil
+		return nil, nil, nil
 	}
-	return best, &judgment{Score: score, Threshold: best.wake}
+	return best, &judgment{Score: score, Threshold: best.wake}, nil
 }
 
 // agentIDs numbers the agents in a chat: a1, a2, ….

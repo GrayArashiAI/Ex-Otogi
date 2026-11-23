@@ -150,8 +150,8 @@ func (m *Module) Handle(ctx context.Context, e otogi.Event, inv otogi.Invocation
 	}
 	var j *judgment
 	if p == nil {
-		if p, j = m.wake(ctx, e); p == nil {
-			return nil
+		if p, j, err = m.wake(ctx, e); p == nil {
+			return err
 		}
 		trigger = "decision"
 	}
