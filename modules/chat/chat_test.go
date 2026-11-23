@@ -489,6 +489,57 @@ func TestToolsPerChat(t *testing.T) {
 	}
 }
 
+// What the model says before calling tools goes out as its own message before
+// the tools run; the answer follows in a new one, and replying to either
+// continues the thread. When it says nothing after the tools, the last
+// message shows nothing.
+func TestWordsBeforeToolsGoOutFirst(t *testing.T) {
+	var shownWhenCalled int
+	var h *harness
+	shout := llm.NewTool(llm.Function{Name: "shout", Description: "shouts"}, func(context.Context, otogi.Event, json.RawMessage) (any, error) {
+		shownWhenCalled = h.sent
+		return "HI", nil
+	})
+	storage, err := modulestore.Open(context.Background(), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = storage.Close() })
+	h = &harness{t: t, host: &host{storage: storage, services: map[string]any{"llm.tools/fun": []llm.Tool{shout}}, lists: map[[2]string]string{{"otogi", group}: "test", {"tools:fun", group}: "test"}}, llm: map[string]*provider{}, now: time.Date(2026, 10, 31, 12, 0, 0, 0, time.UTC)}
+	call := llm.Response{Turn: llm.Turn{Role: llm.RoleModel, Content: otogi.TextMessage("Let me shout."), Calls: []llm.Call{{ID: "c1", Name: "shout", Args: json.RawMessage(`"hi"`)}}}, Finish: llm.FinishToolCalls}
+	p := &provider{responses: []llm.Response{call, answer("Shouted.")}}
+	h.llm["otogi"] = p
+	if h.m, err = New(Config{Tools: []string{"fun"}, Profiles: []ProfileConfig{{Name: "otogi", Keywords: []string{"otogi"}, Provider: "otogi", Model: "m"}}}, func(string) (llm.Provider, error) { return p, nil }); err != nil {
+		t.Fatal(err)
+	}
+	h.m.now = func() time.Time { return h.now }
+	if err := h.m.Start(context.Background(), h.host); err != nil {
+		t.Fatal(err)
+	}
+
+	h.mustHandle(h.message("Alice", "otogi shout hi"))
+	if len(h.streams) != 2 || h.streams[0].final.PlainText() != "Let me shout." || h.streams[1].final.PlainText() != "Shouted." || shownWhenCalled != 1 {
+		t.Fatalf("streams %d, sent before the tool ran %d", len(h.streams), shownWhenCalled)
+	}
+	if got := h.host.records[len(h.host.records)-1].Payload.(map[string]any)["messages"].([]otogi.EventRef); len(got) != 2 {
+		t.Fatalf("recorded messages %v", got)
+	}
+	for _, source := range []string{"agent-1", "agent-2"} {
+		before := len(p.requests)
+		h.mustHandle(h.message("Alice", "and?", replyingTo(source)))
+		if len(p.requests) != before+1 || len(p.requests[before].Turns) != 5 {
+			t.Fatalf("a reply to %s did not continue the thread: %+v", source, p.requests[before:])
+		}
+	}
+
+	p.responses, p.requests = []llm.Response{call, {Turn: llm.Turn{Role: llm.RoleModel}, Finish: llm.FinishStop}}, nil
+	h.streams = nil
+	h.mustHandle(h.message("Alice", "otogi shout again"))
+	if len(h.streams) != 2 || h.streams[0].final.PlainText() != "Let me shout." || len(h.streams[1].final.Parts) != 0 {
+		t.Fatalf("streams %d, last %q", len(h.streams), h.streams[len(h.streams)-1].final.PlainText())
+	}
+}
+
 // A profile with mention: true answers a message that mentions the account,
 // and the @ itself is left out of the prompt; without the flag, a mention
 // does not trigger.

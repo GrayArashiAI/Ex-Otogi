@@ -66,12 +66,12 @@ func TestRunRunsCallsUntilTheModelAnswers(t *testing.T) {
 	var partials []string
 	var calls []CallRecord
 	out, err := Run(context.Background(), p, Request{Model: "m", Tools: []ToolSpec{{Builtin: BuiltinWebSearch}}}, map[string]Tool{"add": add}, otogi.Event{}, Limits{Rounds: 4, Reserve: 2},
-		func(m otogi.Message) error { partials = append(partials, m.PlainText()); return nil },
+		func(m otogi.Message) error { partials = append(partials, m.PlainText()); return nil }, nil,
 		func(c CallRecord) { calls = append(calls, c) })
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := out.Reply.PlainText(); got != "Checking.\n\nIt is 3." {
+	if got := out.Reply.PlainText(); got != "Checking.\n\nIt is 3." || out.Last.PlainText() != got {
 		t.Errorf("reply %q", got)
 	}
 	if strings.Join(partials, "|") != "Checking.|Checking.\n\nIt is 3." {
@@ -89,6 +89,42 @@ func TestRunRunsCallsUntilTheModelAnswers(t *testing.T) {
 	}
 }
 
+// say takes what the model said before its calls run; the reply then starts
+// over, and a round that said nothing gives say nothing.
+func TestRunSaysBeforeCalls(t *testing.T) {
+	t.Parallel()
+	p := &script{responses: []Response{
+		say("Let me check.", Call{ID: "c1", Name: "add", Args: json.RawMessage(`{"a":1,"b":2}`)}),
+		say("", Call{ID: "c2", Name: "add", Args: json.RawMessage(`{"a":3,"b":4}`)}),
+		say("It is 3, and 7."),
+	}}
+	var events []string
+	tools := map[string]Tool{"add": toolFunc(func(args json.RawMessage) (any, error) {
+		events = append(events, "call")
+		return add(args)
+	})}
+	out, err := Run(context.Background(), p, Request{}, tools, otogi.Event{}, Limits{Rounds: 4, Reserve: 2},
+		func(m otogi.Message) error { events = append(events, "partial:"+m.PlainText()); return nil },
+		func(m otogi.Message) error { events = append(events, "say:"+m.PlainText()); return nil }, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "partial:Let me check.|say:Let me check.|call|call|partial:It is 3, and 7."
+	if got := strings.Join(events, "|"); got != want {
+		t.Errorf("events %q, want %q", got, want)
+	}
+	if out.Reply.PlainText() != "Let me check.\n\nIt is 3, and 7." || out.Last.PlainText() != "It is 3, and 7." {
+		t.Errorf("reply %q, last %q", out.Reply.PlainText(), out.Last.PlainText())
+	}
+
+	gone := errors.New("gone")
+	p = &script{responses: []Response{say("Let me check.", Call{ID: "c1", Name: "add", Args: json.RawMessage(`{}`)})}}
+	_, err = Run(context.Background(), p, Request{}, tools, otogi.Event{}, Limits{Rounds: 4, Reserve: 2}, nil, func(otogi.Message) error { return gone }, nil)
+	if !errors.Is(err, gone) {
+		t.Fatalf("a failed say: %v", err)
+	}
+}
+
 func TestRunAnswersFailingCallsWithErrors(t *testing.T) {
 	t.Parallel()
 	failing := toolFunc(func(json.RawMessage) (any, error) { return nil, errors.New("no such chat") })
@@ -98,7 +134,7 @@ func TestRunAnswersFailingCallsWithErrors(t *testing.T) {
 		say("Sorry."),
 	}}
 	var calls []CallRecord
-	out, err := Run(context.Background(), p, Request{}, map[string]Tool{"fail": failing, "panic": panicking}, otogi.Event{}, Limits{Rounds: 4, Reserve: 2}, nil, func(c CallRecord) { calls = append(calls, c) })
+	out, err := Run(context.Background(), p, Request{}, map[string]Tool{"fail": failing, "panic": panicking}, otogi.Event{}, Limits{Rounds: 4, Reserve: 2}, nil, nil, func(c CallRecord) { calls = append(calls, c) })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +152,7 @@ func TestRunLimitsRounds(t *testing.T) {
 	runs := 0
 	counting := toolFunc(func(json.RawMessage) (any, error) { runs++; return "ok", nil })
 	p := &script{responses: []Response{say("", Call{ID: "c", Name: "add"})}}
-	out, err := Run(context.Background(), p, Request{}, map[string]Tool{"add": counting}, otogi.Event{}, Limits{Rounds: 2, Reserve: 2}, nil, nil)
+	out, err := Run(context.Background(), p, Request{}, map[string]Tool{"add": counting}, otogi.Event{}, Limits{Rounds: 2, Reserve: 2}, nil, nil, nil)
 	if !errors.Is(err, otogi.ErrUnavailable) || runs != 2 || len(p.requests) != 4 {
 		t.Fatalf("err %v, runs %d, requests %d", err, runs, len(p.requests))
 	}
@@ -138,7 +174,7 @@ func TestRunWrapsUpBeforeTheDeadline(t *testing.T) {
 		time.Sleep(30 * time.Millisecond)
 		return p.Generate(ctx, req, partial)
 	})
-	out, err := Run(ctx, slow, Request{}, map[string]Tool{"add": counting}, otogi.Event{}, Limits{Rounds: 8, Reserve: 2}, nil, nil)
+	out, err := Run(ctx, slow, Request{}, map[string]Tool{"add": counting}, otogi.Event{}, Limits{Rounds: 8, Reserve: 2}, nil, nil, nil)
 	if err != nil || runs != 0 || out.WrappedUp != WrapUpTime || out.Reply.PlainText() != "Here is what I found." {
 		t.Fatalf("err %v, runs %d, wrapped up %q, reply %q", err, runs, out.WrappedUp, out.Reply.PlainText())
 	}
@@ -157,7 +193,7 @@ func TestRunStopsWhenPartialFails(t *testing.T) {
 	t.Parallel()
 	p := &script{responses: []Response{say("hi")}}
 	gone := errors.New("gone")
-	if _, err := Run(context.Background(), p, Request{}, nil, otogi.Event{}, Limits{Rounds: 1, Reserve: 2}, func(otogi.Message) error { return gone }, nil); !errors.Is(err, gone) {
+	if _, err := Run(context.Background(), p, Request{}, nil, otogi.Event{}, Limits{Rounds: 1, Reserve: 2}, func(otogi.Message) error { return gone }, nil, nil); !errors.Is(err, gone) {
 		t.Fatalf("err %v", err)
 	}
 }

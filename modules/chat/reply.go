@@ -15,8 +15,11 @@ import (
 const cleanupTimeout = 30 * time.Second
 
 // respond has p answer e, continuing from turn parent (0 for a new thread):
-// the reply streams into the chat, and the turns are kept. j is the judgment
-// that woke p, if one did.
+// the reply streams into the chat, and the turns are kept. What the model
+// says before calling tools goes out as its own message before the tools
+// run, so the chat sees it at once even where nothing streams (QQ groups);
+// the rest of the reply follows in a new message. j is the judgment that
+// woke p, if one did.
 func (m *Module) respond(ctx context.Context, e otogi.Event, inv otogi.Invocation, p *profile, parent int64, trigger string, j *judgment) error {
 	started := m.now()
 	path, err := m.thread(ctx, parent, p.MaxTurns)
@@ -40,19 +43,40 @@ func (m *Module) respond(ctx context.Context, e otogi.Event, inv otogi.Invocatio
 	}
 	req.Turns = append(req.Turns, sent)
 
-	stream := inv.Stream(ctx, "reply", e.Destination())
-	out, runErr := llm.Run(llm.ContextWithAgent(ctx, p.Name), p.provider, req, m.toolsIn(e.ChatKey()), e, llm.Limits{Rounds: p.MaxToolRounds, Reserve: *m.cfg.ToolReserve}, func(msg otogi.Message) error {
+	// Each message of the reply is a stream of its own: "reply", then
+	// "reply-2" and on, stable across retries.
+	var refs []otogi.EventRef
+	messages := 0
+	next := func() otogi.MessageStream {
+		messages++
+		slot := "reply"
+		if messages > 1 {
+			slot = fmt.Sprintf("reply-%d", messages)
+		}
+		return inv.Stream(ctx, slot, e.Destination())
+	}
+	stream := next()
+	update := func(msg otogi.Message) error {
 		if len(msg.Parts) == 0 {
 			return nil
 		}
 		return stream.Update(ctx, present(p, e, msg))
-	}, func(c llm.CallRecord) { m.recordCall(ctx, e, p, c) })
+	}
+	say := func(msg otogi.Message) error {
+		sent, err := stream.Close(ctx, present(p, e, msg))
+		refs = append(refs, sent...)
+		stream = next()
+		return err
+	}
+	out, runErr := llm.Run(llm.ContextWithAgent(ctx, p.Name), p.provider, req, m.toolsIn(e.ChatKey()), e, llm.Limits{Rounds: p.MaxToolRounds, Reserve: *m.cfg.ToolReserve},
+		update, say, func(c llm.CallRecord) { m.recordCall(ctx, e, p, c) })
 
 	// The reply is finished even when ctx ended, so the chat is not left
 	// with a partial answer.
 	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), cleanupTimeout)
 	defer cancel()
-	refs, closeErr := stream.Close(cleanup, present(p, e, ending(out, runErr)))
+	last, closeErr := stream.Close(cleanup, present(p, e, ending(out, messages > 1, runErr)))
+	refs = append(refs, last...)
 	var ids []int64
 	var storeErr error
 	if runErr == nil {
@@ -262,23 +286,21 @@ func joinLine(a, b otogi.Message) otogi.Message {
 	return out
 }
 
-// ending is the reply's final content, saying once how it ended when that
-// was not a plain answer.
-func ending(out llm.RunResult, err error) otogi.Message {
-	reply := out.Reply
+// ending is the reply's last message: what the model showed since it last
+// spoke before calling tools, saying once how the reply ended when that was
+// not a plain answer. said is whether earlier messages of the reply went
+// out; when they did, an empty ending shows nothing.
+func ending(out llm.RunResult, said bool, err error) otogi.Message {
+	reply := out.Last
 	empty := len(reply.Parts) == 0
-	note := func(text string) otogi.Message {
-		if empty {
-			return otogi.TextMessage(text)
-		}
-		return llm.Join(reply, otogi.TextMessage("("+text+")"))
-	}
+	silent := empty && !said // the reply showed nothing at all
+	note := func(text string) otogi.Message { return llm.Join(reply, otogi.TextMessage("("+text+")")) }
 	switch {
-	case err != nil && empty:
+	case err != nil && silent:
 		return otogi.TextMessage("Sorry, I couldn't reply: " + friendly(err) + ".")
 	case err != nil:
 		return note("Cut short: " + friendly(err))
-	case out.Final.Finish == llm.FinishBlocked && empty:
+	case out.Final.Finish == llm.FinishBlocked && silent:
 		return otogi.TextMessage("I can't answer that (" + out.Final.Reason + ").")
 	case out.Final.Finish == llm.FinishBlocked:
 		return note("The rest was blocked: " + out.Final.Reason)
@@ -287,9 +309,9 @@ func ending(out llm.RunResult, err error) otogi.Message {
 		if n := len(reply.Parts); n > 0 && reply.Parts[n-1].Kind == otogi.PartText {
 			reply.Parts[n-1].Text += "…"
 		}
-	case out.Final.Finish == llm.FinishOther && empty:
+	case out.Final.Finish == llm.FinishOther && silent:
 		return otogi.TextMessage("I couldn't come up with an answer (" + out.Final.Reason + ").")
-	case empty:
+	case silent:
 		return otogi.TextMessage("I have nothing to add.")
 	}
 	return withSources(reply, out.Sources)
