@@ -8,6 +8,7 @@ Ex-Otogi runs on a host the operator controls, for one operator. Security covers
 - The gotd session file is equivalent to a logged-in account. Keep it, together with the SQLite databases, in a data directory readable only by the service user.
 - Credentials are not written to logs or the event log. They are configuration, not event data, so nothing needs redacting: just do not log them.
 - The language model API keys come from the config file, normally as `${OTOGI_GEMINI_API_KEY}` and, for each `llm.openai` service, a variable of its own such as `${OTOGI_DEEPSEEK_API_KEY}`. Each is sent only to its provider's configured base URL.
+- The decision module's TypeSafe API key is a setting saved as a reference, normally `${OTOGI_TYPESAFE_API_KEY}`, and is sent only to its `base_url`.
 - Do not commit credentials. `.env.example` shows the variable names.
 
 ## Language model data
@@ -15,6 +16,8 @@ Ex-Otogi runs on a host the operator controls, for one operator. Security covers
 Calls to Gemini send the conversation, images included, to Google (or to the configured gateway). Calls are stateless (`store=false`), so Google keeps no interaction for later turns, but its terms still apply: on the free tier Google may use prompts and replies to improve its products, with human review, and apps used by people in the EEA, Switzerland, or the UK must use the paid tier. Google's terms require users to be 18 or older. These are the operator's decisions; see the [Gemini API terms](https://ai.google.dev/gemini-api/terms).
 
 Calls to an `llm.openai` service send the conversation, images included, to that service. With DeepSeek's server tools on, DeepSeek also searches the web and reads the pages the conversation links on its own servers, and a page it read comes back signed and is sent back with later turns. Each service's terms and data handling apply, and are the operator's to check; see, for DeepSeek, its [terms of use](https://cdn.deepseek.com/policies/en-US/deepseek-terms-of-use.html) and [privacy policy](https://cdn.deepseek.com/policies/en-US/deepseek-privacy-policy.html).
+
+Requests to the decision service send what the asking module puts in their state, such as the recent chat with its senders' names, to TypeSafe (or to the configured `base_url`). TypeSafe's terms and data handling apply, and are the operator's to check; see its [terms](https://typesafe.ai/legal/terms) and [privacy policy](https://typesafe.ai/legal/privacy-policy). The event log keeps each request's state in full, like the chat it came from.
 
 ## Management plane access
 
