@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -207,6 +208,36 @@ type failing struct{}
 func (failing) RoundTrip(r *http.Request) (*http.Response, error) {
 	if strings.HasSuffix(r.URL.Path, "/messages") {
 		return nil, errors.New("connection reset")
+	}
+	return http.DefaultTransport.RoundTrip(r)
+}
+
+// A send whose request never left the host, its name not resolving, is
+// retried; one that never gets out is released and goes out when sent again.
+func TestUnsentSendIsRetried(t *testing.T) {
+	x, srv, _ := newEffects(t)
+	x.api.http = &http.Client{Transport: &unresolved{times: 1}}
+	if _, err := sendText(x, "k1", "", "group:G1", otogi.TextMessage("hi")); err != nil || srv.count() != 1 {
+		t.Fatalf("after one unresolved try = %v, %d posts", err, srv.count())
+	}
+	x.api.http = &http.Client{Transport: &unresolved{times: 10}}
+	if _, err := sendText(x, "k2", "", "group:G1", otogi.TextMessage("hi")); err == nil {
+		t.Fatal("no error")
+	}
+	x.api.http = http.DefaultClient
+	if _, err := sendText(x, "k2", "", "group:G1", otogi.TextMessage("hi")); err != nil || srv.count() != 2 {
+		t.Fatalf("sent again = %v, %d posts", err, srv.count())
+	}
+}
+
+// unresolved fails the first times message posts the way a failed DNS
+// lookup does.
+type unresolved struct{ times int }
+
+func (u *unresolved) RoundTrip(r *http.Request) (*http.Response, error) {
+	if strings.HasSuffix(r.URL.Path, "/messages") && u.times > 0 {
+		u.times--
+		return nil, &net.OpError{Op: "dial", Net: "tcp", Err: &net.DNSError{Err: "no such host", Name: r.URL.Hostname(), IsNotFound: true}}
 	}
 	return http.DefaultTransport.RoundTrip(r)
 }
