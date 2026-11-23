@@ -9,9 +9,11 @@ import (
 	"testing"
 )
 
-// WithDefaults returns cfg with every unset field that has a default tag
-// set to that default, in nested structs and in slices of structs too, as
-// an operator who typed in every default the form shows would.
+// WithDefaults returns a copy of cfg with every unset field that has a
+// default tag set to that default, in nested structs, in slices of structs,
+// and behind set pointers too, as an operator who typed in every default the
+// form shows would. A nil pointer stays nil: that part was left out. cfg
+// itself keeps its unset fields, for the test to compare the two.
 func WithDefaults[C any](t *testing.T, cfg C) C {
 	t.Helper()
 	v := reflect.ValueOf(&cfg).Elem()
@@ -37,9 +39,23 @@ func fill(t *testing.T, v reflect.Value) {
 			fill(t, f)
 		}
 	case reflect.Slice:
+		if v.IsNil() {
+			return
+		}
+		own := reflect.MakeSlice(v.Type(), v.Len(), v.Len())
+		reflect.Copy(own, v)
+		v.Set(own)
 		for i := range v.Len() {
 			fill(t, v.Index(i))
 		}
+	case reflect.Pointer:
+		if v.IsNil() {
+			return
+		}
+		own := reflect.New(v.Type().Elem())
+		own.Elem().Set(v.Elem())
+		v.Set(own)
+		fill(t, own.Elem())
 	}
 }
 
