@@ -137,9 +137,9 @@ func TestSurestAgentAndFailedJudgment(t *testing.T) {
 	}
 }
 
-// The judgment sees the last messages numbered, the agent's own named, a
-// reply to a message in view by number and to an older one quoted, and each
-// message but the judged one cut short.
+// The judgment is told it is a group chat and sees the last messages
+// numbered, the agent's own named, a reply to a message in view by number and
+// to an older one quoted, and each message but the judged one cut short.
 func TestJudgeState(t *testing.T) {
 	d := &decider{scores: map[string]float64{"a1": 0.1}} // nothing wakes
 	h := newJudged(t, d, judgedProfile("luna", 0.7))
@@ -157,6 +157,9 @@ func TestJudgeState(t *testing.T) {
 
 	state := d.requests[len(d.requests)-1].State.(judgeState)
 	from := func(l judgeLine) string { return l.From }
+	if state.Chat != groupChat {
+		t.Fatalf("chat %q", state.Chat)
+	}
 	if len(state.History) != judgeHistory || state.History[0].From != "u1 Bob" || !slices.Contains(sliceOf(state.History, from), "a1 luna") {
 		t.Fatalf("history %+v", state.History)
 	}

@@ -53,11 +53,11 @@ type JudgeConfig struct {
 // WakeConfig configures answering messages judged to be addressed to the
 // agent.
 type WakeConfig struct {
-	Threshold float64 `json:"threshold,omitempty" minimum:"0" maximum:"1" default:"0.8" doc:"How sure the judgment must be that a message is addressed to the agent. When several agents pass, the surest answers."`
+	Threshold float64 `json:"threshold,omitempty" minimum:"0" maximum:"1" default:"0.7" doc:"How sure the judgment must be that a message is addressed to the agent. When several agents pass, the surest answers."`
 }
 
 // defaultWake is the wake threshold of a wake block that sets none.
-const defaultWake = 0.8
+const defaultWake = 0.7
 
 // profile is a validated agent.
 type profile struct {
