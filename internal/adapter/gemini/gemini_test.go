@@ -365,7 +365,7 @@ func TestGenerateReturnsFunctionCalls(t *testing.T) {
 	p, _ := newProvider(t, s)
 	resp, err := p.Generate(context.Background(), llm.Request{Model: "m", Turns: []llm.Turn{userTurn(otogi.Part{Kind: otogi.PartText, Text: "remind me"})}, Tools: []llm.ToolSpec{
 		{Function: &llm.Function{Name: "set_reminder", Description: "remind", Parameters: json.RawMessage(`{"type":"object"}`)}},
-		{Builtin: llm.BuiltinGoogleSearch},
+		{Builtin: llm.BuiltinWebSearch},
 	}}, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -418,7 +418,7 @@ func TestGenerateKeepsSearchStepsAndSources(t *testing.T) {
 		completed,
 	)}}
 	p, _ := newProvider(t, s)
-	resp, err := p.Generate(context.Background(), llm.Request{Model: "m", Turns: []llm.Turn{userTurn(otogi.Part{Kind: otogi.PartText, Text: "who won"})}, Tools: []llm.ToolSpec{{Builtin: llm.BuiltinGoogleSearch}}}, nil)
+	resp, err := p.Generate(context.Background(), llm.Request{Model: "m", Turns: []llm.Turn{userTurn(otogi.Part{Kind: otogi.PartText, Text: "who won"})}, Tools: []llm.ToolSpec{{Builtin: llm.BuiltinWebSearch}}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -100,7 +100,7 @@ func TestLiveTools(t *testing.T) {
 	t.Cleanup(func() { _ = storage.Close() })
 	h := &harness{t: t, host: &host{storage: storage, services: reminderHost.provided, lists: map[[2]string]string{{"otogi", group}: "test", {"tools:reminders", group}: "test"}}, llm: map[string]*provider{}, now: time.Now()}
 	h.m, err = New(Config{Profiles: []ProfileConfig{{Name: "otogi", Label: "🤖 Otogi", Keywords: []string{"otogi"}, Provider: "gemini", Model: "gemini-3.8-flash", Thinking: "low",
-		System: "You are Otogi, a helpful member of this chat. Answer briefly.", Tools: []string{"google_search"}}}, Tools: []string{"reminders"}}, func(string) (llm.Provider, error) { return g, nil })
+		System: "You are Otogi, a helpful member of this chat. Answer briefly.", Tools: []string{"web_search"}}}, Tools: []string{"reminders"}}, func(string) (llm.Provider, error) { return g, nil })
 	if err != nil {
 		t.Fatal(err)
 	}

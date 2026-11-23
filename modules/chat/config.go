@@ -37,7 +37,7 @@ type ProfileConfig struct {
 	System        string   `json:"system,omitempty" format:"markdown" doc:"The system prompt: who the agent is and how it talks, in Markdown."`
 	Context       *int     `json:"context,omitempty" minimum:"0" default:"30" doc:"How many recent chat messages the agent sees; 0 for none."`
 	MaxTurns      int      `json:"max_turns,omitempty" minimum:"1" default:"40" doc:"How many turns of a thread are sent, newest kept."`
-	Tools         []string `json:"tools,omitempty" enum:"google_search,url_context,code_execution" doc:"The model's built-in tools the agent uses everywhere it answers. Modules' tools are offered per chat: see Tools, after the profiles."`
+	Tools         []string `json:"tools,omitempty" enum:"web_search,url_context,code_execution" doc:"The model's built-in tools the agent uses everywhere it answers. web_search is the provider's own search: Google Search on Gemini, cited; on DeepSeek, searching and opening pages over several steps. url_context reads the pages the conversation links (Gemini, DeepSeek). code_execution runs code the model writes (Gemini). Modules' tools are offered per chat: see Tools, after the profiles."`
 	MaxToolRounds int      `json:"max_tool_rounds,omitempty" minimum:"1" default:"8" doc:"The most rounds of tool calls in one reply."`
 }
 
@@ -74,7 +74,7 @@ func (c *Config) toolModules() ([]otogi.ModuleID, error) {
 	return out, errors.Join(errs...)
 }
 
-var builtinTools = []string{llm.BuiltinGoogleSearch, llm.BuiltinURLContext, llm.BuiltinCodeExecution}
+var builtinTools = []string{llm.BuiltinWebSearch, llm.BuiltinURLContext, llm.BuiltinCodeExecution}
 
 // profiles validates the configuration and resolves providers.
 func (c *Config) profiles(providers func(string) (llm.Provider, error)) ([]*profile, error) {

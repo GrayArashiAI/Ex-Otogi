@@ -383,7 +383,7 @@ func TestConfigErrors(t *testing.T) {
 			t.Errorf("%s: err %v, want %q", name, err, c.want)
 		}
 	}
-	for tools, want := range map[string]string{"google_search": "a built-in tool: set it on the profiles", "a b": "want a module ID", "todou,todou": "listed twice"} {
+	for tools, want := range map[string]string{"web_search": "a built-in tool: set it on the profiles", "a b": "want a module ID", "todou,todou": "listed twice"} {
 		if _, err := New(Config{Profiles: []ProfileConfig{base}, Tools: strings.Split(tools, ",")}, providers); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("tools %s: err %v, want %q", tools, err, want)
 		}
@@ -439,7 +439,7 @@ func TestToolsPerChat(t *testing.T) {
 		answer("Shouted."),
 	}}
 	h.llm["p"] = p
-	h.m, err = New(Config{Tools: []string{"fun"}, Profiles: []ProfileConfig{{Name: "otogi", Keywords: []string{"otogi"}, Provider: "p", Model: "m", Tools: []string{"google_search"}}}},
+	h.m, err = New(Config{Tools: []string{"fun"}, Profiles: []ProfileConfig{{Name: "otogi", Keywords: []string{"otogi"}, Provider: "p", Model: "m", Tools: []string{"web_search"}}}},
 		func(string) (llm.Provider, error) { return p, nil })
 	if err != nil {
 		t.Fatal(err)
@@ -478,7 +478,7 @@ func TestToolsPerChat(t *testing.T) {
 	h.mustHandle(h.message("Alice", "otogi shout hi", func(e *otogi.Event) {
 		e.Conversation = otogi.Conversation{ID: "user:7", Kind: otogi.ConversationDirect}
 	}))
-	if tools := p.requests[len(p.requests)-1].Tools; len(tools) != 1 || tools[0].Builtin != llm.BuiltinGoogleSearch {
+	if tools := p.requests[len(p.requests)-1].Tools; len(tools) != 1 || tools[0].Builtin != llm.BuiltinWebSearch {
 		t.Fatalf("tools in a chat without fun's %+v", tools)
 	}
 }

@@ -14,8 +14,9 @@ import (
 // Built-in tools a provider may run itself. A provider that has no such
 // tool rejects the request with otogi.ErrUnsupported.
 const (
-	// BuiltinGoogleSearch grounds replies in Google Search results.
-	BuiltinGoogleSearch = "google_search"
+	// BuiltinWebSearch lets the model search the web with its provider's
+	// own search, such as Google Search on Gemini.
+	BuiltinWebSearch = "web_search"
 	// BuiltinURLContext lets the model read pages the conversation links.
 	BuiltinURLContext = "url_context"
 	// BuiltinCodeExecution lets the model run code it writes.
@@ -24,7 +25,7 @@ const (
 
 // ToolSpec offers the model one tool: a provider built-in or a function.
 type ToolSpec struct {
-	// Builtin names a built-in tool, such as BuiltinGoogleSearch.
+	// Builtin names a built-in tool, such as BuiltinWebSearch.
 	Builtin string `json:"builtin,omitempty"`
 	// Function declares a function the caller runs.
 	Function *Function `json:"function,omitempty"`
