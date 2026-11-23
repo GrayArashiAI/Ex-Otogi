@@ -95,7 +95,7 @@ func TestRunSaysBeforeCalls(t *testing.T) {
 	t.Parallel()
 	p := &script{responses: []Response{
 		say("Let me check.", Call{ID: "c1", Name: "add", Args: json.RawMessage(`{"a":1,"b":2}`)}),
-		say("", Call{ID: "c2", Name: "add", Args: json.RawMessage(`{"a":3,"b":4}`)}),
+		say("And one more.", Call{ID: "c2", Name: "add", Args: json.RawMessage(`{"a":3,"b":4}`)}),
 		say("It is 3, and 7."),
 	}}
 	var events []string
@@ -109,11 +109,12 @@ func TestRunSaysBeforeCalls(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "partial:Let me check.|say:Let me check.|call|call|partial:It is 3, and 7."
+	// Only the first words go out early; later ones stay with the answer.
+	want := "partial:Let me check.|say:Let me check.|call|partial:And one more.|call|partial:And one more.\n\nIt is 3, and 7."
 	if got := strings.Join(events, "|"); got != want {
 		t.Errorf("events %q, want %q", got, want)
 	}
-	if out.Reply.PlainText() != "Let me check.\n\nIt is 3, and 7." || out.Last.PlainText() != "It is 3, and 7." {
+	if out.Reply.PlainText() != "Let me check.\n\nAnd one more.\n\nIt is 3, and 7." || out.Last.PlainText() != "And one more.\n\nIt is 3, and 7." {
 		t.Errorf("reply %q, last %q", out.Reply.PlainText(), out.Last.PlainText())
 	}
 

@@ -16,10 +16,10 @@ const cleanupTimeout = 30 * time.Second
 
 // respond has p answer e, continuing from turn parent (0 for a new thread):
 // the reply streams into the chat, and the turns are kept. What the model
-// says before calling tools goes out as its own message before the tools
-// run, so the chat sees it at once even where nothing streams (QQ groups);
-// the rest of the reply follows in a new message. j is the judgment that
-// woke p, if one did.
+// first says before calling tools goes out as its own message before the
+// tools run, so the chat sees it at once even where nothing streams (QQ
+// groups); the rest of the reply, words before later tools included, follows
+// in one more message. j is the judgment that woke p, if one did.
 func (m *Module) respond(ctx context.Context, e otogi.Event, inv otogi.Invocation, p *profile, parent int64, trigger string, j *judgment) error {
 	started := m.now()
 	path, err := m.thread(ctx, parent, p.MaxTurns)
@@ -43,29 +43,24 @@ func (m *Module) respond(ctx context.Context, e otogi.Event, inv otogi.Invocatio
 	}
 	req.Turns = append(req.Turns, sent)
 
-	// Each message of the reply is a stream of its own: "reply", then
-	// "reply-2" and on, stable across retries.
+	// The reply is at most two messages, each a stream of its own: "reply",
+	// and "reply-2" for what follows words said before tools. The second is
+	// opened only once it has something to show, so no empty message is
+	// sent or recorded.
 	var refs []otogi.EventRef
-	messages := 0
-	next := func() otogi.MessageStream {
-		messages++
-		slot := "reply"
-		if messages > 1 {
-			slot = fmt.Sprintf("reply-%d", messages)
-		}
-		return inv.Stream(ctx, slot, e.Destination())
-	}
-	stream := next()
+	stream, said := inv.Stream(ctx, "reply", e.Destination()), false
 	update := func(msg otogi.Message) error {
 		if len(msg.Parts) == 0 {
 			return nil
+		}
+		if stream == nil {
+			stream = inv.Stream(ctx, "reply-2", e.Destination())
 		}
 		return stream.Update(ctx, present(p, e, msg))
 	}
 	say := func(msg otogi.Message) error {
 		sent, err := stream.Close(ctx, present(p, e, msg))
-		refs = append(refs, sent...)
-		stream = next()
+		refs, stream, said = append(refs, sent...), nil, true
 		return err
 	}
 	out, runErr := llm.Run(llm.ContextWithAgent(ctx, p.Name), p.provider, req, m.toolsIn(e.ChatKey()), e, llm.Limits{Rounds: p.MaxToolRounds, Reserve: *m.cfg.ToolReserve},
@@ -75,8 +70,15 @@ func (m *Module) respond(ctx context.Context, e otogi.Event, inv otogi.Invocatio
 	// with a partial answer.
 	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), cleanupTimeout)
 	defer cancel()
-	last, closeErr := stream.Close(cleanup, present(p, e, ending(out, messages > 1, runErr)))
-	refs = append(refs, last...)
+	var closeErr error
+	if final := ending(out, said, runErr); stream != nil || len(final.Parts) > 0 {
+		if stream == nil {
+			stream = inv.Stream(cleanup, "reply-2", e.Destination())
+		}
+		var last []otogi.EventRef
+		last, closeErr = stream.Close(cleanup, present(p, e, final))
+		refs = append(refs, last...)
+	}
 	var ids []int64
 	var storeErr error
 	if runErr == nil {
@@ -286,10 +288,10 @@ func joinLine(a, b otogi.Message) otogi.Message {
 	return out
 }
 
-// ending is the reply's last message: what the model showed since it last
-// spoke before calling tools, saying once how the reply ended when that was
-// not a plain answer. said is whether earlier messages of the reply went
-// out; when they did, an empty ending shows nothing.
+// ending is the reply's last message: what the model showed after its first
+// words before tools went out, saying once how the reply ended when that was
+// not a plain answer. said is whether those words went out; when they did,
+// an empty ending is no message at all.
 func ending(out llm.RunResult, said bool, err error) otogi.Message {
 	reply := out.Last
 	empty := len(reply.Parts) == 0
