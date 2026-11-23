@@ -1,0 +1,106 @@
+data: {"object":"chat.completion.chunk","created":1795433065,"model":"deepseek-flash","choices":[{"index":0,"delta":{"role":"assistant","content":null,"reasoning_content":""},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433065,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":null,"reasoning_content":"We"},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433065,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":null,"reasoning_content":" need"},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433065,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":null,"reasoning_content":" to"},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433065,"model":"deepseek-flash","choices":[{"index":0,"delta":{},"server_tool_event":{"type":"step_reasoning_done","step":0},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433065,"model":"deepseek-flash","choices":[{"index":0,"delta":{},"server_tool_event":{"type":"call_started","step":0,"call":{"index":0,"id":"srvtoolu_ds_00_7f8c9a17bc304ee5b997a746ca27d6f9","type":"deepseek_web_search","kind":"deep_search","action":{"type":"search","queries":["latest stable version of Go programming language","Go language latest release 2025"]}}},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433065,"model":"deepseek-flash","choices":[{"index":0,"delta":{},"server_tool_event":{"type":"call_completed","step":0,"call":{"index":0,"id":"srvtoolu_ds_00_7f8c9a17bc304ee5b997a746ca27d6f9","status":"completed","sources":[{"type":"url","url":"https://go.dev/doc/devel/release?data=us","title":"Release History","snippet":"This page summarizes the changes between official stable rel","site_name":"The Go Programming Language","site_icon":"https://cdn.deepseek.com/site-icons/go.dev","published_at":"2026-08-18T16:00:00+00:00"},{"type":"url","url":"https://go.googlesource.com/website/+/7a7f59d531aa75c41fc908545dc24623610b1ba6/_content/blog/go1.26.md#1","title":"_content/blog/go1.26.md - title: Go 1.26 is released date: 2026-02-10 by:","snippet":"Go 1.26 is released date: 2026-02-10 by ... Today the Go tea","site_name":"Google Open Source","site_icon":"https://cdn.deepseek.com/site-icons/googlesource.com","published_at":"2026-02-09T16:00:00+00:00"}]}},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433065,"model":"deepseek-flash","choices":[{"index":0,"delta":{},"server_tool_event":{"type":"step_reasoning_done","step":1},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433065,"model":"deepseek-flash","choices":[{"index":0,"delta":{},"server_tool_event":{"type":"call_started","step":1,"call":{"index":0,"id":"srvtoolu_ds_01_f069ba8099404b4aa6a5823e2db19f90","type":"deepseek_web_search","kind":"deep_search","action":{"type":"open_page","url":"https://go.dev/doc/devel/release?data=us"}}},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433065,"model":"deepseek-flash","choices":[{"index":0,"delta":{},"server_tool_event":{"type":"call_completed","step":1,"call":{"index":0,"id":"srvtoolu_ds_01_f069ba8099404b4aa6a5823e2db19f90","status":"completed","page":{"url":"https://go.dev/doc/devel/release?data=us","title":"Release History","published_at":"2026-08-18T16:00:00+00:00"}}},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433065,"model":"deepseek-flash","choices":[{"index":0,"delta":{},"server_tool_event":{"type":"step_reasoning_done","step":2},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433065,"model":"deepseek-flash","choices":[{"index":0,"delta":{},"server_tool_event":{"type":"call_started","step":2,"call":{"index":0,"id":"srvtoolu_ds_02_6201678514ff43e7a0f0ff25c59d942d","type":"deepseek_web_search","kind":"deep_search","action":{"type":"search","queries":["site:go.dev \"go1.27.4\"","Go 1.27.4 release"]}}},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433065,"model":"deepseek-flash","choices":[{"index":0,"delta":{},"server_tool_event":{"type":"call_completed","step":2,"call":{"index":0,"id":"srvtoolu_ds_02_6201678514ff43e7a0f0ff25c59d942d","status":"completed","sources":[{"type":"url","url":"https://pkg.go.dev/encoding/json/internal@go1.26.5?tab=versions","title":"internal","snippet":"Versions in this module Expand all Collapse all go1 go1.27.4","site_name":"Go Packages","site_icon":"https://cdn.deepseek.com/site-icons/go.dev","published_at":null},{"type":"url","url":"https://go.dev/doc/devel/release?me=130Wiki&where=CaelLabWiki","title":"Release History","snippet":"go1.27.4 (released 2026-11-10) includes security fixes to cg","site_name":"The Go Programming Language","site_icon":"https://cdn.deepseek.com/site-icons/go.dev","published_at":null}]}},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433065,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":"The","reasoning_content":null},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433065,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":" latest","reasoning_content":null},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433065,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":" stable","reasoning_content":null},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433065,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":" Go","reasoning_content":null},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433065,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":" release","reasoning_content":null},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433065,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":" is","reasoning_content":null},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433065,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":" **","reasoning_content":null},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433065,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":"Go","reasoning_content":null},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433065,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":" ","reasoning_content":null},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433065,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":"1","reasoning_content":null},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433065,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":".","reasoning_content":null},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433065,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":"27","reasoning_content":null},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433065,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":".","reasoning_content":null},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433065,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":"4","reasoning_content":null},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433065,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":"**","reasoning_content":null},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433065,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":" (","reasoning_content":null},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433065,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":"re","reasoning_content":null},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433065,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":"leased","reasoning_content":null},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433065,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":" November","reasoning_content":null},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433065,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":" ","reasoning_content":null},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433065,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":"10","reasoning_content":null},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433065,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":",","reasoning_content":null},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433065,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":" ","reasoning_content":null},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433065,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":"202","reasoning_content":null},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433065,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":"6","reasoning_content":null},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433065,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":"),","reasoning_content":null},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433065,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":" the","reasoning_content":null},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433065,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":" latest","reasoning_content":null},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433065,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":" patch","reasoning_content":null},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433065,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":" in","reasoning_content":null},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433065,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":" the","reasoning_content":null},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433065,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":" Go","reasoning_content":null},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433065,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":" ","reasoning_content":null},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433065,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":"1","reasoning_content":null},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433065,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":".","reasoning_content":null},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433065,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":"27","reasoning_content":null},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433065,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":" line","reasoning_content":null},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433065,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":".","reasoning_content":null},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433065,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":"","reasoning_content":null,"annotations":[{"type":"url_citation","url_citation":{"url":"https://go.dev/doc/devel/release?me=130Wiki&where=CaelLabWiki","title":"Release History","start_index":0,"end_index":112}}],"server_tool_calls":[{"index":0,"reasoning_content":"We need to search for latest stable Go version. Let's do web","calls":[{"index":0,"id":"srvtoolu_ds_00_7f8c9a17bc304ee5b997a746ca27d6f9","type":"deepseek_web_search","kind":"deep_search","action":{"type":"search","queries":["latest stable version of Go programming language","Go language latest release 2025"]},"status":"completed","sources":[{"type":"url","url":"https://go.dev/doc/devel/release?data=us","title":"Release History","snippet":"This page summarizes the changes between official stable rel","site_name":"The Go Programming Language","site_icon":"https://cdn.deepseek.com/site-icons/go.dev","published_at":"2026-08-18T16:00:00+00:00"},{"type":"url","url":"https://go.googlesource.com/website/+/7a7f59d531aa75c41fc908545dc24623610b1ba6/_content/blog/go1.26.md#1","title":"_content/blog/go1.26.md - title: Go 1.26 is released date: 2026-02-10 by:","snippet":"Go 1.26 is released date: 2026-02-10 by ... Today the Go tea","site_name":"Google Open Source","site_icon":"https://cdn.deepseek.com/site-icons/googlesource.com","published_at":"2026-02-09T16:00:00+00:00"}]}]},{"index":1,"reasoning_content":"Search results indicate release history page says go1.27.0 r","calls":[{"index":0,"id":"srvtoolu_ds_01_f069ba8099404b4aa6a5823e2db19f90","type":"deepseek_web_search","kind":"deep_search","action":{"type":"open_page","url":"https://go.dev/doc/devel/release?data=us"},"status":"completed","page":{"url":"https://go.dev/doc/devel/release?data=us","title":"Release History","published_at":"2026-08-18T16:00:00+00:00"}}]},{"index":2,"reasoning_content":"This is current official release history and says latest maj","calls":[{"index":0,"id":"srvtoolu_ds_02_6201678514ff43e7a0f0ff25c59d942d","type":"deepseek_web_search","kind":"deep_search","action":{"type":"search","queries":["site:go.dev \"go1.27.4\"","Go 1.27.4 release"]},"status":"completed","sources":[{"type":"url","url":"https://pkg.go.dev/encoding/json/internal@go1.26.5?tab=versions","title":"internal","snippet":"Versions in this module Expand all Collapse all go1 go1.27.4","site_name":"Go Packages","site_icon":"https://cdn.deepseek.com/site-icons/go.dev","published_at":null},{"type":"url","url":"https://go.dev/doc/devel/release?me=130Wiki&where=CaelLabWiki","title":"Release History","snippet":"go1.27.4 (released 2026-11-10) includes security fixes to cg","site_name":"The Go Programming Language","site_icon":"https://cdn.deepseek.com/site-icons/go.dev","published_at":null}]}]}]},"logprobs":null,"finish_reason":"stop"}],"usage":{"prompt_tokens":18932,"completion_tokens":600,"total_tokens":19532,"prompt_tokens_details":{"cached_tokens":11520},"completion_tokens_details":{"reasoning_tokens":374},"prompt_cache_hit_tokens":11520,"prompt_cache_miss_tokens":7412,"server_tool_use":{"tool_search":4,"tool_fetch":0,"tool_image_search":0}}}
+
+data: [DONE]
+

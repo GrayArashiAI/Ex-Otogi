@@ -1,0 +1,76 @@
+data: {"object":"chat.completion.chunk","created":1795433071,"model":"deepseek-flash","choices":[{"index":0,"delta":{"role":"assistant","content":null,"reasoning_content":""},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433071,"model":"deepseek-flash","choices":[{"index":0,"delta":{},"server_tool_event":{"type":"step_reasoning_done","step":0},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433071,"model":"deepseek-flash","choices":[{"index":0,"delta":{},"server_tool_event":{"type":"call_started","step":0,"call":{"index":0,"id":"srvtoolu_rl_00_63e1b41d811e4401a8e69f5dfd8c39ea","type":"deepseek_read_url","kind":"read_link","action":{"type":"read_link","url":"https://go.dev/doc/devel/release"}}},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433071,"model":"deepseek-flash","choices":[{"index":0,"delta":{},"server_tool_event":{"type":"call_completed","step":0,"call":{"index":0,"id":"srvtoolu_rl_00_63e1b41d811e4401a8e69f5dfd8c39ea","status":"completed","page":{"url":"https://go.dev/doc/devel/release","title":"Release History","published_at":"2026-08-19"}}},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433071,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":null,"reasoning_content":"We"},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433071,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":null,"reasoning_content":" need"},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433071,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":null,"reasoning_content":" answer"},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433071,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":"This","reasoning_content":null},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433071,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":" page","reasoning_content":null},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433071,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":" is","reasoning_content":null},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433071,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":" the","reasoning_content":null},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433071,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":" official","reasoning_content":null},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433071,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":" Go","reasoning_content":null},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433071,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":" release","reasoning_content":null},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433071,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":" history","reasoning_content":null},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433071,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":",","reasoning_content":null},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433071,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":" summarizing","reasoning_content":null},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433071,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":" major","reasoning_content":null},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433071,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":" Go","reasoning_content":null},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433071,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":" releases","reasoning_content":null},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433071,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":" and","reasoning_content":null},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433071,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":" their","reasoning_content":null},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433071,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":" minor","reasoning_content":null},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433071,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":" revisions","reasoning_content":null},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433071,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":",","reasoning_content":null},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433071,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":" along","reasoning_content":null},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433071,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":" with","reasoning_content":null},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433071,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":" the","reasoning_content":null},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433071,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":" security","reasoning_content":null},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433071,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":" and","reasoning_content":null},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433071,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":" bug","reasoning_content":null},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433071,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":" fixes","reasoning_content":null},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433071,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":" included","reasoning_content":null},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433071,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":" in","reasoning_content":null},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433071,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":" each","reasoning_content":null},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433071,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":".","reasoning_content":null},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"object":"chat.completion.chunk","created":1795433071,"model":"deepseek-flash","choices":[{"index":0,"delta":{"content":"","reasoning_content":null,"server_tool_calls":[{"index":0,"reasoning_content":"","calls":[{"index":0,"id":"srvtoolu_rl_00_63e1b41d811e4401a8e69f5dfd8c39ea","type":"deepseek_read_url","kind":"read_link","action":{"type":"read_link","url":"https://go.dev/doc/devel/release"},"status":"completed","page":{"url":"https://go.dev/doc/devel/release","title":"Release History","published_at":"2026-08-19"},"signature":"b4k/SFLBGfK/3EKsVYgZRTYW1udLdP2v+qJYDp8tmZQBcg6l"}]}]},"logprobs":null,"finish_reason":"stop"}],"usage":{"prompt_tokens":20749,"completion_tokens":70,"total_tokens":20819,"prompt_tokens_details":{"cached_tokens":0},"completion_tokens_details":{"reasoning_tokens":40},"prompt_cache_hit_tokens":0,"prompt_cache_miss_tokens":20749,"server_tool_use":{"tool_search":0,"tool_fetch":1,"tool_image_search":0}}}
+
+data: [DONE]
+
