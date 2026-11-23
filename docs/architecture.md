@@ -24,7 +24,7 @@ Kernel, modules, and adapters import only `pkg/...` from this repository: `pkg/o
 
 ## Language model providers
 
-Modules that use language models depend only on `pkg/llm`: `Provider.Generate` takes a conversation of `otogi.Message` turns and streams back the reply as `otogi.Message` (rich text and any generated images). The composition root builds the providers configured under `llm:` (today `internal/adapter/gemini`) and hands module factories a lookup by name, so several modules share one provider. A provider records every call itself, attributed to the module and event through `otogi.WorkFrom(ctx)`; it keeps no state, and conversations live in the calling module's own storage.
+Modules that use language models depend only on `pkg/llm`: `Provider.Generate` takes a conversation of `otogi.Message` turns and streams back the reply as `otogi.Message` (rich text and any generated images). The composition root builds the providers configured under `llm:` (`internal/adapter/gemini`, and `internal/adapter/openai` for each service that speaks the OpenAI Chat Completions API, such as DeepSeek) and hands module factories a lookup by name, so several modules share one provider. A provider's own encoding of a model turn (`llm.Native`: Gemini's steps, a Chat Completions service's assistant message) goes back to that provider exactly; another provider reads the turn's content. A provider records every call itself, attributed to the module and event through `otogi.WorkFrom(ctx)`; it keeps no state, and conversations live in the calling module's own storage.
 
 ## Platform types stay in their adapter
 
