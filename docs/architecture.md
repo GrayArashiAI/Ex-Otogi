@@ -28,7 +28,7 @@ Modules that use language models depend only on `pkg/llm`: `Provider.Generate` t
 
 ## Decisions
 
-Modules that ask yes/no questions about a conversation depend only on `pkg/decision`. The decision module (`modules/decision`, today backed by TypeSafe Jev) provides `decision.Service`; a module that asks lists it in `Requires` and looks it up with `otogi.Lookup[decision.Decider]`. The decision module records every request, attributed to the asking module and its event through `otogi.WorkFrom(ctx)`.
+Modules that ask yes/no questions about a conversation depend only on `pkg/decision`. The decision module (`modules/decision`, today backed by TypeSafe Jev) provides `decision.Service`; a module that asks lists it in `Requires` and looks it up with `otogi.Lookup[decision.Decider]`. The decision module records every request, attributed to the asking module and its event through `otogi.WorkFrom(ctx)`. The chat module asks for agents with `judge` settings: whether a group message no trigger caught is addressed to the agent.
 
 ## Platform types stay in their adapter
 
