@@ -98,6 +98,9 @@ type RunResult struct {
 	// Reply is everything the model showed across all rounds, as one
 	// message.
 	Reply otogi.Message
+	// Last is what the model showed after say last took what it had said:
+	// all of Reply when say is nil or never took anything.
+	Last otogi.Message
 	// Final is the last model response.
 	Final Response
 	// Usage sums all rounds.
@@ -138,7 +141,11 @@ var wrapUpErrors = map[string]string{
 // Run answers req with p, running the function calls the model makes with
 // tools, until the model answers without calling any. It offers the tools'
 // functions alongside req.Tools. partial, if not nil, sees the reply so far
-// across rounds; onCall, if not nil, sees each call as it finishes.
+// across rounds. say, if not nil, takes what the model has said when a round
+// that showed something also calls functions, before the calls run, so the
+// words do not wait for the calls; the reply then starts over, and partial
+// and RunResult.Last see only what follows. onCall, if not nil, sees each
+// call as it finishes.
 //
 // A call to an unknown function, or one that fails or panics, is answered
 // with an error the model sees. Calls are run for at most limits.Rounds
@@ -147,7 +154,7 @@ var wrapUpErrors = map[string]string{
 // calls are then answered with an error asking the model to answer with
 // what it has, and a model that still calls functions is an error.
 func Run(ctx context.Context, p Provider, req Request, tools map[string]Tool, event otogi.Event,
-	limits Limits, partial func(otogi.Message) error, onCall func(CallRecord)) (RunResult, error) {
+	limits Limits, partial, say func(otogi.Message) error, onCall func(CallRecord)) (RunResult, error) {
 	for _, t := range tools {
 		f := t.Function()
 		req.Tools = append(req.Tools, ToolSpec{Function: &f})
@@ -157,7 +164,7 @@ func Run(ctx context.Context, p Provider, req Request, tools map[string]Tool, ev
 	for round := 1; ; round++ {
 		var show func(otogi.Message) error
 		if partial != nil {
-			shown := out.Reply
+			shown := out.Last
 			show = func(m otogi.Message) error { return partial(Join(shown, m)) }
 		}
 		started := time.Now()
@@ -169,6 +176,7 @@ func Run(ctx context.Context, p Provider, req Request, tools map[string]Tool, ev
 		out.Final, out.Usage = resp, out.Usage.Add(resp.Usage)
 		out.Turns = append(out.Turns, resp.Turn)
 		out.Reply = Join(out.Reply, resp.Turn.Content)
+		out.Last = Join(out.Last, resp.Turn.Content)
 		out.Sources = append(out.Sources, resp.Sources...)
 		req.Turns = append(req.Turns, resp.Turn)
 		if len(resp.Turn.Calls) == 0 {
@@ -182,6 +190,12 @@ func Run(ctx context.Context, p Provider, req Request, tools map[string]Tool, ev
 		}
 		if round > limits.Rounds {
 			out.WrappedUp = WrapUpRounds
+		}
+		if say != nil && len(out.Last.Parts) > 0 {
+			if err := say(out.Last); err != nil {
+				return out, err
+			}
+			out.Last = otogi.Message{}
 		}
 		results := make([]Result, len(resp.Turn.Calls))
 		for i, c := range resp.Turn.Calls {
