@@ -28,7 +28,7 @@ type Config struct {
 type ProfileConfig struct {
 	Name          string       `json:"name" minLength:"1" doc:"Identifies the agent and names its allowlist. Its threads are stored under it: keep it stable."`
 	Label         string       `json:"label,omitempty" doc:"When set, starts each reply in bold."`
-	Keywords      []string     `json:"keywords" minItems:"1" doc:"A message starting with one of them triggers the agent; so does replying to it."`
+	Keywords      []string     `json:"keywords" minItems:"1" doc:"A message starting with one of them triggers the agent; so does replying to it. In a group, with judge.wake on, they only tell the judgment the agent's names: it decides whether such a message is talking to the agent, and when it fails, the keyword triggers the agent as without it."`
 	Mention       bool         `json:"mention,omitempty" doc:"A message mentioning the bot account triggers the agent too. A reply to a message the account sent for another module, such as a card or a reminder, does not, though Telegram and QQ count it as a mention. When several agents in a chat set it, the first answers."`
 	Provider      string       `json:"provider" minLength:"1" doc:"A language model provider configured under llm in otogi.yaml: gemini, or the name of an llm.openai service such as deepseek."`
 	Model         string       `json:"model" minLength:"1" doc:"The provider's model ID."`

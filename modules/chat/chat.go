@@ -154,6 +154,9 @@ func (m *Module) Handle(ctx context.Context, e otogi.Event, inv otogi.Invocation
 			return err
 		}
 		trigger = "decision"
+		if j == nil {
+			trigger = "keyword" // the judgment failed; the message starts with p's name
+		}
 	}
 	return m.respond(ctx, e, inv, p, parent, trigger, j)
 }
@@ -191,7 +194,10 @@ func (m *Module) serves(chat string) bool {
 // message starts with another agent's keyword, which starts a new one. A
 // reply to a message the account sent for another module, such as a card, is
 // no mention, though platforms flag it as one: it addresses no agent, and
-// elsewhere reports it so the message is not judged either.
+// elsewhere reports it so the message is not judged either. In a group, a
+// keyword alone does not trigger an agent whose judgment wakes it: starting
+// with a name is not always talking to it, so the judgment decides; with a
+// mention, the keyword still picks the agent.
 func (m *Module) route(ctx context.Context, e otogi.Event) (*profile, int64, string, bool, error) {
 	chat, text := e.ChatKey(), firstText(e.Message)
 	var named *profile
@@ -220,7 +226,7 @@ func (m *Module) route(ctx context.Context, e otogi.Event) (*profile, int64, str
 			}
 		}
 	}
-	if named != nil {
+	if named != nil && (mentioned || !judgesNames(named, e)) {
 		return named, 0, "keyword", false, nil
 	}
 	if mentioned {
@@ -230,7 +236,15 @@ func (m *Module) route(ctx context.Context, e otogi.Event) (*profile, int64, str
 			}
 		}
 	}
-	return nil, 0, "", elsewhere, nil
+	// A reply to a card that starts with an agent's name may still be talking
+	// to the agent: the judgment decides, as the keyword would have.
+	return nil, 0, "", elsewhere && named == nil, nil
+}
+
+// judgesNames reports whether p's keywords are left to the judgment in e's
+// chat: a group, for an agent whose judgment wakes it.
+func judgesNames(p *profile, e otogi.Event) bool {
+	return p.wake > 0 && e.Conversation.Kind == otogi.ConversationGroup
 }
 
 func firstText(msg otogi.Message) string {
