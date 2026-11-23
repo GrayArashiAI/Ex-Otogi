@@ -137,10 +137,11 @@ func TestModuleSettingsValidation(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = storage.Close() })
 	s, _ := settingsHarness(t, storage)
-	for module, c := range map[otogi.ModuleID]struct{ settings, want string }{
-		"chat":      {`{"profiles": [{"name": "Luna", "provider": "gemini", "model": "m", "temperature": 3}], "colour": "red"}`, "profiles[0].temperature;unexpected property"},
-		"todou":     {`{"cli": "todou", "agents": {"neptune": {"server": "https://todou.test", "token": "todou_pat_x"}}}`, "agents.neptune.token"},
-		"reminders": {`{"max_delay": "soon"}`, "max_delay"},
+	for module, c := range map[otogi.ModuleID]struct{ settings, want, secret string }{
+		"chat":      {`{"profiles": [{"name": "Luna", "provider": "gemini", "model": "m", "temperature": 3}], "colour": "red"}`, "profiles[0].temperature;unexpected property", ""},
+		"todou":     {`{"cli": "todou", "agents": {"neptune": {"server": "https://todou.test", "token": "todou_pat_x"}}}`, "agents.neptune.token", "todou_pat_x"},
+		"reminders": {`{"max_delay": "soon"}`, "max_delay", ""},
+		"decision":  {`{"jev": {"api_key": "ts_pasted_key"}}`, "jev.api_key", "ts_pasted_key"},
 	} {
 		_, err := s.save(ctx, module, 0, nil, json.RawMessage(c.settings), "x")
 		var invalid *invalidSettings
@@ -154,7 +155,7 @@ func TestModuleSettingsValidation(t *testing.T) {
 				where = append(where, detail.Location)
 			}
 		}
-		if got := strings.Join(where, ";"); !strings.Contains(got, strings.Split(c.want, ";")[0]) || strings.Contains(err.Error(), "todou_pat_x") {
+		if got := strings.Join(where, ";"); !strings.Contains(got, strings.Split(c.want, ";")[0]) || c.secret != "" && strings.Contains(err.Error(), c.secret) {
 			t.Errorf("%s: %v", module, err)
 		}
 	}

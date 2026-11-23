@@ -15,6 +15,7 @@ import (
 	"github.com/TundraWork/Ex-Otogi/modules/bilibili"
 	"github.com/TundraWork/Ex-Otogi/modules/booth"
 	"github.com/TundraWork/Ex-Otogi/modules/chat"
+	"github.com/TundraWork/Ex-Otogi/modules/decision"
 	"github.com/TundraWork/Ex-Otogi/modules/echo"
 	"github.com/TundraWork/Ex-Otogi/modules/notes"
 	"github.com/TundraWork/Ex-Otogi/modules/reminders"
@@ -42,6 +43,7 @@ var moduleKinds = map[otogi.ModuleID]moduleKind{
 	"chat": kind(func(c chat.Config, env moduleEnv) (otogi.Module, error) {
 		return built(chat.New(c, env.llm))
 	}),
+	"decision":  kind(func(c decision.Config, _ moduleEnv) (otogi.Module, error) { return built(decision.New(c)) }),
 	"echo":      kind(func(struct{}, moduleEnv) (otogi.Module, error) { return echo.New(), nil }),
 	"notes":     kind(func(c notes.Config, _ moduleEnv) (otogi.Module, error) { return notes.New(c), nil }),
 	"reminders": kind(func(c reminders.Config, _ moduleEnv) (otogi.Module, error) { return reminders.New(c), nil }),

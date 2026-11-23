@@ -1,4 +1,14 @@
-import { AlarmClock, Bot, KanbanSquare, MessageSquare, NotebookPen, Repeat2, ShieldCheck, Wrench } from "lucide-react";
+import {
+  AlarmClock,
+  Bot,
+  KanbanSquare,
+  MessageSquare,
+  NotebookPen,
+  Repeat2,
+  Scale,
+  ShieldCheck,
+  Wrench,
+} from "lucide-react";
 import type { ComponentType, SVGProps } from "react";
 
 export type Tone =
@@ -79,6 +89,12 @@ const modules: Record<string, ModuleMeta> = {
     about: "Language model agents that answer in the chats on their lists.",
     icon: MessageSquare,
     tone: "emerald",
+  },
+  decision: {
+    title: "Decisions",
+    about: "Yes/no judgments about a conversation, by TypeSafe Jev, for other modules to ask.",
+    icon: Scale,
+    tone: "violet",
   },
   bilibili: {
     title: "Bilibili cards",
