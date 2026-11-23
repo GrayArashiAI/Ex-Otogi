@@ -15,8 +15,9 @@ import (
 const cleanupTimeout = 30 * time.Second
 
 // respond has p answer e, continuing from turn parent (0 for a new thread):
-// the reply streams into the chat, and the turns are kept.
-func (m *Module) respond(ctx context.Context, e otogi.Event, inv otogi.Invocation, p *profile, parent int64, trigger string) error {
+// the reply streams into the chat, and the turns are kept. j is the judgment
+// that woke p, if one did.
+func (m *Module) respond(ctx context.Context, e otogi.Event, inv otogi.Invocation, p *profile, parent int64, trigger string, j *judgment) error {
 	started := m.now()
 	path, err := m.thread(ctx, parent, p.MaxTurns)
 	if err != nil {
@@ -62,7 +63,7 @@ func (m *Module) respond(ctx context.Context, e otogi.Event, inv otogi.Invocatio
 		ids, storeErr = m.store.thread(cleanup, p.Name, e.Destination(), parent, turns, refs, m.now())
 	}
 	err = errors.Join(runErr, closeErr, storeErr)
-	m.record(cleanup, e, p, trigger, parent, ids, out, refs, err, m.now().Sub(started))
+	m.record(cleanup, e, p, trigger, j, parent, ids, out, refs, err, m.now().Sub(started))
 	return err
 }
 
@@ -343,7 +344,7 @@ func (m *Module) recordCall(ctx context.Context, e otogi.Event, p *profile, c ll
 }
 
 // record writes the reply's record.
-func (m *Module) record(ctx context.Context, e otogi.Event, p *profile, trigger string, parent int64, ids []int64, out llm.RunResult, refs []otogi.EventRef, err error, d time.Duration) {
+func (m *Module) record(ctx context.Context, e otogi.Event, p *profile, trigger string, j *judgment, parent int64, ids []int64, out llm.RunResult, refs []otogi.EventRef, err error, d time.Duration) {
 	rounds := 0
 	for _, t := range out.Turns {
 		if t.Role == llm.RoleModel {
@@ -353,6 +354,9 @@ func (m *Module) record(ctx context.Context, e otogi.Event, p *profile, trigger 
 	payload := map[string]any{
 		"profile": p.Name, "provider": p.Provider, "model": p.Model, "trigger": trigger, "parent": parent, "turns": ids, "rounds": rounds,
 		"finish": out.Final.Finish, "reason": out.Final.Reason, "wrapped_up": out.WrappedUp, "usage": out.Usage, "sources": out.Sources, "messages": refs,
+	}
+	if j != nil {
+		payload["judged"] = j
 	}
 	outcome := "ok"
 	if err != nil {

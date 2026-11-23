@@ -128,12 +128,18 @@ const group = "telegram:chat:1"
 
 func newHarness(t *testing.T, profiles ...ProfileConfig) *harness {
 	t.Helper()
+	return newHarnessWith(t, nil, profiles...)
+}
+
+// newHarnessWith starts the module on a host offering services.
+func newHarnessWith(t *testing.T, services map[string]any, profiles ...ProfileConfig) *harness {
+	t.Helper()
 	storage, err := modulestore.Open(context.Background(), t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = storage.Close() })
-	h := &harness{t: t, host: &host{storage: storage, lists: map[[2]string]string{}}, llm: map[string]*provider{}, now: time.Date(2026, 10, 31, 12, 0, 0, 0, time.UTC)}
+	h := &harness{t: t, host: &host{storage: storage, lists: map[[2]string]string{}, services: services}, llm: map[string]*provider{}, now: time.Date(2026, 10, 31, 12, 0, 0, 0, time.UTC)}
 	if len(profiles) == 0 {
 		profiles = []ProfileConfig{{Name: "otogi", Label: "Otogi", Keywords: []string{"otogi", "小鸟"}, Provider: "otogi", Model: "m", System: "Be kind."}}
 	}

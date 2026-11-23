@@ -1,7 +1,8 @@
 // Package chat answers people in chats with language model agents. Each
 // agent profile answers in the chats on its allowlist when a message starts
 // with one of its keywords, mentions the account, or replies to a message it
-// sent.
+// sent; an agent judged by the decision service also answers group messages
+// judged to be addressed to it.
 package chat
 
 import (
@@ -12,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/TundraWork/Ex-Otogi/pkg/decision"
 	"github.com/TundraWork/Ex-Otogi/pkg/llm"
 	"github.com/TundraWork/Ex-Otogi/pkg/markdown"
 	"github.com/TundraWork/Ex-Otogi/pkg/otogi"
@@ -26,6 +28,7 @@ type Module struct {
 	tools       map[otogi.ModuleID][]llm.Tool // each tool module's functions; set in Start
 	host        otogi.Host
 	store       *store
+	decider     decision.Decider // set in Start when an agent is judged
 	now         func() time.Time
 }
 
@@ -59,6 +62,9 @@ func (m *Module) Descriptor() otogi.ModuleDescriptor {
 	for _, t := range m.toolModules {
 		requires = append(requires, llm.ToolsService(t))
 		lists = append(lists, otogi.AllowlistSpec{Name: toolsList(t), Title: string(t) + " tools", Description: "Agents may use the " + string(t) + " module's tools here.", About: t})
+	}
+	if m.judged() {
+		requires = append(requires, decision.Service)
 	}
 	return otogi.ModuleDescriptor{
 		ID:         "chat",
@@ -97,7 +103,22 @@ func (m *Module) Start(ctx context.Context, host otogi.Host) error {
 		}
 		m.tools[module] = tools
 	}
+	if m.judged() {
+		if m.decider, err = otogi.Lookup[decision.Decider](host, decision.Service); err != nil {
+			return fmt.Errorf("decision: %w", err)
+		}
+	}
 	return host.Schedule("prune", "@every 1h", m.prune)
+}
+
+// judged reports whether any agent has the decision service judge messages.
+func (m *Module) judged() bool {
+	for _, p := range m.profiles {
+		if p.wake > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *Module) prune(ctx context.Context, _ otogi.Invocation) error {
@@ -123,11 +144,18 @@ func (m *Module) Handle(ctx context.Context, e otogi.Event, inv otogi.Invocation
 	if e.Action != otogi.ActionMessageCreated || e.Direction != otogi.DirectionIncoming || e.Command != nil || e.Actor.Bot {
 		return nil
 	}
-	p, parent, trigger, err := m.route(ctx, e)
-	if err != nil || p == nil {
+	p, parent, trigger, elsewhere, err := m.route(ctx, e)
+	if err != nil || p == nil && elsewhere {
 		return err
 	}
-	return m.respond(ctx, e, inv, p, parent, trigger)
+	var j *judgment
+	if p == nil {
+		if p, j = m.wake(ctx, e); p == nil {
+			return nil
+		}
+		trigger = "decision"
+	}
+	return m.respond(ctx, e, inv, p, parent, trigger, j)
 }
 
 // toolsIn is the functions agents get in chat: those of the modules whose
@@ -162,8 +190,9 @@ func (m *Module) serves(chat string) bool {
 // (0 for a new thread). A reply to an agent continues its thread, unless the
 // message starts with another agent's keyword, which starts a new one. A
 // reply to a message the account sent for another module, such as a card, is
-// no mention, though platforms flag it as one: it addresses no agent.
-func (m *Module) route(ctx context.Context, e otogi.Event) (*profile, int64, string, error) {
+// no mention, though platforms flag it as one: it addresses no agent, and
+// elsewhere reports it so the message is not judged either.
+func (m *Module) route(ctx context.Context, e otogi.Event) (*profile, int64, string, bool, error) {
 	chat, text := e.ChatKey(), firstText(e.Message)
 	var named *profile
 	for _, p := range m.profiles {
@@ -172,36 +201,36 @@ func (m *Module) route(ctx context.Context, e otogi.Event) (*profile, int64, str
 			break
 		}
 	}
-	mentioned := e.Mentioned
+	mentioned, elsewhere := e.Mentioned, false
 	if target, ok := replyTarget(e.Message); ok {
 		turn, name, found, err := m.store.agentTurn(ctx, target)
 		if err != nil {
-			return nil, 0, "", err
+			return nil, 0, "", false, err
 		}
 		if p := m.byName[name]; found && p != nil && m.answers(p, chat) && (named == nil || named == p) {
-			return p, turn, "reply", nil
+			return p, turn, "reply", false, nil
 		}
 		if !found {
 			to, kept, err := m.store.message(ctx, e.Destination(), string(target.SourceEvent))
 			if err != nil {
-				return nil, 0, "", err
+				return nil, 0, "", false, err
 			}
 			if kept && to.Outgoing {
-				mentioned = false
+				mentioned, elsewhere = false, true
 			}
 		}
 	}
 	if named != nil {
-		return named, 0, "keyword", nil
+		return named, 0, "keyword", false, nil
 	}
 	if mentioned {
 		for _, p := range m.profiles {
 			if m.answers(p, chat) && p.Mention {
-				return p, 0, "mention", nil
+				return p, 0, "mention", false, nil
 			}
 		}
 	}
-	return nil, 0, "", nil
+	return nil, 0, "", elsewhere, nil
 }
 
 func firstText(msg otogi.Message) string {

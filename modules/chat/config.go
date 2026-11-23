@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"slices"
@@ -25,21 +26,38 @@ type Config struct {
 
 // ProfileConfig configures one agent.
 type ProfileConfig struct {
-	Name          string   `json:"name" minLength:"1" doc:"Identifies the agent and names its allowlist. Its threads are stored under it: keep it stable."`
-	Label         string   `json:"label,omitempty" doc:"When set, starts each reply in bold."`
-	Keywords      []string `json:"keywords" minItems:"1" doc:"A message starting with one of them triggers the agent; so does replying to it."`
-	Mention       bool     `json:"mention,omitempty" doc:"A message mentioning the bot account triggers the agent too. A reply to a message the account sent for another module, such as a card or a reminder, does not, though Telegram and QQ count it as a mention. When several agents in a chat set it, the first answers."`
-	Provider      string   `json:"provider" minLength:"1" doc:"A language model provider configured under llm in otogi.yaml: gemini, or the name of an llm.openai service such as deepseek."`
-	Model         string   `json:"model" minLength:"1" doc:"The provider's model ID."`
-	Thinking      string   `json:"thinking,omitempty" enum:"minimal,low,medium,high" doc:"How much the model thinks before answering; unset is the model's default."`
-	MaxOutput     int      `json:"max_output,omitempty" minimum:"1" doc:"The most tokens a reply may have; unset is the model's default."`
-	Temperature   *float64 `json:"temperature,omitempty" minimum:"0" maximum:"2" doc:"Sampling temperature, 0 to 2; unset is the model's default (1 for Gemini). Higher is livelier, lower more predictable."`
-	System        string   `json:"system,omitempty" format:"markdown" doc:"The system prompt: who the agent is and how it talks, in Markdown."`
-	Context       *int     `json:"context,omitempty" minimum:"0" default:"30" doc:"How many recent chat messages the agent sees; 0 for none."`
-	MaxTurns      int      `json:"max_turns,omitempty" minimum:"1" default:"40" doc:"How many turns of a thread are sent, newest kept."`
-	Tools         []string `json:"tools,omitempty" enum:"web_search,url_context,code_execution" doc:"The model's built-in tools the agent uses everywhere it answers. web_search is the provider's own search: Google Search on Gemini, cited; on DeepSeek, searching and opening pages over several steps. url_context reads the pages the conversation links (Gemini, DeepSeek). code_execution runs code the model writes (Gemini). Modules' tools are offered per chat: see Tools, after the profiles."`
-	MaxToolRounds int      `json:"max_tool_rounds,omitempty" minimum:"1" default:"8" doc:"The most rounds of tool calls in one reply."`
+	Name          string       `json:"name" minLength:"1" doc:"Identifies the agent and names its allowlist. Its threads are stored under it: keep it stable."`
+	Label         string       `json:"label,omitempty" doc:"When set, starts each reply in bold."`
+	Keywords      []string     `json:"keywords" minItems:"1" doc:"A message starting with one of them triggers the agent; so does replying to it."`
+	Mention       bool         `json:"mention,omitempty" doc:"A message mentioning the bot account triggers the agent too. A reply to a message the account sent for another module, such as a card or a reminder, does not, though Telegram and QQ count it as a mention. When several agents in a chat set it, the first answers."`
+	Provider      string       `json:"provider" minLength:"1" doc:"A language model provider configured under llm in otogi.yaml: gemini, or the name of an llm.openai service such as deepseek."`
+	Model         string       `json:"model" minLength:"1" doc:"The provider's model ID."`
+	Thinking      string       `json:"thinking,omitempty" enum:"minimal,low,medium,high" doc:"How much the model thinks before answering; unset is the model's default."`
+	MaxOutput     int          `json:"max_output,omitempty" minimum:"1" doc:"The most tokens a reply may have; unset is the model's default."`
+	Temperature   *float64     `json:"temperature,omitempty" minimum:"0" maximum:"2" doc:"Sampling temperature, 0 to 2; unset is the model's default (1 for Gemini). Higher is livelier, lower more predictable."`
+	System        string       `json:"system,omitempty" format:"markdown" doc:"The system prompt: who the agent is and how it talks, in Markdown."`
+	Context       *int         `json:"context,omitempty" minimum:"0" default:"30" doc:"How many recent chat messages the agent sees; 0 for none."`
+	MaxTurns      int          `json:"max_turns,omitempty" minimum:"1" default:"40" doc:"How many turns of a thread are sent, newest kept."`
+	Tools         []string     `json:"tools,omitempty" enum:"web_search,url_context,code_execution" doc:"The model's built-in tools the agent uses everywhere it answers. web_search is the provider's own search: Google Search on Gemini, cited; on DeepSeek, searching and opening pages over several steps. url_context reads the pages the conversation links (Gemini, DeepSeek). code_execution runs code the model writes (Gemini). Modules' tools are offered per chat: see Tools, after the profiles."`
+	MaxToolRounds int          `json:"max_tool_rounds,omitempty" minimum:"1" default:"8" doc:"The most rounds of tool calls in one reply."`
+	Judge         *JudgeConfig `json:"judge,omitempty" doc:"Has the decision service judge, in groups, the messages no keyword, reply, or mention triggers. Needs the decision module."`
 }
+
+// JudgeConfig has the decision service judge group messages for an agent.
+// Each block turns one judgment on.
+type JudgeConfig struct {
+	Rules string      `json:"rules,omitempty" doc:"What else counts, or does not, as talking to the agent: for example that its name is also a product people discuss."`
+	Wake  *WakeConfig `json:"wake,omitempty" doc:"Answer group messages addressed to the agent that no trigger caught, such as its name in the middle of a sentence."`
+}
+
+// WakeConfig configures answering messages judged to be addressed to the
+// agent.
+type WakeConfig struct {
+	Threshold float64 `json:"threshold,omitempty" minimum:"0" maximum:"1" default:"0.8" doc:"How sure the judgment must be that a message is addressed to the agent. When several agents pass, the surest answers."`
+}
+
+// defaultWake is the wake threshold of a wake block that sets none.
+const defaultWake = 0.8
 
 // profile is a validated agent.
 type profile struct {
@@ -48,6 +66,8 @@ type profile struct {
 	context  int
 	builtins []llm.ToolSpec
 	provider llm.Provider
+	wake     float64 // how sure a judgment must be to wake it; 0 when it is not judged
+	rules    string  // what else counts as talking to it, for judgments
 }
 
 // toolsList names the allowlist of the chats where agents get a module's
@@ -154,6 +174,12 @@ func (c *Config) profiles(providers func(string) (llm.Provider, error)) ([]*prof
 				continue
 			}
 			p.builtins = append(p.builtins, llm.ToolSpec{Builtin: t})
+		}
+		if pc.Judge != nil {
+			p.rules = strings.TrimSpace(pc.Judge.Rules)
+			if pc.Judge.Wake != nil {
+				p.wake = cmp.Or(pc.Judge.Wake.Threshold, defaultWake)
+			}
 		}
 		provider, err := providers(pc.Provider)
 		if err != nil {
