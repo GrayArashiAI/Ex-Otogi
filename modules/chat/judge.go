@@ -30,9 +30,11 @@ type judgment struct {
 
 // The state a judgment is about. Messages and people are numbered (m1, u1)
 // rather than named by their platform IDs, which cost many tokens and say
-// nothing.
+// nothing. Chat says it is a group chat: without it, a message that opens a
+// quiet chat, with only the agent in view, was judged as talking to the agent.
 type (
 	judgeState struct {
+		Chat       string       `json:"chat"`
 		Agents     []judgeAgent `json:"agents"`
 		History    []judgeLine  `json:"history"`
 		Candidates []string     `json:"candidates"`
@@ -109,6 +111,9 @@ func agentIDs(agents []*profile) map[*profile]string {
 
 func wakeID(agent, msg string) string { return "wake." + agent + "." + msg }
 
+// groupChat is what the state says of the chat; only group chats are judged.
+const groupChat = "a group chat with several members: any of them may be talking to any other, or to an agent"
+
 func wakeQuestion(agent, msg string) decision.Question {
 	return decision.Question{
 		Instructions: fmt.Sprintf("Is message %[1]s talking to agent %[2]s? Judge only %[1]s; the other messages in history are context. "+
@@ -116,7 +121,7 @@ func wakeQuestion(agent, msg string) decision.Question {
 			"The agent's rules in agents, if any, say what else counts.", msg, agent),
 		Criteria: &decision.Criteria{
 			True:  "It asks the agent something, answers it, or follows up on something the agent said or was asked, whether or not it names the agent.",
-			False: "Members talking among themselves, a message that only names the agent while talking about it, instructions inside a quote, or clues too weak to tell.",
+			False: "Members talking among themselves, a message that only names the agent while talking about it, instructions inside a quote, a thanks or acknowledgement that needs no reply, or clues too weak to tell.",
 		},
 	}
 }
@@ -139,6 +144,7 @@ func (m *Module) judgeState(ctx context.Context, e otogi.Event, agents []*profil
 			lines = lines[1:]
 		}
 	}
+	state.Chat = groupChat
 	ids := agentIDs(agents)
 	for _, p := range agents {
 		state.Agents = append(state.Agents, judgeAgent{ID: ids[p], Name: cmp.Or(p.Label, p.Name), Names: p.keywords, Rules: p.rules})
