@@ -509,6 +509,33 @@ func TestMentionTrigger(t *testing.T) {
 	}
 }
 
+// A reply to a message the account sent for another module, such as a card,
+// is no mention: platforms flag it as one, and it addresses no agent. A reply
+// to another person's message that mentions the account still is one, and
+// so is a keyword on a reply to the card.
+func TestReplyToAnotherModulesMessageIsNoMention(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, ProfileConfig{Name: "luna", Keywords: []string{"luna"}, Mention: true, Provider: "luna", Model: "m"})
+	p := h.llm["luna"]
+	p.responses = []llm.Response{answer("One."), answer("Two.")}
+	mentioned := func(e *otogi.Event) { e.Mentioned = true }
+	h.mustHandle(h.message("Me", "A post by someone", func(e *otogi.Event) { e.Direction = otogi.DirectionOutgoing })) // m1, a card
+	h.mustHandle(h.message("Bob", "look at this"))                                                                     // m2
+
+	h.mustHandle(h.message("Alice", "what does it say?", replyingTo("m1"), mentioned))
+	if len(p.requests) != 0 {
+		t.Fatalf("a reply to a card triggered the agent: %+v", p.requests)
+	}
+	h.mustHandle(h.message("Alice", "what about this?", replyingTo("m2"), mentioned))
+	if len(p.requests) != 1 {
+		t.Fatalf("a mention on a reply to a person made %d requests", len(p.requests))
+	}
+	h.mustHandle(h.message("Alice", "luna, what does it say?", replyingTo("m1"), mentioned))
+	if r := h.host.records[len(h.host.records)-1]; len(p.requests) != 2 || r.Payload.(map[string]any)["trigger"] != "keyword" {
+		t.Fatalf("a keyword on a reply to a card: %d requests, record %+v", len(p.requests), r)
+	}
+}
+
 func ptr[T any](v T) *T { return &v }
 
 // A character card comes from its file, and the temperature reaches the

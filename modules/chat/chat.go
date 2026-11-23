@@ -160,7 +160,9 @@ func (m *Module) serves(chat string) bool {
 
 // route picks the agent a message triggers, and the turn it continues from
 // (0 for a new thread). A reply to an agent continues its thread, unless the
-// message starts with another agent's keyword, which starts a new one.
+// message starts with another agent's keyword, which starts a new one. A
+// reply to a message the account sent for another module, such as a card, is
+// no mention, though platforms flag it as one: it addresses no agent.
 func (m *Module) route(ctx context.Context, e otogi.Event) (*profile, int64, string, error) {
 	chat, text := e.ChatKey(), firstText(e.Message)
 	var named *profile
@@ -170,6 +172,7 @@ func (m *Module) route(ctx context.Context, e otogi.Event) (*profile, int64, str
 			break
 		}
 	}
+	mentioned := e.Mentioned
 	if target, ok := replyTarget(e.Message); ok {
 		turn, name, found, err := m.store.agentTurn(ctx, target)
 		if err != nil {
@@ -178,11 +181,20 @@ func (m *Module) route(ctx context.Context, e otogi.Event) (*profile, int64, str
 		if p := m.byName[name]; found && p != nil && m.answers(p, chat) && (named == nil || named == p) {
 			return p, turn, "reply", nil
 		}
+		if !found {
+			to, kept, err := m.store.message(ctx, e.Destination(), string(target.SourceEvent))
+			if err != nil {
+				return nil, 0, "", err
+			}
+			if kept && to.Outgoing {
+				mentioned = false
+			}
+		}
 	}
 	if named != nil {
 		return named, 0, "keyword", nil
 	}
-	if e.Mentioned {
+	if mentioned {
 		for _, p := range m.profiles {
 			if m.answers(p, chat) && p.Mention {
 				return p, 0, "mention", nil

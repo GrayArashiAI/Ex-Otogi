@@ -28,7 +28,7 @@ type ProfileConfig struct {
 	Name          string   `json:"name" minLength:"1" doc:"Identifies the agent and names its allowlist. Its threads are stored under it: keep it stable."`
 	Label         string   `json:"label,omitempty" doc:"When set, starts each reply in bold."`
 	Keywords      []string `json:"keywords" minItems:"1" doc:"A message starting with one of them triggers the agent; so does replying to it."`
-	Mention       bool     `json:"mention,omitempty" doc:"A message mentioning the bot account triggers the agent too, and so does a reply to any of the account's messages, such as a card, which Telegram and QQ count as a mention. When several agents in a chat set it, the first answers."`
+	Mention       bool     `json:"mention,omitempty" doc:"A message mentioning the bot account triggers the agent too. A reply to a message the account sent for another module, such as a card or a reminder, does not, though Telegram and QQ count it as a mention. When several agents in a chat set it, the first answers."`
 	Provider      string   `json:"provider" minLength:"1" doc:"A language model provider configured under llm in otogi.yaml: gemini, or the name of an llm.openai service such as deepseek."`
 	Model         string   `json:"model" minLength:"1" doc:"The provider's model ID."`
 	Thinking      string   `json:"thinking,omitempty" enum:"minimal,low,medium,high" doc:"How much the model thinks before answering; unset is the model's default."`
