@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"slices"
 	"strings"
@@ -173,7 +174,7 @@ func (x *effects) sendOne(ctx context.Context, key, origin string, conversation 
 	case errors.As(err, &e) && e.Code == duplicateSeq:
 		// An earlier attempt was delivered; QQ does not say which message.
 		return ref, nil
-	case errors.As(err, &e):
+	case errors.As(err, &e), unsent(err):
 		return x.release(ctx, key, ref, err)
 	case err != nil:
 		return ref, err // no answer from QQ: the send stays claimed
@@ -219,19 +220,29 @@ func (x *effects) post(ctx context.Context, path string, send qqstore.Send, body
 	return x.retry(ctx, func(ctx context.Context) error { return x.api.call(ctx, http.MethodPost, path, b, out) })
 }
 
-// retry runs call, retrying failures QQ marks as transient and rate limits.
+// retry runs call, retrying failures QQ marks as transient, rate limits,
+// and calls that never reached QQ.
 func (x *effects) retry(ctx context.Context, call func(context.Context) error) error {
 	attempt := 0
 	return retry.Do(ctx, retry.WithMaxRetries(x.retries, retry.NewExponential(x.backoff)), func(ctx context.Context) error {
 		attempt++
 		err := call(ctx)
 		var e *apiError
-		if errors.As(err, &e) && (e.Status == http.StatusTooManyRequests || e.Status >= 500 && e.Code == 0 || slices.Contains(transient, e.Code)) {
+		if errors.As(err, &e) && (e.Status == http.StatusTooManyRequests || e.Status >= 500 && e.Code == 0 || slices.Contains(transient, e.Code)) || unsent(err) {
 			x.log.Warn("qq: call failed; retrying", "attempt", attempt, "error", err)
 			return retry.RetryableError(err)
 		}
 		return err
 	})
+}
+
+// unsent reports a call that failed before its request left the host: the
+// name did not resolve or no connection was made, as when the host's DNS
+// blinks for a few seconds. Repeating it cannot deliver a message twice.
+func unsent(err error) bool {
+	var dns *net.DNSError
+	var op *net.OpError
+	return errors.As(err, &dns) || errors.As(err, &op) && op.Op == "dial"
 }
 
 // classify wraps QQ's refusals in otogi.ErrUnavailable, and its
