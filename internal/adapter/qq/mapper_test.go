@@ -39,12 +39,13 @@ func TestMapGroupMessages(t *testing.T) {
 	m := testMapper(t)
 
 	// In full mode an @ to the bot arrives as a group message, its mention
-	// flagged is_you; other mentions keep the member's name.
+	// flagged is_you; other mentions keep the member's name. Members are named
+	// by their group card, or by their QQ nickname without one.
 	e := mapOne(t, m, "GROUP_MESSAGE_CREATE", `{"id":"g1","content":"<@B9> /status <@M2> and <@all>","group_openid":"G1",
-		"author":{"id":"a","member_openid":"M1","username":"Alice"},
-		"mentions":[{"member_openid":"B9","username":"Otogi","is_you":true},{"member_openid":"M2","username":"Bob"}],
+		"author":{"id":"a","member_openid":"M1","username":"alice_qq","member_nickname":"Alice"},
+		"mentions":[{"member_openid":"B9","username":"Otogi","is_you":true},{"member_openid":"M2","username":"bob_qq","member_nickname":"Bob"}],
 		"message_scene":{"ext":["msg_idx=REFIDX_g1"]}}`)
-	if e.Conversation.ID != "group:G1" || e.Conversation.Kind != otogi.ConversationGroup || e.Actor.ID != "user:M1" || !e.Mentioned || e.Direction != otogi.DirectionIncoming {
+	if e.Conversation.ID != "group:G1" || e.Conversation.Kind != otogi.ConversationGroup || e.Actor.ID != "user:M1" || e.Actor.Name != "Alice" || !e.Mentioned || e.Direction != otogi.DirectionIncoming {
 		t.Fatalf("event = %+v", e)
 	}
 	p := e.Message.Parts[0]
@@ -141,6 +142,17 @@ func TestMapLearnsNames(t *testing.T) {
 		if p, err := m.names.Peer(context.Background(), peer); err != nil || p.Name != want {
 			t.Fatalf("%s = %+v, %v", peer, p, err)
 		}
+	}
+
+	// A group card names the member in that group's message only: the open
+	// ID is the same in every group, so the kept name stays the QQ nickname.
+	e = mapOne(t, m, "GROUP_MESSAGE_CREATE", `{"id":"g3","content":"hi","group_openid":"G2",
+		"author":{"member_openid":"M1","username":"Alice","member_nickname":"Alice in G2"}}`)
+	if e.Actor.Name != "Alice in G2" {
+		t.Fatalf("actor = %+v", e.Actor)
+	}
+	if p, err := m.names.Peer(context.Background(), "user:M1"); err != nil || p.Name != "Alice" {
+		t.Fatalf("user:M1 = %+v, %v", p, err)
 	}
 }
 

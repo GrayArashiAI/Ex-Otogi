@@ -28,14 +28,18 @@ type message struct {
 		MemberOpenID string `json:"member_openid"`
 		UnionOpenID  string `json:"union_openid"`
 		Username     string `json:"username"`
-		Bot          bool   `json:"bot"`
+		// MemberNickname is the member's group card: the name this group
+		// shows, where Username is their QQ nickname.
+		MemberNickname string `json:"member_nickname"`
+		Bot            bool   `json:"bot"`
 	} `json:"author"`
 	Mentions []struct {
-		ID           string `json:"id"`
-		MemberOpenID string `json:"member_openid"`
-		UserOpenID   string `json:"user_openid"`
-		Username     string `json:"username"`
-		IsYou        bool   `json:"is_you"`
+		ID             string `json:"id"`
+		MemberOpenID   string `json:"member_openid"`
+		UserOpenID     string `json:"user_openid"`
+		Username       string `json:"username"`
+		MemberNickname string `json:"member_nickname"`
+		IsYou          bool   `json:"is_you"`
 	} `json:"mentions"`
 	Attachments []attachment `json:"attachments"`
 	MessageType int          `json:"message_type"`
@@ -132,7 +136,7 @@ func (m *mapper) mapFrame(ctx context.Context, f frame, received time.Time) (oto
 			e.Direction = otogi.DirectionOutgoing
 		}
 	}
-	e.Actor = otogi.Actor{ID: otogi.ActorID("user:" + actor), Name: msg.Author.Username, Bot: msg.Author.Bot}
+	e.Actor = otogi.Actor{ID: otogi.ActorID("user:" + actor), Name: firstOf(msg.Author.MemberNickname, msg.Author.Username), Bot: msg.Author.Bot}
 	if err := m.learnNames(ctx, msg, actor); err != nil {
 		return otogi.Event{}, err
 	}
@@ -173,7 +177,10 @@ func (m *mapper) sent(f frame, received time.Time) (otogi.Event, error) {
 
 // learnNames keeps the names a message shows: its sender's, and those of
 // the people it mentions. QQ sends a name only now and then (never in
-// private chats), so a name seen once names the user from then on.
+// private chats), so a name seen once names the user from then on. It keeps
+// QQ nicknames, not group cards: a member's open ID is the same in every
+// group and in private chats, so a group card would name them where it is
+// not theirs.
 func (m *mapper) learnNames(ctx context.Context, msg message, actor string) error {
 	if msg.Author.Username != "" && actor != "" {
 		if err := m.names.SetPeerName(ctx, "user:"+actor, msg.Author.Username); err != nil {
@@ -240,8 +247,8 @@ func (m *mapper) content(ctx context.Context, msg message, e *otogi.Event) (otog
 		}
 		for _, mention := range msg.Mentions {
 			if mention.MemberOpenID == id || mention.UserOpenID == id || mention.ID == id {
-				if mention.Username != "" {
-					name = mention.Username
+				if n := firstOf(mention.MemberNickname, mention.Username); n != "" {
+					name = n
 				}
 				if mention.IsYou {
 					e.Mentioned = true
