@@ -98,8 +98,8 @@ type RunResult struct {
 	// Reply is everything the model showed across all rounds, as one
 	// message.
 	Reply otogi.Message
-	// Last is what the model showed after say last took what it had said:
-	// all of Reply when say is nil or never took anything.
+	// Last is what the model showed after say took what it had said: all of
+	// Reply when say is nil or never took anything.
 	Last otogi.Message
 	// Final is the last model response.
 	Final Response
@@ -141,11 +141,12 @@ var wrapUpErrors = map[string]string{
 // Run answers req with p, running the function calls the model makes with
 // tools, until the model answers without calling any. It offers the tools'
 // functions alongside req.Tools. partial, if not nil, sees the reply so far
-// across rounds. say, if not nil, takes what the model has said when a round
-// that showed something also calls functions, before the calls run, so the
-// words do not wait for the calls; the reply then starts over, and partial
-// and RunResult.Last see only what follows. onCall, if not nil, sees each
-// call as it finishes.
+// across rounds. say, if not nil, takes what the model has said the first
+// time a round that showed something also calls functions, before the calls
+// run, so those words do not wait for the calls; the reply then starts over,
+// and partial and RunResult.Last see only what follows, words said before
+// later calls included. A reply is so at most two messages. onCall, if not
+// nil, sees each call as it finishes.
 //
 // A call to an unknown function, or one that fails or panics, is answered
 // with an error the model sees. Calls are run for at most limits.Rounds
@@ -161,6 +162,7 @@ func Run(ctx context.Context, p Provider, req Request, tools map[string]Tool, ev
 	}
 	var out RunResult
 	var slowest time.Duration
+	said := say == nil
 	for round := 1; ; round++ {
 		var show func(otogi.Message) error
 		if partial != nil {
@@ -191,7 +193,8 @@ func Run(ctx context.Context, p Provider, req Request, tools map[string]Tool, ev
 		if round > limits.Rounds {
 			out.WrappedUp = WrapUpRounds
 		}
-		if say != nil && len(out.Last.Parts) > 0 {
+		if !said && len(out.Last.Parts) > 0 {
+			said = true
 			if err := say(out.Last); err != nil {
 				return out, err
 			}

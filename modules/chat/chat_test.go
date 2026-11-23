@@ -489,10 +489,10 @@ func TestToolsPerChat(t *testing.T) {
 	}
 }
 
-// What the model says before calling tools goes out as its own message before
-// the tools run; the answer follows in a new one, and replying to either
-// continues the thread. When it says nothing after the tools, the last
-// message shows nothing.
+// What the model first says before calling tools goes out as its own message
+// before the tools run; the rest follows in one more, and replying to either
+// continues the thread. When it says nothing after the tools, there is no
+// second message.
 func TestWordsBeforeToolsGoOutFirst(t *testing.T) {
 	var shownWhenCalled int
 	var h *harness
@@ -532,11 +532,25 @@ func TestWordsBeforeToolsGoOutFirst(t *testing.T) {
 		}
 	}
 
+	// Words before a later call stay with the answer: two messages at most.
+	again := call
+	again.Turn.Content, again.Turn.Calls = otogi.TextMessage("Once more."), []llm.Call{{ID: "c2", Name: "shout", Args: json.RawMessage(`"hi"`)}}
+	p.responses, p.requests = []llm.Response{call, again, answer("Shouted twice.")}, nil
+	h.streams = nil
+	h.mustHandle(h.message("Alice", "otogi shout twice"))
+	if len(h.streams) != 2 || h.streams[0].final.PlainText() != "Let me shout." || h.streams[1].final.PlainText() != "Once more.\n\nShouted twice." {
+		t.Fatalf("streams %d, last %q", len(h.streams), h.streams[len(h.streams)-1].final.PlainText())
+	}
+
+	// Nothing said after the tools: no second message, none recorded.
 	p.responses, p.requests = []llm.Response{call, {Turn: llm.Turn{Role: llm.RoleModel}, Finish: llm.FinishStop}}, nil
 	h.streams = nil
 	h.mustHandle(h.message("Alice", "otogi shout again"))
-	if len(h.streams) != 2 || h.streams[0].final.PlainText() != "Let me shout." || len(h.streams[1].final.Parts) != 0 {
+	if len(h.streams) != 1 || h.streams[0].final.PlainText() != "Let me shout." {
 		t.Fatalf("streams %d, last %q", len(h.streams), h.streams[len(h.streams)-1].final.PlainText())
+	}
+	if got := h.host.records[len(h.host.records)-1].Payload.(map[string]any)["messages"].([]otogi.EventRef); len(got) != 1 {
+		t.Fatalf("recorded messages %v", got)
 	}
 }
 
