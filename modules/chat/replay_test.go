@@ -152,7 +152,7 @@ func (h *harness) replayAgent(t *testing.T, name, text string, i int) {
 	h.mustHandle(h.message("bot", text, func(e *otogi.Event) { e.Direction, e.SourceID = otogi.DirectionOutgoing, otogi.SourceEventID(source) }))
 	ref := otogi.EventRef{Platform: "telegram", Account: "main", Conversation: "chat:1", SourceEvent: otogi.SourceEventID(source)}
 	turn := []storedTurn{{Turn: llm.Turn{Role: llm.RoleUser, Content: otogi.TextMessage("(replayed)")}}}
-	if _, err := h.m.store.thread(context.Background(), name, otogi.Destination{Platform: "telegram", Account: "main", Conversation: "chat:1"}, 0, turn, []otogi.EventRef{ref}, h.now); err != nil {
+	if _, err := h.m.store.thread(context.Background(), name, otogi.Destination{Platform: "telegram", Account: "main", Conversation: "chat:1"}, 0, turn, []sentMessage{{Ref: ref}}, h.now); err != nil {
 		t.Fatal(err)
 	}
 }

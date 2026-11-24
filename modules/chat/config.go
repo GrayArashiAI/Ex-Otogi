@@ -84,7 +84,8 @@ type ProfileConfig struct {
 
 // MediaConfig has an agent read the media module's descriptions.
 type MediaConfig struct {
-	AsText bool `json:"as_text,omitempty" doc:"Give the model descriptions instead of the current and the quoted message's media, for a model that sees images poorly or not at all. Media left undescribed is named by its kind, not shown."`
+	AsText   bool  `json:"as_text,omitempty" doc:"Give the model descriptions instead of the current and the quoted message's media, for a model that sees images poorly or not at all. Media left undescribed is named by its kind, not shown."`
+	Stickers []int `json:"stickers,omitempty" doc:"The numbers of the stickers, as /sticker list shows them, this agent is shown when it may send one. Empty gives it no stickers and no send_sticker. The list goes before each turn, at full price on every reply since it comes after the cached part of the request; the agent picks one with send_sticker and it is sent after its reply, at most one per reply. It may also send a kept sticker not listed here when someone names its number. Verified on QQ only so far."`
 }
 
 // JudgeConfig has the decision service judge group messages for an agent.
@@ -218,6 +219,13 @@ func (c *Config) profiles(providers func(string) (llm.Provider, error)) ([]*prof
 				continue
 			}
 			p.builtins = append(p.builtins, llm.ToolSpec{Builtin: t})
+		}
+		if pc.Media != nil {
+			for i, n := range pc.Media.Stickers {
+				if n <= 0 {
+					errs = append(errs, fmt.Errorf("%s.media.stickers[%d] %d: want a sticker's number, as /sticker list shows it", field, i, n))
+				}
+			}
 		}
 		if pc.Judge != nil {
 			p.rules = strings.TrimSpace(pc.Judge.Rules)

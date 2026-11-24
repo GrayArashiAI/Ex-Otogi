@@ -71,9 +71,20 @@ type invocation struct {
 	h *harness
 }
 
-func (i invocation) Send(_ context.Context, _ string, msg otogi.Message) (otogi.EventRef, error) {
+func (i invocation) Send(_ context.Context, slot string, msg otogi.Message) (otogi.EventRef, error) {
 	i.h.replies = append(i.h.replies, msg.PlainText())
-	return otogi.EventRef{}, nil
+	if i.h.sendErr != nil {
+		return otogi.EventRef{}, i.h.sendErr
+	}
+	i.h.sent++
+	i.h.sends = append(i.h.sends, sentEffect{slot: slot, msg: msg})
+	return otogi.EventRef{Platform: "telegram", Account: "main", Conversation: "chat:1", SourceEvent: otogi.SourceEventID(fmt.Sprintf("agent-%d", i.h.sent))}, nil
+}
+
+// sentEffect is a message sent with Send, and its slot.
+type sentEffect struct {
+	slot string
+	msg  otogi.Message
 }
 
 func (i invocation) Stream(context.Context, string, otogi.Destination) otogi.MessageStream {
@@ -119,6 +130,8 @@ type harness struct {
 	llm     map[string]*provider
 	streams []*stream
 	replies []string // sent with Send: command replies
+	sends   []sentEffect
+	sendErr error // when set, Send fails with it
 	sent    int
 	now     time.Time
 	seq     int
@@ -384,6 +397,7 @@ func TestConfigErrors(t *testing.T) {
 		"bad thinking":                  {[]ProfileConfig{{Name: "a", Keywords: []string{"a"}, Provider: "gemini", Model: "m", Thinking: "max"}}, "thinking"},
 		"duplicate names":               {[]ProfileConfig{base, {Name: "a", Keywords: []string{"b"}, Provider: "gemini", Model: "m"}}, "used twice"},
 		"hot":                           {[]ProfileConfig{{Name: "a", Keywords: []string{"a"}, Provider: "gemini", Model: "m", Temperature: ptr(2.5)}}, "temperature 2.5: want 0 to 2"},
+		"sticker number 0":              {[]ProfileConfig{{Name: "a", Keywords: []string{"a"}, Provider: "gemini", Model: "m", Media: &MediaConfig{Stickers: []int{1, 0}}}}, "media.stickers[1] 0: want a sticker's number"},
 	} {
 		if _, err := New(Config{Profiles: c.profiles}, providers); err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: err %v, want %q", name, err, c.want)

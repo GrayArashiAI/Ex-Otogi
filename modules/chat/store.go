@@ -49,6 +49,9 @@ type line struct {
 	Text      string
 	Media     []otogi.Media
 	ReplyTo   string
+	// Sticker is what a sticker an agent sent shows; empty for other
+	// messages. It is read from sent, not kept in the transcript.
+	Sticker string
 }
 
 // record keeps a created or edited message.
@@ -75,9 +78,15 @@ func (s *store) forget(ctx context.Context, platform otogi.PlatformID, account o
 	return nil
 }
 
+// lineColumns selects a transcript message, t, with what a sticker an agent
+// sent shows, from sent s.
+const lineColumns = `SELECT t.source_id, t.at, t.actor_id, t.actor_name, t.outgoing, t.text, t.media, t.reply_to, coalesce(s.sticker, '')
+	FROM transcript t LEFT JOIN sent s
+	ON s.platform = t.platform AND s.account = t.account AND s.conversation = t.conversation AND s.source_id = t.source_id`
+
 // message returns a transcript message, if it is kept and not deleted.
 func (s *store) message(ctx context.Context, to otogi.Destination, sourceID string) (line, bool, error) {
-	lines, err := s.lines(ctx, "SELECT source_id, at, actor_id, actor_name, outgoing, text, media, reply_to FROM transcript WHERE platform = ? AND account = ? AND conversation = ? AND source_id = ? AND deleted = 0",
+	lines, err := s.lines(ctx, lineColumns+" WHERE t.platform = ? AND t.account = ? AND t.conversation = ? AND t.source_id = ? AND t.deleted = 0",
 		to.Platform, to.Account, to.Conversation, sourceID)
 	if err != nil || len(lines) == 0 {
 		return line{}, false, err
@@ -88,8 +97,8 @@ func (s *store) message(ctx context.Context, to otogi.Destination, sourceID stri
 // recent returns up to n messages of the conversation before the given
 // time, oldest first.
 func (s *store) recent(ctx context.Context, to otogi.Destination, before time.Time, n int) ([]line, error) {
-	lines, err := s.lines(ctx, `SELECT source_id, at, actor_id, actor_name, outgoing, text, media, reply_to FROM transcript
-		WHERE platform = ? AND account = ? AND conversation = ? AND at < ? AND deleted = 0 ORDER BY at DESC LIMIT ?`,
+	lines, err := s.lines(ctx, lineColumns+`
+		WHERE t.platform = ? AND t.account = ? AND t.conversation = ? AND t.at < ? AND t.deleted = 0 ORDER BY t.at DESC LIMIT ?`,
 		to.Platform, to.Account, to.Conversation, before.UnixMilli(), n)
 	slices.Reverse(lines)
 	return lines, err
@@ -106,7 +115,7 @@ func (s *store) lines(ctx context.Context, query string, args ...any) ([]line, e
 		var l line
 		var at int64
 		var media string
-		if err := rows.Scan(&l.SourceID, &at, &l.ActorID, &l.ActorName, &l.Outgoing, &l.Text, &media, &l.ReplyTo); err != nil {
+		if err := rows.Scan(&l.SourceID, &at, &l.ActorID, &l.ActorName, &l.Outgoing, &l.Text, &media, &l.ReplyTo, &l.Sticker); err != nil {
 			return nil, fmt.Errorf("chat store: read transcript: %w", err)
 		}
 		l.At = time.UnixMilli(at)
@@ -181,10 +190,17 @@ func (s *store) path(ctx context.Context, id int64) ([]storedTurn, error) {
 	return out, nil
 }
 
+// sentMessage is a message an agent sent, and what it shows when it is a
+// sticker.
+type sentMessage struct {
+	Ref     otogi.EventRef
+	Sticker string
+}
+
 // thread adds turns after parent (0 starts a thread) and maps the agent's
 // sent messages to the last one, in one transaction. It returns the new
 // turns' IDs.
-func (s *store) thread(ctx context.Context, profile string, to otogi.Destination, parent int64, turns []storedTurn, sent []otogi.EventRef, now time.Time) ([]int64, error) {
+func (s *store) thread(ctx context.Context, profile string, to otogi.Destination, parent int64, turns []storedTurn, sent []sentMessage, now time.Time) ([]int64, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("chat store: %w", err)
@@ -210,12 +226,13 @@ func (s *store) thread(ctx context.Context, profile string, to otogi.Destination
 		}
 		ids = append(ids, parent)
 	}
-	for _, ref := range sent {
+	for _, m := range sent {
+		ref := m.Ref
 		if ref.SourceEvent == "" {
 			continue // a send the platform confirmed without naming the message
 		}
-		if _, err := tx.ExecContext(ctx, "INSERT OR REPLACE INTO sent (platform, account, conversation, source_id, turn) VALUES (?, ?, ?, ?, ?)",
-			ref.Platform, ref.Account, ref.Conversation, ref.SourceEvent, parent); err != nil {
+		if _, err := tx.ExecContext(ctx, "INSERT OR REPLACE INTO sent (platform, account, conversation, source_id, turn, sticker) VALUES (?, ?, ?, ?, ?, ?)",
+			ref.Platform, ref.Account, ref.Conversation, ref.SourceEvent, parent, m.Sticker); err != nil {
 			return nil, fmt.Errorf("chat store: map sent message: %w", err)
 		}
 	}

@@ -32,6 +32,7 @@ type Module struct {
 	store       *store
 	decider     decision.Decider   // set in Start when an agent is judged
 	describer   mediasvc.Describer // set in Start when an agent reads descriptions
+	stickers    mediasvc.Stickers  // set in Start when an agent sends stickers
 	now         func() time.Time
 }
 
@@ -72,6 +73,9 @@ func (m *Module) Descriptor() otogi.ModuleDescriptor {
 	}
 	if m.describes() {
 		requires = append(requires, mediasvc.Service)
+	}
+	if m.sendsStickers() {
+		requires = append(requires, mediasvc.StickersService)
 	}
 	return otogi.ModuleDescriptor{
 		ID:         "chat",
@@ -118,6 +122,11 @@ func (m *Module) Start(ctx context.Context, host otogi.Host) error {
 	if m.describes() {
 		if m.describer, err = otogi.Lookup[mediasvc.Describer](host, mediasvc.Service); err != nil {
 			return fmt.Errorf("media: %w", err)
+		}
+	}
+	if m.sendsStickers() {
+		if m.stickers, err = otogi.Lookup[mediasvc.Stickers](host, mediasvc.StickersService); err != nil {
+			return fmt.Errorf("media stickers: %w", err)
 		}
 	}
 	return host.Schedule("prune", "@every 1h", m.prune)

@@ -2,6 +2,7 @@ package chat
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"image"
 	"image/color"
@@ -14,8 +15,10 @@ import (
 
 	"github.com/TundraWork/Ex-Otogi/internal/adapter/gemini"
 	"github.com/TundraWork/Ex-Otogi/internal/adapter/modulestore"
+	"github.com/TundraWork/Ex-Otogi/internal/adapter/openai"
 	"github.com/TundraWork/Ex-Otogi/modules/reminders"
 	"github.com/TundraWork/Ex-Otogi/pkg/llm"
+	mediasvc "github.com/TundraWork/Ex-Otogi/pkg/media"
 	"github.com/TundraWork/Ex-Otogi/pkg/otogi"
 )
 
@@ -60,6 +63,60 @@ func TestLiveConversation(t *testing.T) {
 		if p, ok := r.Payload.(map[string]any); ok && r.Kind == "chat.reply" {
 			t.Logf("%s %s trigger=%v finish=%v usage=%+v", r.Kind, r.Outcome, p["trigger"], p["finish"], p["usage"].(llm.Usage))
 		}
+	}
+}
+
+// TestLiveStickerThread checks, on the real APIs, that a thread ending with
+// a send_sticker call and its result goes on: the model picks a sticker,
+// then a reply to the sticker continues the thread. Gemini resends its own
+// turns as they were; DeepSeek gets its reasoning back. Each runs only when
+// its key is set:
+//
+//	OTOGI_GEMINI_API_KEY=... OTOGI_DEEPSEEK_API_KEY=... go test -run LiveSticker -v ./modules/chat
+//
+// OTOGI_GEMINI_MODEL and OTOGI_DEEPSEEK_MODEL pick other models.
+func TestLiveStickerThread(t *testing.T) {
+	quiet := slog.New(slog.DiscardHandler)
+	for _, c := range []struct {
+		name, key string
+		provider  func(key string) (llm.Provider, string, error)
+	}{
+		{"gemini", "OTOGI_GEMINI_API_KEY", func(key string) (llm.Provider, string, error) {
+			g, err := gemini.New(gemini.Config{APIKey: key, BaseURL: os.Getenv("OTOGI_GEMINI_BASE_URL"), Recorder: otogi.NopRecorder{}, Logger: quiet})
+			return g, cmp.Or(os.Getenv("OTOGI_GEMINI_MODEL"), "gemini-3.8-flash"), err
+		}},
+		{"deepseek", "OTOGI_DEEPSEEK_API_KEY", func(key string) (llm.Provider, string, error) {
+			p, err := openai.New(openai.Config{Name: "deepseek", BaseURL: cmp.Or(os.Getenv("OTOGI_DEEPSEEK_BASE_URL"), "https://api.deepseek.com"), APIKey: key, Recorder: otogi.NopRecorder{}, Logger: quiet})
+			return p, cmp.Or(os.Getenv("OTOGI_DEEPSEEK_MODEL"), "deepseek-flash"), err
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			key := os.Getenv(c.key)
+			if key == "" {
+				t.Skip(c.key + " is not set")
+			}
+			p, model, err := c.provider(key)
+			if err != nil {
+				t.Fatal(err)
+			}
+			h := newHarnessWith(t, map[string]any{mediasvc.Service: newDescriber(), mediasvc.StickersService: newStickerBox()},
+				ProfileConfig{Name: "otogi", Keywords: []string{"otogi"}, Provider: "live", Model: model, Media: &MediaConfig{Stickers: []int{1, 3}},
+					System: "You are Otogi, a cheerful member of this chat. Answer in one short sentence. When someone asks for a sticker, send it with send_sticker."})
+			h.m.profiles[0].provider = p
+			h.mustHandle(h.message("Alice", "otogi, send me the dog sticker please"))
+			_, payload := lastReplyRecord(t, h)
+			st, _ := payload["sticker"].(*sentSticker)
+			if st == nil || st.Ref == "" {
+				t.Fatalf("no sticker sent; reply %q, record %+v", h.streams[0].final.PlainText(), payload)
+			}
+			t.Logf("reply 1: %q, then sticker %d (%s), usage %+v", h.streams[0].final.PlainText(), st.ID, st.Text, payload["usage"])
+			h.mustHandle(h.message("Alice", "thanks! what was on it?", replyingTo(st.Ref)))
+			r, payload := lastReplyRecord(t, h)
+			if r.Outcome != "ok" || payload["trigger"] != "reply" {
+				t.Fatalf("the reply to the sticker: %s %+v", r.Outcome, payload)
+			}
+			t.Logf("reply 2: %q", h.streams[len(h.streams)-1].final.PlainText())
+		})
 	}
 }
 

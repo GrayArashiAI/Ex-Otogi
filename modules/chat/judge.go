@@ -4,7 +4,6 @@ import (
 	"cmp"
 	"context"
 	"fmt"
-	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -192,7 +191,7 @@ func (m *Module) judgeState(ctx context.Context, e otogi.Event, agents []*profil
 	}
 	for _, l := range lines {
 		judged := l.SourceID == string(e.SourceID)
-		jl := judgeLine{ID: msgIDs[l.SourceID], Text: strings.TrimSpace(strings.TrimSpace(l.Text) + " " + m.mediaText(ctx, to, l.Media, described))}
+		jl := judgeLine{ID: msgIDs[l.SourceID], Text: m.lineText(ctx, to, l, described)}
 		if !judged {
 			jl.Text = cut(jl.Text)
 		}
@@ -228,7 +227,7 @@ func (m *Module) replyOf(ctx context.Context, to otogi.Destination, l line, msgI
 	if !quoted.Outgoing {
 		who = m.nameOf(to.Platform, quoted.ActorID, quoted.ActorName)
 	}
-	return "", who + ": " + cut(strings.TrimSpace(strings.TrimSpace(quoted.Text)+" "+m.mediaText(ctx, to, quoted.Media, described))), nil
+	return "", who + ": " + cut(m.lineText(ctx, to, quoted, described)), nil
 }
 
 // lineFrom names a message's sender: a person as uN and their name, an

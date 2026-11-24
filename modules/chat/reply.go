@@ -41,7 +41,13 @@ func (m *Module) respond(ctx context.Context, e otogi.Event, inv otogi.Invocatio
 		}
 		named = append(inRecent, named...)
 	}
+	// The stickers the agent may send lead too, in this request only: a
+	// change to them leaves the cached part of the request alone.
+	picks := m.stickersFor(ctx, p)
 	var lead []string
+	if picks != nil {
+		lead = append(lead, picks.text())
+	}
 	for _, s := range []string{m.aboutPeople(e.Platform, named), recent} {
 		if s != "" {
 			lead = append(lead, s)
@@ -55,6 +61,10 @@ func (m *Module) respond(ctx context.Context, e otogi.Event, inv otogi.Invocatio
 		req.Turns = append(req.Turns, t.Turn)
 	}
 	req.Turns = append(req.Turns, sent)
+	tools := m.toolsIn(e.ChatKey())
+	if picks != nil {
+		tools[stickerTool] = picks.tool()
+	}
 
 	// The reply is at most two messages, each a stream of its own: "reply",
 	// and "reply-2" for what follows words said before tools. The second is
@@ -76,21 +86,47 @@ func (m *Module) respond(ctx context.Context, e otogi.Event, inv otogi.Invocatio
 		refs, stream, said = append(refs, sent...), nil, true
 		return err
 	}
-	out, runErr := llm.Run(llm.ContextWithAgent(ctx, p.Name), p.provider, req, m.toolsIn(e.ChatKey()), e, llm.Limits{Rounds: p.MaxToolRounds, Reserve: *m.cfg.ToolReserve},
+	out, runErr := llm.Run(llm.ContextWithAgent(ctx, p.Name), p.provider, req, tools, e, llm.Limits{Rounds: p.MaxToolRounds, Reserve: *m.cfg.ToolReserve},
 		update, say, func(c llm.CallRecord) { m.recordCall(ctx, e, p, c) })
 
 	// The reply is finished even when ctx ended, so the chat is not left
 	// with a partial answer.
 	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), cleanupTimeout)
 	defer cancel()
+	// A picked sticker follows the reply, unless the reply failed.
+	var sticker *sentSticker
+	if picks != nil && picks.picked != nil {
+		sticker = &sentSticker{ID: picks.picked.ID, Text: picks.picked.Text, Listed: picks.listed}
+	}
+	sends := sticker != nil && runErr == nil
 	var closeErr error
-	if final := ending(out, said, runErr); stream != nil || len(final.Parts) > 0 {
+	if final := ending(out, said || sends, runErr); stream != nil || len(final.Parts) > 0 {
 		if stream == nil {
 			stream = inv.Stream(cleanup, "reply-2", e.Destination())
 		}
+		// A reply that is only a sticker closes its stream empty, which
+		// shows nothing: not even the agent's label.
+		shown := otogi.Message{}
+		if len(final.Parts) > 0 {
+			shown = present(p, e, final)
+		}
 		var last []otogi.EventRef
-		last, closeErr = stream.Close(cleanup, present(p, e, final))
+		last, closeErr = stream.Close(cleanup, shown)
 		refs = append(refs, last...)
+	}
+	messages := make([]sentMessage, 0, len(refs)+1)
+	for _, ref := range refs {
+		messages = append(messages, sentMessage{Ref: ref})
+	}
+	var stickerErr error
+	if sends {
+		var ref otogi.EventRef
+		ref, stickerErr = m.sendSticker(cleanup, e, inv, *picks.picked)
+		if stickerErr == nil {
+			sticker.Ref = string(ref.SourceEvent)
+			refs = append(refs, ref)
+			messages = append(messages, sentMessage{Ref: ref, Sticker: sticker.Text})
+		}
 	}
 	var ids []int64
 	var storeErr error
@@ -99,10 +135,10 @@ func (m *Module) respond(ctx context.Context, e otogi.Event, inv otogi.Invocatio
 		for _, t := range out.Turns {
 			turns = append(turns, storedTurn{Turn: t})
 		}
-		ids, storeErr = m.store.thread(cleanup, p.Name, e.Destination(), parent, turns, refs, m.now())
+		ids, storeErr = m.store.thread(cleanup, p.Name, e.Destination(), parent, turns, messages, m.now())
 	}
-	err = errors.Join(runErr, closeErr, storeErr)
-	m.record(cleanup, e, p, trigger, j, parent, ids, out, refs, err, m.now().Sub(started))
+	err = errors.Join(runErr, closeErr, stickerErr, storeErr)
+	m.record(cleanup, e, p, trigger, j, parent, ids, out, refs, sticker, err, m.now().Sub(started))
 	return err
 }
 
@@ -145,6 +181,9 @@ func (m *Module) userContent(ctx context.Context, e otogi.Event, inv otogi.Invoc
 			if !quoted.Outgoing {
 				who = m.nameOf(e.Platform, quoted.ActorID, quoted.ActorName)
 				named = append(named, sender{quoted.ActorID, quoted.ActorName})
+			}
+			if quoted.Sticker != "" { // an agent's sticker reads as what it shows
+				quoted.Text, quoted.Media = m.lineText(ctx, e.Destination(), quoted, false), nil
 			}
 			msg = llm.Join(msg, otogi.TextMessage("Replying to "+who+":\n"+quoted.Text))
 			for _, media := range quoted.Media {
@@ -250,7 +289,7 @@ func (m *Module) contextText(ctx context.Context, e otogi.Event, p *profile, pat
 			name = m.nameOf(e.Platform, l.ActorID, l.ActorName)
 			named = append(named, sender{l.ActorID, l.ActorName})
 		}
-		text := strings.TrimSpace(strings.TrimSpace(l.Text) + " " + m.mediaText(ctx, e.Destination(), l.Media, p.Media != nil))
+		text := m.lineText(ctx, e.Destination(), l, p.Media != nil)
 		kept = append(kept, fmt.Sprintf("[%s] %s: %s", l.At.In(time.Local).Format("15:04"), name, text))
 	}
 	return "Recent messages in this chat, oldest first, for context:\n" + strings.Join(kept, "\n") + "\n\nThe message to answer:", named, nil
@@ -313,8 +352,8 @@ func joinLine(a, b otogi.Message) otogi.Message {
 
 // ending is the reply's last message: what the model showed after its first
 // words before tools went out, saying once how the reply ended when that was
-// not a plain answer. said is whether those words went out; when they did,
-// an empty ending is no message at all.
+// not a plain answer. said is whether the reply shows something else: those
+// words, or a sticker after it; then an empty ending is no message at all.
 func ending(out llm.RunResult, said bool, err error) otogi.Message {
 	reply := out.Last
 	empty := len(reply.Parts) == 0
@@ -391,7 +430,7 @@ func (m *Module) recordCall(ctx context.Context, e otogi.Event, p *profile, c ll
 }
 
 // record writes the reply's record.
-func (m *Module) record(ctx context.Context, e otogi.Event, p *profile, trigger string, j *judgment, parent int64, ids []int64, out llm.RunResult, refs []otogi.EventRef, err error, d time.Duration) {
+func (m *Module) record(ctx context.Context, e otogi.Event, p *profile, trigger string, j *judgment, parent int64, ids []int64, out llm.RunResult, refs []otogi.EventRef, sticker *sentSticker, err error, d time.Duration) {
 	rounds := 0
 	for _, t := range out.Turns {
 		if t.Role == llm.RoleModel {
@@ -404,6 +443,9 @@ func (m *Module) record(ctx context.Context, e otogi.Event, p *profile, trigger 
 	}
 	if j != nil {
 		payload["judged"] = j
+	}
+	if sticker != nil {
+		payload["sticker"] = sticker
 	}
 	outcome := "ok"
 	if err != nil {
