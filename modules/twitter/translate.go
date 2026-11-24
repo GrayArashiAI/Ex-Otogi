@@ -17,8 +17,8 @@ type Translate struct {
 	Thinking string `json:"thinking,omitempty" enum:"minimal,low,medium,high" doc:"How much the model thinks before answering; unset is the model's default."`
 }
 
-// translator asks a language model what language a post is in and, unless
-// it is Chinese, for the post in Simplified Chinese.
+// translator asks a language model what language a text is in and, unless
+// it is Chinese, for the text in Simplified Chinese.
 type translator struct {
 	cfg      Translate
 	provider llm.Provider
@@ -35,86 +35,85 @@ type translation struct {
 	Echoed string
 }
 
-const translatePrompt = `You translate posts from X into Simplified Chinese.
+const translatePrompt = `You translate a post from X into Simplified Chinese.
 
-The input has up to four parts: a <post>, the <quote> it quotes, the <parent> it replies to, and the <parent_quote> that the parent quotes. A post of only pictures has no <post>. The parts are separate texts by different people, and each may be in a different language.
+The input is the post's text. Reply in exactly this form and nothing else:
+<language>the post's language, named in Simplified Chinese, such as 英语 or 日语</language>
+<chinese>the post in natural Simplified Chinese</chinese>
 
-For every part of the input, reply with one element of the same name, in the input's order, and nothing else:
-<post language="英语">the part in natural Simplified Chinese</post>
-
-language is the language that part is written in, named in Simplified Chinese, such as 英语 or 日语. Judge each part on its own, whatever language the other parts are in. A part already written in Chinese, Simplified or Traditional, has language="中文" and an empty element: <quote language="中文"></quote>. Every other part is translated into Simplified Chinese: never give a part back in the language it came in.
+When the post is already written in Chinese, Simplified or Traditional, reply with only: <language>中文</language>
 
 Keep URLs, @mentions, #hashtags, emoji, and line breaks exactly as they are. Add no notes or explanations.`
 
-// tagged finds a part in the model's reply: its language and its text.
-var tagged = map[string]*regexp.Regexp{
-	"post":         regexp.MustCompile(`(?s)<post language="([^"]*)">(.*?)</post>`),
-	"quote":        regexp.MustCompile(`(?s)<quote language="([^"]*)">(.*?)</quote>`),
-	"parent":       regexp.MustCompile(`(?s)<parent language="([^"]*)">(.*?)</parent>`),
-	"parent_quote": regexp.MustCompile(`(?s)<parent_quote language="([^"]*)">(.*?)</parent_quote>`),
-}
+var (
+	taggedLanguage = regexp.MustCompile(`(?s)<language>(.*?)</language>`)
+	taggedChinese  = regexp.MustCompile(`(?s)<chinese>(.*?)</chinese>`)
+)
 
 // translate returns what of the post, its quote, the post it replies to,
 // and that post's quote is not in Chinese, in Chinese: false when all of it
 // is in Chinese already, or none of them has text; true also when the
-// model gave a part back untranslated, to have that recorded. The model names the
-// language of a post with text; one of only pictures has none to name.
+// model gave a part back untranslated, to have that recorded. Each part is
+// its own request: asked for parts in different languages at once,
+// gemini-3.5-flash-lite gave one back as it came about one time in three.
 func (tr *translator) translate(ctx context.Context, t tweet) (translation, bool, error) {
-	var parts []string
-	given := map[string]string{}
-	part := func(tag string, of *tweet) {
-		if of != nil && of.Text != "" {
-			parts = append(parts, "<"+tag+">"+of.Text+"</"+tag+">")
-			given[tag] = strings.TrimSpace(of.Text)
+	var out translation
+	var echoed []string
+	for _, p := range []struct {
+		name string
+		of   *tweet
+		into *string
+	}{{"post", &t, &out.Post}, {"quote", t.Quote, &out.Quote}, {"parent", t.Parent, &out.Parent}, {"parent_quote", parentQuote(t), &out.ParentQuote}} {
+		if p.of == nil || strings.TrimSpace(p.of.Text) == "" {
+			continue
 		}
+		language, text, err := tr.one(ctx, p.of.Text)
+		if err != nil {
+			return translation{}, false, err
+		}
+		if p.name == "post" {
+			out.Language = language
+		}
+		if text == strings.TrimSpace(p.of.Text) {
+			echoed = append(echoed, p.name)
+			continue
+		}
+		*p.into = text
 	}
-	part("post", &t)
-	part("quote", t.Quote)
-	part("parent", t.Parent)
-	if t.Parent != nil {
-		part("parent_quote", t.Parent.Quote)
-	}
-	if len(parts) == 0 {
-		return translation{}, false, nil
-	}
+	out.Echoed = strings.Join(echoed, ",")
+	return out, out != translation{Language: out.Language}, nil
+}
+
+// one returns the language of text and, unless that is Chinese, text in
+// Chinese.
+func (tr *translator) one(ctx context.Context, text string) (language, chinese string, err error) {
 	resp, err := tr.provider.Generate(ctx, llm.Request{
 		Model: tr.cfg.Model, System: translatePrompt, Thinking: tr.cfg.Thinking,
-		Turns: []llm.Turn{{Role: llm.RoleUser, Content: otogi.TextMessage(strings.Join(parts, "\n"))}},
+		Turns: []llm.Turn{{Role: llm.RoleUser, Content: otogi.TextMessage(text)}},
 	}, nil)
 	if err != nil {
-		return translation{}, false, fmt.Errorf("twitter: translate: %w", err)
+		return "", "", fmt.Errorf("twitter: translate: %w", err)
 	}
-	// find returns a part's language and its translation: none when the
-	// part is in Chinese, or the model gave it back as it came (echoed),
-	// which gemini-3.5-flash-lite did with one part of two in different
-	// languages.
-	var echoed []string
-	find := func(tag string) (language, text string) {
-		m := tagged[tag].FindStringSubmatch(resp.Markdown)
-		if m == nil {
-			return "", ""
+	find := func(re *regexp.Regexp) string {
+		if m := re.FindStringSubmatch(resp.Markdown); m != nil {
+			return strings.TrimSpace(m[1])
 		}
-		language, text = strings.TrimSpace(m[1]), strings.TrimSpace(m[2])
-		switch {
-		case language == "中文":
-			text = ""
-		case text == given[tag]:
-			echoed, text = append(echoed, tag), ""
-		}
-		return language, text
+		return ""
 	}
-	var out translation
-	out.Language, out.Post = find("post")
-	_, out.Quote = find("quote")
-	_, out.Parent = find("parent")
-	_, out.ParentQuote = find("parent_quote")
-	out.Echoed = strings.Join(echoed, ",")
+	language, chinese = find(taggedLanguage), find(taggedChinese)
 	switch {
-	case t.Text == "":
-		out.Language, out.Post = "", ""
-	case out.Language == "中文":
-	case out.Language == "" || out.Post == "" && !strings.HasPrefix(out.Echoed, "post"):
-		return translation{}, false, fmt.Errorf("twitter: translate: the model replied out of form: %q", resp.Markdown)
+	case language == "中文":
+		return language, "", nil // a post in Chinese has no translation, whatever the model sent
+	case language == "" || chinese == "":
+		return "", "", fmt.Errorf("twitter: translate: the model replied out of form: %q", resp.Markdown)
 	}
-	return out, out != translation{Language: out.Language}, nil
+	return language, chinese, nil
+}
+
+// parentQuote is the post that the post t replies to quotes.
+func parentQuote(t tweet) *tweet {
+	if t.Parent == nil {
+		return nil
+	}
+	return t.Parent.Quote
 }

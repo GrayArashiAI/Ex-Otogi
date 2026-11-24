@@ -285,11 +285,12 @@ const reply, repliedTo = "2125070511604646004", "2125070353663967644"
 func TestReplyCards(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
-		name, answer string
-		parent       bool // FxTwitter has the post replied to
-		check        func(t *testing.T, c card, payload map[string]any)
+		name    string
+		answers map[string]string
+		parent  bool // FxTwitter has the post replied to
+		check   func(t *testing.T, c card, payload map[string]any)
 	}{
-		{"in english", `<post language="英语">我怀疑这起不了多大作用</post><parent language="英语">既然有些人搞不清楚</parent><parent_quote language="中文"></parent_quote>`, true, func(t *testing.T, c card, payload map[string]any) {
+		{"in english", map[string]string{"I doubt": "<language>英语</language><chinese>我怀疑这起不了多大作用</chinese>", "Since some people": "<language>英语</language><chinese>既然有些人搞不清楚</chinese>", "给没吃上瓜": "<language>中文</language>"}, true, func(t *testing.T, c card, payload map[string]any) {
 			p := c.Parent
 			if p == nil || p.Handle != "theo" || p.Date != "11月24日" || p.Avatar == "" || !strings.HasPrefix(p.Text[0].Text, "Since some people") || c.ReplyingTo != "" {
 				t.Fatalf("the post replied to %+v, replying to %q", p, c.ReplyingTo)
@@ -308,12 +309,12 @@ func TestReplyCards(t *testing.T) {
 				t.Fatalf("pictures of the post replied to left uncovered: %+v", p.Quote.Media)
 			}
 		}},
-		{"in chinese, replying to english", `<post language="中文"></post><parent language="英语">既然有些人搞不清楚</parent><parent_quote language="中文"></parent_quote>`, true, func(t *testing.T, c card, _ map[string]any) {
+		{"in chinese, replying to english", map[string]string{"I doubt": "<language>中文</language>", "Since some people": "<language>英语</language><chinese>既然有些人搞不清楚</chinese>", "给没吃上瓜": "<language>中文</language>"}, true, func(t *testing.T, c card, _ map[string]any) {
 			if c.Translation != nil || c.Parent == nil || c.Parent.Translation == nil {
 				t.Fatalf("translations %+v, %+v", c.Translation, c.Parent)
 			}
 		}},
-		{"replying to a deleted post", `<post language="英语">我怀疑这起不了多大作用</post>`, false, func(t *testing.T, c card, payload map[string]any) {
+		{"replying to a deleted post", map[string]string{"I doubt": "<language>英语</language><chinese>我怀疑这起不了多大作用</chinese>"}, false, func(t *testing.T, c card, payload map[string]any) {
 			if c.Parent != nil || c.ReplyingTo != "theo" || payload["parent_gone"] != "not found or deleted" {
 				t.Fatalf("card %+v, record %+v", c, payload)
 			}
@@ -321,7 +322,7 @@ func TestReplyCards(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			lm := &model{reply: c.answer}
+			lm := &model{replies: c.answers}
 			m, err := New(Config{Chrome: chrome(t), Timezone: "Asia/Shanghai", Translate: &Translate{Provider: "gemini", Model: "m"}}, func(string) (llm.Provider, error) { return lm, nil })
 			if err != nil {
 				t.Fatal(err)
@@ -343,8 +344,9 @@ func TestReplyCards(t *testing.T) {
 			if err := m.Handle(context.Background(), e, &invocation{}); err != nil {
 				t.Fatal(err)
 			}
-			if input := lm.requests[0].Turns[0].Content.PlainText(); c.parent != (strings.Contains(input, "<parent>Since some people") && strings.Contains(input, "<parent_quote>给没吃上瓜")) {
-				t.Fatalf("asked to translate %q", input)
+			// Each part with text is asked about on its own.
+			if texts := asked(lm); len(texts) != len(c.answers) || c.parent && !(strings.HasPrefix(texts[1], "Since some people") && strings.HasPrefix(texts[2], "给没吃上瓜")) {
+				t.Fatalf("asked to translate %q", texts)
 			}
 			for _, r := range h.records {
 				if r.Kind == "twitter.card" {
@@ -365,14 +367,14 @@ func TestReplyCards(t *testing.T) {
 // it replies to is translated all the same.
 func TestTranslatesWhatAReplyOfOnlyPicturesRepliesTo(t *testing.T) {
 	t.Parallel()
-	lm := &model{reply: `<parent language="英语">你好</parent>`}
+	lm := &model{reply: "<language>英语</language><chinese>你好</chinese>"}
 	tr := &translator{cfg: Translate{Model: "m"}, provider: lm}
 	got, needed, err := tr.translate(context.Background(), tweet{Media: []media{{Kind: "photo"}}, Parent: &tweet{Text: "hello"}})
 	if err != nil || !needed || got.Parent != "你好" {
 		t.Fatalf("translation %+v, %v, %v", got, needed, err)
 	}
-	if input := lm.requests[0].Turns[0].Content.PlainText(); input != "<parent>hello</parent>" {
-		t.Fatalf("asked to translate %q", input)
+	if texts := asked(lm); len(texts) != 1 || texts[0] != "hello" || got.Language != "" {
+		t.Fatalf("asked to translate %q, language %q", texts, got.Language)
 	}
 	if _, needed, err := tr.translate(context.Background(), tweet{Media: []media{{Kind: "photo"}}}); needed || err != nil || len(lm.requests) != 1 {
 		t.Fatalf("a post with no text anywhere: %v, %v, %d requests", needed, err, len(lm.requests))
@@ -396,25 +398,44 @@ func noProviders(name string) (llm.Provider, error) {
 	return nil, errors.New("no provider " + name)
 }
 
-// model answers translations with a fixed reply.
+// model answers translations: a text that starts with a key of replies
+// with that reply, any other with reply.
 type model struct {
 	reply    string
+	replies  map[string]string
 	err      error
 	requests []llm.Request
 }
 
 func (m *model) Generate(_ context.Context, req llm.Request, _ func(otogi.Message) error) (llm.Response, error) {
 	m.requests = append(m.requests, req)
+	input := req.Turns[0].Content.PlainText()
+	for start, reply := range m.replies {
+		if strings.HasPrefix(input, start) {
+			return llm.Response{Markdown: reply}, m.err
+		}
+	}
 	return llm.Response{Markdown: m.reply}, m.err
+}
+
+// asked is the texts lm was asked to translate, in order.
+func asked(lm *model) []string {
+	var texts []string
+	for _, r := range lm.requests {
+		texts = append(texts, r.Turns[0].Content.PlainText())
+	}
+	return texts
 }
 
 // A part the model gives back as it came is not a translation and is named
 // in Echoed, and a part it calls Chinese has none, whatever it sent for it.
 func TestTranslationLeavesOutWhatWasNotTranslated(t *testing.T) {
 	t.Parallel()
-	lm := &model{reply: `<post language="中文">我觉得这没什么用。</post>
-<parent language="英语"> Forking is fine. </parent>
-<parent_quote language="日语">早上好</parent_quote>`}
+	lm := &model{replies: map[string]string{
+		"我觉得":     "<language>中文</language><chinese>我觉得这没什么用。</chinese>",
+		"Forking": "<language>英语</language><chinese> Forking is fine. </chinese>",
+		"おはよう":    "<language>日语</language><chinese>早上好</chinese>",
+	}}
 	tr := &translator{provider: lm}
 	got, needed, err := tr.translate(context.Background(), tweet{Text: "我觉得这没什么用。", Parent: &tweet{Text: "Forking is fine.", Quote: &tweet{Text: "おはよう"}}})
 	if err != nil {
@@ -432,17 +453,18 @@ func TestTranslationLeavesOutWhatWasNotTranslated(t *testing.T) {
 func TestTranslatedCards(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
-		name, reply string
-		translated  bool
-		record      string
+		name       string
+		replies    map[string]string
+		translated bool
+		record     string
 	}{
-		{"english", `<post language="英语">我们 2026 年第三季度的财报现已公开 → https://ir.spacex.com/x @ElonMusk</post><quote language="英语">观看直播</quote>`, true, "ok"},
-		{"chinese", `<post language="中文"></post><quote language="中文"></quote>`, false, ""},
-		{"the quote given back as it came", `<post language="中文"></post><quote language="英语">Watch live as SpaceX discusses our Q3 2026 earnings at 3:30pm CT today → https://x.com/i/broadcasts/1PKqrNbLZbPGb</quote>`, false, "degraded"},
-		{"out of form", "Sure! Here is the translation.", false, "error"},
+		{"english", map[string]string{"Our Q3": "<language>英语</language><chinese>我们 2026 年第三季度的财报现已公开 → https://ir.spacex.com/x @ElonMusk</chinese>", "Watch live": "<language>英语</language><chinese>观看直播</chinese>"}, true, "ok"},
+		{"chinese", map[string]string{"": "<language>中文</language>"}, false, ""},
+		{"the quote given back as it came", map[string]string{"Our Q3": "<language>中文</language>", "Watch live": "<language>英语</language><chinese>Watch live as SpaceX discusses our Q3 2026 earnings at 3:30pm CT today → https://x.com/i/broadcasts/1PKqrNbLZbPGb</chinese>"}, false, "degraded"},
+		{"out of form", map[string]string{"": "Sure! Here is the translation."}, false, "error"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			lm := &model{reply: c.reply}
+			lm := &model{replies: c.replies}
 			m, err := New(Config{Chrome: chrome(t), Translate: &Translate{Provider: "gemini", Model: "gemini-4-argon", Thinking: "low"}},
 				func(string) (llm.Provider, error) { return lm, nil })
 			if err != nil {
@@ -461,7 +483,7 @@ func TestTranslatedCards(t *testing.T) {
 			if len(inv.sent) != 1 || inv.keys[0] != "card:2112637394654822514" {
 				t.Fatalf("%d cards sent: %v", len(inv.sent), inv.keys)
 			}
-			if req := lm.requests[0]; req.Model != "gemini-4-argon" || req.Thinking != "low" || !strings.Contains(req.Turns[0].Content.PlainText(), "<quote>Watch live") {
+			if req := lm.requests[0]; req.Model != "gemini-4-argon" || req.Thinking != "low" || !strings.HasPrefix(req.Turns[0].Content.PlainText(), "Our Q3") {
 				t.Fatalf("request %+v", req)
 			}
 			card := drawn[0]
