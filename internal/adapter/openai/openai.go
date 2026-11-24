@@ -129,6 +129,9 @@ func (p *Provider) Generate(ctx context.Context, req llm.Request, partial func(o
 	if err != nil {
 		return llm.Response{}, err
 	}
+	for _, r := range replaced {
+		resp.Withheld = append(resp.Withheld, llm.WithheldPart{Part: otogi.PartID(r.Part), MediaType: r.MediaType, Bytes: r.Bytes})
+	}
 	return resp, nil
 }
 

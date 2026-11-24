@@ -77,11 +77,11 @@ type Turn struct {
 	// Content is the turn as rich text and media, in order. Text parts with
 	// their annotations, media parts, and file parts are sent; a media or
 	// file type the provider's model cannot take becomes a short text mark,
-	// listed in the call's record, and does not fail the call. Media and
-	// files must be inline (see Inline). Other part kinds are an
-	// otogi.ErrUnsupported error: the caller decides how to describe a
-	// location, a poll, and so on. Who said what in a group is content too:
-	// write it into the text.
+	// listed in the call's record and in Response.Withheld, and does not
+	// fail the call. Media and files must be inline (see Inline). Other part
+	// kinds are an otogi.ErrUnsupported error: the caller decides how to
+	// describe a location, a poll, and so on. Who said what in a group is
+	// content too: write it into the text.
 	Content otogi.Message `json:"content"`
 	// Native is the provider's own encoding of a model turn, as returned in
 	// Response.Turn. The provider that made it resends it exactly, which
@@ -137,6 +137,20 @@ type Response struct {
 	Usage Usage
 	// Sources are the pages the reply cites, when a search tool grounded it.
 	Sources []Source
+	// Withheld are the media and file parts of the request the model did
+	// not get: the provider sent each as a text mark instead. Empty when the
+	// model got everything.
+	Withheld []WithheldPart
+}
+
+// WithheldPart is a media or file part a provider did not give the model.
+type WithheldPart struct {
+	// Part is the part's ID.
+	Part otogi.PartID `json:"part"`
+	// MediaType is its MIME type.
+	MediaType string `json:"media_type"`
+	// Bytes is its size.
+	Bytes int `json:"bytes"`
 }
 
 // Source is a page a reply cites.
