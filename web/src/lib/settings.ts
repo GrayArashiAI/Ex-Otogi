@@ -1,10 +1,11 @@
-import { BrainCircuit, KeyRound, SlidersHorizontal } from "lucide-react";
+import { BrainCircuit, Cpu, FileText, KeyRound, SlidersHorizontal, Users } from "lucide-react";
 import { moduleMeta } from "@/lib/meta";
 import { sectionOf } from "@/lib/secrets";
 
 /** The pages under Settings. One with a section edits that section of the
  * settings outside modules; effect ends "They are saved as revision 3, and
- * …" with what the bot does with a saved revision of it. */
+ * …" with what the bot does with a saved revision of it. A section the bot
+ * reads when it starts says so with applies. */
 export const generalPage = {
   to: "/settings/general",
   title: "General",
@@ -26,6 +27,31 @@ export const llmPage = {
     "the running modules that use a provider restart with them. If one of those cannot be rebuilt, nothing is saved",
 } as const;
 
+const onRestart = {
+  applies: "restart",
+  effect: "the bot uses them from its next start: until it is restarted, it runs with the ones it started with",
+} as const;
+
+export const accountsPage = {
+  to: "/settings/accounts",
+  title: "Accounts",
+  detail: "Telegram and QQ accounts",
+  icon: Users,
+  tone: "sky",
+  section: "accounts",
+  ...onRestart,
+} as const;
+
+export const processPage = {
+  to: "/settings/process",
+  title: "Process",
+  detail: "Workers, timeouts, log format",
+  icon: Cpu,
+  tone: "teal",
+  section: "process",
+  ...onRestart,
+} as const;
+
 export const secretsPage = {
   to: "/settings/secrets",
   title: "Secrets",
@@ -34,13 +60,24 @@ export const secretsPage = {
   tone: "amber",
 } as const;
 
+export const startupPage = {
+  to: "/settings/startup",
+  title: "Startup file",
+  detail: "What stays in the config file",
+  icon: FileText,
+  tone: "zinc",
+} as const;
+
+/** sectionPages are the pages that edit a section. */
+export const sectionPages = [generalPage, llmPage, accountsPage, processPage] as const;
+
 /** settingsPages are the pages in the order of the Settings list. */
-export const settingsPages = [generalPage, llmPage, secretsPage] as const;
+export const settingsPages = [...sectionPages, secretsPage, startupPage] as const;
 
 /** sectionPage is the page of the section an ID such as system:llm names. */
 export function sectionPage(id: string) {
   const section = sectionOf(id);
-  return [generalPage, llmPage].find((p) => p.section === section);
+  return sectionPages.find((p) => p.section === section);
 }
 
 /** referenceTitle names what refers to a secret: a section's page, or a module. */

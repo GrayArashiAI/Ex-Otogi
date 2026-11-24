@@ -7,6 +7,7 @@ import type { Schemas } from "@/api/client";
 import { Ago } from "@/components/ago";
 import { CardHeader, CardInset, Card as CardShell, rows } from "@/components/card";
 import { LoadError } from "@/components/load-error";
+import { PendingRestart } from "@/components/pending-restart";
 import { outcomeTone, StatusDot } from "@/components/status-dot";
 import { Tile } from "@/components/tile";
 import { moduleMeta, moduleState, platformMeta } from "@/lib/meta";
@@ -50,6 +51,9 @@ function StatusPage() {
             </span>
           </p>
         </div>
+      </div>
+      <div className="mt-6 empty:hidden">
+        <PendingRestart />
       </div>
       <div className="mt-6 grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
         <div className="flex flex-col gap-4">

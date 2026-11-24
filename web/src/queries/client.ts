@@ -1,6 +1,7 @@
 import { MutationCache, QueryCache, QueryClient } from "@tanstack/react-query";
 import { ApiError } from "@/api/client";
 import { toastManager } from "@/components/ui/toast";
+import { restartKey } from "./system";
 
 function report(error: Error, kind: "query" | "mutation", quiet?: unknown) {
   if (error instanceof ApiError && error.status === 401) {
@@ -10,6 +11,8 @@ function report(error: Error, kind: "query" | "mutation", quiet?: unknown) {
   }
   if (quiet) return;
   if (kind === "query") {
+    // While the bot restarts nothing loads, and the restart's dialog says so.
+    if (queryClient.isMutating({ mutationKey: restartKey }) > 0) return;
     // What could not be loaded says so where it would have shown; this is the passing notice.
     toastManager.add({ type: "error", title: "Could not load", description: error.message, id: error.message });
     return;

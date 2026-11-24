@@ -23,9 +23,12 @@ import { Route as AppChatsChatRouteImport } from './routes/_app/chats/$chat'
 import { Route as AppModulesIndexRouteImport } from './routes/_app/modules/index'
 import { Route as AppModulesModuleRouteImport } from './routes/_app/modules/$module'
 import { Route as AppSettingsIndexRouteImport } from './routes/_app/settings/index'
+import { Route as AppSettingsAccountsRouteImport } from './routes/_app/settings/accounts'
 import { Route as AppSettingsGeneralRouteImport } from './routes/_app/settings/general'
 import { Route as AppSettingsLlmRouteImport } from './routes/_app/settings/llm'
+import { Route as AppSettingsProcessRouteImport } from './routes/_app/settings/process'
 import { Route as AppSettingsSecretsRouteImport } from './routes/_app/settings/secrets'
+import { Route as AppSettingsStartupRouteImport } from './routes/_app/settings/startup'
 
 const AppRoute = AppRouteImport.update({
   id: '/_app',
@@ -96,6 +99,11 @@ const AppSettingsIndexRoute = AppSettingsIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AppSettingsRoute,
 } as any)
+const AppSettingsAccountsRoute = AppSettingsAccountsRouteImport.update({
+  id: '/accounts',
+  path: '/accounts',
+  getParentRoute: () => AppSettingsRoute,
+} as any)
 const AppSettingsGeneralRoute = AppSettingsGeneralRouteImport.update({
   id: '/general',
   path: '/general',
@@ -106,9 +114,19 @@ const AppSettingsLlmRoute = AppSettingsLlmRouteImport.update({
   path: '/llm',
   getParentRoute: () => AppSettingsRoute,
 } as any)
+const AppSettingsProcessRoute = AppSettingsProcessRouteImport.update({
+  id: '/process',
+  path: '/process',
+  getParentRoute: () => AppSettingsRoute,
+} as any)
 const AppSettingsSecretsRoute = AppSettingsSecretsRouteImport.update({
   id: '/secrets',
   path: '/secrets',
+  getParentRoute: () => AppSettingsRoute,
+} as any)
+const AppSettingsStartupRoute = AppSettingsStartupRouteImport.update({
+  id: '/startup',
+  path: '/startup',
   getParentRoute: () => AppSettingsRoute,
 } as any)
 
@@ -123,9 +141,12 @@ export interface FileRoutesByFullPath {
   '/status': typeof AppStatusRoute
   '/chats/$chat': typeof AppChatsChatRoute
   '/modules/$module': typeof AppModulesModuleRoute
+  '/settings/accounts': typeof AppSettingsAccountsRoute
   '/settings/general': typeof AppSettingsGeneralRoute
   '/settings/llm': typeof AppSettingsLlmRoute
+  '/settings/process': typeof AppSettingsProcessRoute
   '/settings/secrets': typeof AppSettingsSecretsRoute
+  '/settings/startup': typeof AppSettingsStartupRoute
   '/chats/': typeof AppChatsIndexRoute
   '/modules/': typeof AppModulesIndexRoute
   '/settings/': typeof AppSettingsIndexRoute
@@ -138,9 +159,12 @@ export interface FileRoutesByTo {
   '/': typeof AppIndexRoute
   '/chats/$chat': typeof AppChatsChatRoute
   '/modules/$module': typeof AppModulesModuleRoute
+  '/settings/accounts': typeof AppSettingsAccountsRoute
   '/settings/general': typeof AppSettingsGeneralRoute
   '/settings/llm': typeof AppSettingsLlmRoute
+  '/settings/process': typeof AppSettingsProcessRoute
   '/settings/secrets': typeof AppSettingsSecretsRoute
+  '/settings/startup': typeof AppSettingsStartupRoute
   '/chats': typeof AppChatsIndexRoute
   '/modules': typeof AppModulesIndexRoute
   '/settings': typeof AppSettingsIndexRoute
@@ -158,9 +182,12 @@ export interface FileRoutesById {
   '/_app/': typeof AppIndexRoute
   '/_app/chats/$chat': typeof AppChatsChatRoute
   '/_app/modules/$module': typeof AppModulesModuleRoute
+  '/_app/settings/accounts': typeof AppSettingsAccountsRoute
   '/_app/settings/general': typeof AppSettingsGeneralRoute
   '/_app/settings/llm': typeof AppSettingsLlmRoute
+  '/_app/settings/process': typeof AppSettingsProcessRoute
   '/_app/settings/secrets': typeof AppSettingsSecretsRoute
+  '/_app/settings/startup': typeof AppSettingsStartupRoute
   '/_app/chats/': typeof AppChatsIndexRoute
   '/_app/modules/': typeof AppModulesIndexRoute
   '/_app/settings/': typeof AppSettingsIndexRoute
@@ -178,9 +205,12 @@ export interface FileRouteTypes {
     | '/status'
     | '/chats/$chat'
     | '/modules/$module'
+    | '/settings/accounts'
     | '/settings/general'
     | '/settings/llm'
+    | '/settings/process'
     | '/settings/secrets'
+    | '/settings/startup'
     | '/chats/'
     | '/modules/'
     | '/settings/'
@@ -193,9 +223,12 @@ export interface FileRouteTypes {
     | '/'
     | '/chats/$chat'
     | '/modules/$module'
+    | '/settings/accounts'
     | '/settings/general'
     | '/settings/llm'
+    | '/settings/process'
     | '/settings/secrets'
+    | '/settings/startup'
     | '/chats'
     | '/modules'
     | '/settings'
@@ -212,9 +245,12 @@ export interface FileRouteTypes {
     | '/_app/'
     | '/_app/chats/$chat'
     | '/_app/modules/$module'
+    | '/_app/settings/accounts'
     | '/_app/settings/general'
     | '/_app/settings/llm'
+    | '/_app/settings/process'
     | '/_app/settings/secrets'
+    | '/_app/settings/startup'
     | '/_app/chats/'
     | '/_app/modules/'
     | '/_app/settings/'
@@ -325,6 +361,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSettingsIndexRouteImport
       parentRoute: typeof AppSettingsRoute
     }
+    '/_app/settings/accounts': {
+      id: '/_app/settings/accounts'
+      path: '/accounts'
+      fullPath: '/settings/accounts'
+      preLoaderRoute: typeof AppSettingsAccountsRouteImport
+      parentRoute: typeof AppSettingsRoute
+    }
     '/_app/settings/general': {
       id: '/_app/settings/general'
       path: '/general'
@@ -339,11 +382,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSettingsLlmRouteImport
       parentRoute: typeof AppSettingsRoute
     }
+    '/_app/settings/process': {
+      id: '/_app/settings/process'
+      path: '/process'
+      fullPath: '/settings/process'
+      preLoaderRoute: typeof AppSettingsProcessRouteImport
+      parentRoute: typeof AppSettingsRoute
+    }
     '/_app/settings/secrets': {
       id: '/_app/settings/secrets'
       path: '/secrets'
       fullPath: '/settings/secrets'
       preLoaderRoute: typeof AppSettingsSecretsRouteImport
+      parentRoute: typeof AppSettingsRoute
+    }
+    '/_app/settings/startup': {
+      id: '/_app/settings/startup'
+      path: '/startup'
+      fullPath: '/settings/startup'
+      preLoaderRoute: typeof AppSettingsStartupRouteImport
       parentRoute: typeof AppSettingsRoute
     }
   }
@@ -378,16 +435,22 @@ const AppModulesRouteWithChildren = AppModulesRoute._addFileChildren(
 )
 
 interface AppSettingsRouteChildren {
+  AppSettingsAccountsRoute: typeof AppSettingsAccountsRoute
   AppSettingsGeneralRoute: typeof AppSettingsGeneralRoute
   AppSettingsLlmRoute: typeof AppSettingsLlmRoute
+  AppSettingsProcessRoute: typeof AppSettingsProcessRoute
   AppSettingsSecretsRoute: typeof AppSettingsSecretsRoute
+  AppSettingsStartupRoute: typeof AppSettingsStartupRoute
   AppSettingsIndexRoute: typeof AppSettingsIndexRoute
 }
 
 const AppSettingsRouteChildren: AppSettingsRouteChildren = {
+  AppSettingsAccountsRoute: AppSettingsAccountsRoute,
   AppSettingsGeneralRoute: AppSettingsGeneralRoute,
   AppSettingsLlmRoute: AppSettingsLlmRoute,
+  AppSettingsProcessRoute: AppSettingsProcessRoute,
   AppSettingsSecretsRoute: AppSettingsSecretsRoute,
+  AppSettingsStartupRoute: AppSettingsStartupRoute,
   AppSettingsIndexRoute: AppSettingsIndexRoute,
 }
 

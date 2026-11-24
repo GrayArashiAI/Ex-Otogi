@@ -229,7 +229,7 @@ function RemoveConfirm({ secret, close }: { secret: Secret; close: () => void })
         <DialogDescription>
           {used.length === 0
             ? "Nothing refers to it. Its value is deleted from the server, and cannot be brought back."
-            : `The settings of ${referenceTitles(used)} refer to it. If the bot's environment has a variable of this name, they read that from now on; if not, the bot refuses and nothing changes.`}
+            : `The settings of ${referenceTitles(used)} refer to it. If the bot's environment has a variable of this name, they read that from now on${used.includes("system:accounts") ? ", the platform accounts from the bot's next start" : ""}; if not, the bot refuses and nothing changes.`}
         </DialogDescription>
       </DialogHeader>
       {remove.error && (

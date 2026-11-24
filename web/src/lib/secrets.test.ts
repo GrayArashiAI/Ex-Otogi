@@ -66,3 +66,11 @@ test("a secret the providers refer to restarts the modules that use one, unnamed
     "todou restarts with it at once. The language model providers are rebuilt with it, and the running modules that use one restart.",
   );
 });
+
+test("a secret the platform accounts refer to waits for a restart", () => {
+  assert.equal(
+    restartNote([], false, true),
+    "No running module refers to it, so nothing restarts. The platform accounts read it when the bot starts: the running bot keeps the old value until it is restarted.",
+  );
+  assert.match(restartNote(["todou"], false, true), /^todou restarts with it at once\. The platform accounts read it/);
+});

@@ -16,8 +16,8 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { toastManager } from "@/components/ui/toast";
-import { nameProblem, reference, restartNote, titlesList } from "@/lib/secrets";
-import { llmPage, referenceTitle, sectionPage } from "@/lib/settings";
+import { accountsNote, nameProblem, reference, restartNote, titlesList } from "@/lib/secrets";
+import { accountsPage, llmPage, referenceTitle, sectionPage } from "@/lib/settings";
 import { modulesQuery } from "@/queries/modules";
 import { secretsQuery } from "@/queries/secrets";
 
@@ -78,6 +78,7 @@ function SecretForm({
   const replaces = secret?.source === "panel";
   const references = known?.references ?? [];
   const restarts = references.filter((id) => modules.some((m) => m.id === id && m.running));
+  const accounts = references.some((id) => sectionPage(id) === accountsPage);
   const nameError = secret ? undefined : nameProblem(typed, secrets);
   const valueError = value ? undefined : "Required";
 
@@ -93,7 +94,10 @@ function SecretForm({
       toastManager.add({
         type: "success",
         title: `${replaces ? "Replaced" : secret ? "Set" : "Added"} ${name}`,
-        description: restarted.length > 0 ? `${referenceTitles(restarted)} restarted with it.` : undefined,
+        description:
+          [restarted.length > 0 && `${referenceTitles(restarted)} restarted with it.`, accounts && accountsNote]
+            .filter(Boolean)
+            .join(" ") || undefined,
       });
       onSaved?.(name);
       close();
@@ -220,6 +224,7 @@ function SecretForm({
           {restartNote(
             restarts.map(referenceTitle),
             references.some((id) => sectionPage(id) === llmPage),
+            accounts,
           )}
         </p>
       </DialogPanel>

@@ -48,15 +48,19 @@ export function properties(s: JSONSchema): [string, JSONSchema][] {
 }
 
 // The words of a key that are not written as the key has them. The schema
-// has no titles, so openai, a map of services, is named here.
+// has no titles, so openai, a map of services, and the lists of accounts
+// are named here.
 const spelt: Record<string, string> = {
   api: "API",
+  id: "ID",
   url: "URL",
   kb: "KB",
   mb: "MB",
   gb: "GB",
   eventlog: "event log",
   openai: "OpenAI-compatible services",
+  telegram: "Telegram accounts",
+  qq: "QQ accounts",
 };
 
 /** label turns max_tool_rounds into "Max tool rounds", and base_url into "Base URL". */

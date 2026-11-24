@@ -133,12 +133,16 @@ test("label spells the words a key cannot", () => {
   assert.equal(label("eventlog_retention"), "Event log retention");
   assert.equal(label("openai"), "OpenAI-compatible services");
   assert.equal(label("command_prefixes"), "Command prefixes");
+  assert.equal(label("app_id"), "App ID");
+  assert.equal(label("telegram"), "Telegram accounts");
+  assert.equal(label("qq"), "QQ accounts");
 });
 
 test("noun is one of what a title names", () => {
   assert.equal(noun("Profiles"), "profile");
   assert.equal(noun("Judge steps"), "step");
   assert.equal(noun("OpenAI-compatible services"), "service");
+  assert.equal(noun("QQ accounts"), "account");
 });
 
 test("a list emptied is a change to a list of nothing, not to the default", () => {
@@ -150,5 +154,6 @@ test("a list emptied is a change to a list of nothing, not to the default", () =
 
 test("pathLabel reads a path as its labels", () => {
   assert.equal(pathLabel("profiles[1].max_media_mb"), "Profiles 2 › Max media MB");
+  assert.equal(pathLabel("telegram[0].app_hash"), "Telegram accounts 1 › App hash");
   assert.equal(pathLabel(""), "Settings");
 });

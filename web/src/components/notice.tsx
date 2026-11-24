@@ -2,16 +2,20 @@ import { CircleAlert, TriangleAlert } from "lucide-react";
 import type { ComponentProps, ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
-/** Notice is a problem said in place: red for a failure, amber for a caution. */
+/** Notice is a problem said in place: red for a failure, amber for a
+ * caution. Its action, a button, sits beside the words, or under them where
+ * there is no room. */
 export function Notice({
   tone = "error",
   title,
+  action,
   className,
   children,
   ...props
 }: {
   tone?: "error" | "warning";
   title: string;
+  action?: ReactNode;
   children?: ReactNode;
 } & Omit<ComponentProps<"div">, "title">) {
   const Icon = tone === "error" ? CircleAlert : TriangleAlert;
@@ -30,10 +34,12 @@ export function Notice({
           tone === "error" ? "text-destructive-foreground" : "text-warning-foreground",
         )}
       />
-      <div className="min-w-0 break-words text-muted-foreground">
+      <div className="min-w-0 flex-1 break-words text-muted-foreground">
         <div className="font-medium text-foreground">{title}</div>
         {children}
+        {action && <div className="mt-2.5 sm:hidden">{action}</div>}
       </div>
+      {action && <div className="flex-none self-center max-sm:hidden">{action}</div>}
     </div>
   );
 }

@@ -55,11 +55,17 @@ export function titlesList(titles: string[]): string {
 /** restartNote says what a secret's new value restarts: the running modules
  * whose settings refer to it, by title, and, when the language model
  * providers refer to it, the running modules that use one. Which those are
- * the server says only once it has restarted them. */
-export function restartNote(modules: string[], providers: boolean): string {
+ * the server says only once it has restarted them. The platform accounts
+ * read a secret when the bot starts: one they refer to waits for a restart. */
+export function restartNote(modules: string[], providers: boolean, accounts = false): string {
   const named =
     modules.length > 0 && `${titlesList(modules)} ${modules.length === 1 ? "restarts" : "restart"} with it at once.`;
-  if (!providers) return named || "No running module refers to it, so nothing restarts.";
-  const rebuilt = "The language model providers are rebuilt with it, and the running modules that use one restart.";
-  return named ? `${named} ${rebuilt}` : rebuilt;
+  const rebuilt =
+    providers && "The language model providers are rebuilt with it, and the running modules that use one restart.";
+  const now = [named, rebuilt].filter(Boolean).join(" ") || "No running module refers to it, so nothing restarts.";
+  return accounts ? `${now} ${accountsNote}` : now;
 }
+
+/** accountsNote says when a secret the platform accounts refer to takes effect. */
+export const accountsNote =
+  "The platform accounts read it when the bot starts: the running bot keeps the old value until it is restarted.";

@@ -45,16 +45,27 @@ type Revision = Schemas["Revision"];
 
 const count = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
 
+/** Review says what else a save should be read with, above the list of what
+ * changes: the settings as they are, as they would be saved, and their schema. */
+export type Review = (was: Record<string, unknown>, now: Record<string, unknown>, schema: JSONSchema) => ReactNode;
+
+/** How is what a card's settings do once saved. */
+type How = {
+  /** effect ends "They are saved as revision 3, and …": what the bot does with a saved revision. */
+  effect?: string;
+  /** applies is when: at once, or for a section the bot reads when it starts, on restart. */
+  applies?: "now" | "restart";
+  review?: Review;
+};
+
 /** SettingsCard edits the settings of a module or of a section: Save reviews
- * what changes, then saves it as a new revision, which the bot applies at once. */
+ * what changes, then saves it as a new revision, which the bot applies at
+ * once, or at its next start. */
 export function SettingsCard({
   of,
   effect = "the bot swaps in the module with them at once",
-}: {
-  of: Subject;
-  /** effect ends "They are saved as revision 3, and …": what the bot does with a saved revision. */
-  effect?: string;
-}) {
+  ...how
+}: { of: Subject } & How) {
   const queryClient = useQueryClient();
   const { data: current } = useSuspenseQuery(settingsQuery(of));
   const root = current.schema as JSONSchema;
@@ -63,19 +74,22 @@ export function SettingsCard({
     const next = { ...current, ...saved };
     queryClient.setQueryData(settingsQuery(of).queryKey, next);
     // A section's settings can restart modules, and the status page shows some of them.
-    for (const key of ["modules", "events", "status"]) void queryClient.invalidateQueries({ queryKey: [key] });
+    // A section the bot reads when it starts now waits for a restart.
+    for (const key of ["modules", "events", "status", "sections"]) {
+      void queryClient.invalidateQueries({ queryKey: [key] });
+    }
     // The secrets list says whose settings refer to each.
     void queryClient.invalidateQueries({ queryKey: ["secrets"] });
     return next;
   };
   if (properties(root).length > 0) {
     // Each module has its own form; a new revision of one does not remount it.
-    return <SettingsEditor key={current.module} of={of} effect={effect} current={current} keep={keep} />;
+    return <SettingsEditor key={current.module} of={of} effect={effect} {...how} current={current} keep={keep} />;
   }
   return (
     <Card>
       <SettingsHeader current={current}>
-        <HistorySheet of={of} effect={effect} current={current} unsaved={0} onRestored={keep} />
+        <HistorySheet of={of} effect={effect} {...how} current={current} unsaved={0} onRestored={keep} />
       </SettingsHeader>
       <p className="px-4 pb-4 text-muted-foreground text-sm">This module has no settings.</p>
     </Card>
@@ -97,9 +111,17 @@ function SettingsHeader({ current, children }: { current: Current; children: Rea
  * it stands until that value changes. */
 type Refusal = Problem & { value: string };
 
+/** runsWith says, after a save, when the bot runs with the revision. */
+const runsWith = (applies: How["applies"]) =>
+  applies === "restart" ? "The bot runs with it from its next start." : "The bot runs with it now.";
+
+const settingsOf = (value: unknown) => value as Record<string, unknown>;
+
 function SettingsEditor({
   of,
   effect,
+  applies,
+  review: reviewed,
   current: fetched,
   keep,
 }: {
@@ -107,7 +129,7 @@ function SettingsEditor({
   effect: string;
   current: Current;
   keep: (saved: Revision) => Current;
-}) {
+} & How) {
   const queryClient = useQueryClient();
   const root = fetched.schema as JSONSchema;
   const id = useId();
@@ -126,7 +148,8 @@ function SettingsEditor({
   const { reveal, ...view } = useReveal(id);
 
   const cleaned = useMemo(() => clean(root, values), [root, values]);
-  const diff = useMemo(() => changes(clean(root, current.settings ?? {}), cleaned), [root, current, cleaned]);
+  const was = useMemo(() => clean(root, current.settings ?? {}), [root, current]);
+  const diff = useMemo(() => changes(was, cleaned), [was, cleaned]);
   const untouched = useMemo(
     () => changes(clean(root, base.settings ?? {}), cleaned).length === 0,
     [root, base, cleaned],
@@ -162,7 +185,7 @@ function SettingsEditor({
       toastManager.add({
         type: "success",
         title: `Saved as revision ${saved.revision}`,
-        description: "The bot runs with it now.",
+        description: runsWith(applies),
       });
     },
     onError: async (error) => {
@@ -218,6 +241,8 @@ function SettingsEditor({
         <HistorySheet
           of={of}
           effect={effect}
+          applies={applies}
+          review={reviewed}
           current={current}
           unsaved={diff.length}
           onRestored={(saved) => load(keep(saved))}
@@ -299,7 +324,7 @@ function SettingsEditor({
           }}
         >
           <DialogHeader>
-            <DialogTitle>Apply these changes?</DialogTitle>
+            <DialogTitle>{applies === "restart" ? "Save" : "Apply"} these changes?</DialogTitle>
             <DialogDescription>
               They are saved as revision {current.revision + 1}, and {effect}.
             </DialogDescription>
@@ -334,12 +359,13 @@ function SettingsEditor({
                 </p>
               </Notice>
             )}
+            {reviewed?.(settingsOf(was), settingsOf(cleaned), root)}
             <ChangeList changes={diff} />
           </DialogPanel>
           <DialogFooter>
             <DialogClose render={<Button variant="ghost" />}>Keep editing</DialogClose>
             <Button loading={save.isPending} disabled={!dirty} onClick={() => save.mutate()}>
-              {failure ? "Try again" : "Apply"}
+              {failure ? "Try again" : applies === "restart" ? "Save" : "Apply"}
             </Button>
           </DialogFooter>
         </DialogPopup>
@@ -402,6 +428,8 @@ function Value({ v, unset }: { v: unknown; unset: string }) {
 function HistorySheet({
   of,
   effect,
+  applies,
+  review,
   current,
   unsaved,
   onRestored,
@@ -412,7 +440,7 @@ function HistorySheet({
   /** unsaved is how many changes the form has that a restore discards. */
   unsaved: number;
   onRestored: (saved: Revision) => void;
-}) {
+} & How) {
   const queryClient = useQueryClient();
   const root = current.schema as JSONSchema;
   const history = useInfiniteQuery({ ...revisionsQuery(of), enabled: current.revision > 0 });
@@ -425,14 +453,16 @@ function HistorySheet({
       toastManager.add({
         type: "success",
         title: `Restored as revision ${saved.revision}`,
-        description: "The bot runs with it now.",
+        description: runsWith(applies),
       });
     },
     // A restore refused because someone saved first is tried again on what they saved.
     onError: () => queryClient.invalidateQueries({ queryKey: subjectKey(of) }),
   });
   const revisions = history.data?.pages.flatMap((p) => p.revisions ?? []) ?? [];
-  const diff = picked ? changes(clean(root, current.settings ?? {}), clean(root, picked.settings ?? {})) : [];
+  const was = clean(root, current.settings ?? {});
+  const restored = clean(root, picked?.settings ?? {});
+  const diff = picked ? changes(was, restored) : [];
   return (
     <Sheet>
       <SheetTrigger render={<Button variant="ghost" size="sm" disabled={current.revision === 0} />}>
@@ -506,6 +536,7 @@ function HistorySheet({
                   title={`Restoring discards the ${count(unsaved, "unsaved change")} in the form`}
                 />
               )}
+              {picked && review?.(settingsOf(was), settingsOf(restored), root)}
               <ChangeList changes={diff} />
             </DialogPanel>
             <DialogFooter>
