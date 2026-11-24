@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/md5"
 	"database/sql"
+	"encoding/binary"
 	"errors"
 	"image"
 	"image/color"
@@ -466,7 +467,7 @@ func TestKnownBySourceWithoutHash(t *testing.T) {
 
 // gifOf builds a 4x4 GIF from frames, each one pixel of a color at a
 // point, drawn over a red first frame.
-func gifOf(t *testing.T, frames []gifFrame) []byte {
+func gifOf(t testing.TB, frames []gifFrame) []byte {
 	t.Helper()
 	g := &gif.GIF{Config: image.Config{Width: 4, Height: 4}}
 	for _, f := range frames {
@@ -530,11 +531,106 @@ func TestGIFDecodedSize(t *testing.T) {
 	if got, err := gifDecoded(bigGIF(2000, 50)); err != nil || got != 50*2000*2000+8*2000*2000 {
 		t.Fatalf("gifDecoded = %d, %v", got, err)
 	}
-	for _, bad := range [][]byte{[]byte("GIF89a"), bigGIF(20, 2)[:40], []byte("\x89PNG")} {
+	whole := bigGIF(20, 2)
+	for _, bad := range [][]byte{[]byte("GIF89a"), whole[:40], whole[:len(whole)-1], []byte("\x89PNG")} {
 		if _, err := gifDecoded(bad); err == nil {
 			t.Errorf("gifDecoded(%q) succeeded", bad)
 		}
 	}
+
+	encoded := encodedGIF(t, 64, 16)
+	if got, err := gifDecoded(encoded); err != nil || got != 16*64*64+8*64*64 {
+		t.Fatalf("gifDecoded = %d, %v; want %d", got, err, 16*64*64+8*64*64)
+	}
+	// From the review: extensions that image/gif reads past and an earlier
+	// gifDecoded took for the end of the file, so it counted none of the
+	// frames after them. image/gif decodes all sixteen; gifDecoded refuses.
+	for _, ext := range [][]byte{plainTextHidingTrailer, applicationHidingTrailer} {
+		hidden := withExtension(encoded, ext)
+		g, err := gif.DecodeAll(bytes.NewReader(hidden))
+		if err != nil {
+			t.Fatalf("image/gif: %v; the test GIF should decode", err)
+		}
+		if len(g.Image) != 16 {
+			t.Fatalf("image/gif decoded %d frames, want 16", len(g.Image))
+		}
+		if got, err := gifDecoded(hidden); err == nil {
+			t.Errorf("gifDecoded(% x ...) = %d, want an error", ext[:4], got)
+		}
+	}
+}
+
+// Extensions that image/gif and an earlier gifDecoded read differently.
+var (
+	// A plain text extension whose first byte is 0, not 12: image/gif
+	// skips thirteen bytes (past the 0x3B), then sub-blocks to the last 0.
+	plainTextHidingTrailer = append([]byte{0x21, 0x01, 0x00, 0x3B}, make([]byte, 12)...)
+	// An application extension of size 0: image/gif reads 0x3B as a
+	// sub-block of 59 bytes, then the terminator after them.
+	applicationHidingTrailer = append([]byte{0x21, 0xFF, 0x00, 0x3B}, make([]byte, 60)...)
+)
+
+// encodedGIF is a GIF of frames frames of size x size, each of one color,
+// as image/gif writes it: it decodes, unlike bigGIF.
+func encodedGIF(t testing.TB, size, frames int) []byte {
+	t.Helper()
+	g := &gif.GIF{Config: image.Config{Width: size, Height: size}}
+	for range frames {
+		g.Image = append(g.Image, image.NewPaletted(image.Rect(0, 0, size, size), color.Palette{red, blue}))
+		g.Delay = append(g.Delay, 10)
+	}
+	var b bytes.Buffer
+	if err := gif.EncodeAll(&b, g); err != nil {
+		t.Fatal(err)
+	}
+	return b.Bytes()
+}
+
+// withExtension puts ext right after data's header and global color table,
+// before its first block.
+func withExtension(data, ext []byte) []byte {
+	at := 13
+	if data[10]&0x80 != 0 {
+		at += 3 << ((data[10] & 7) + 1)
+	}
+	return append(append(append([]byte(nil), data[:at]...), ext...), data[at:]...)
+}
+
+// FuzzGIFDecoded holds gifDecoded to image/gif: a GIF it passes, at the
+// size it counts, must not decode to more frame pixels than that. A GIF
+// counted at more than 4 MiB is not decoded, nor one that could decode to
+// more than 64 MiB if the count were wrong (each frame lies within the
+// header's canvas, which image/gif checks, and starts with a 0x2C byte),
+// so the fuzzer itself stays small; a way to read a block differently
+// works as well on a small GIF.
+func FuzzGIFDecoded(f *testing.F) {
+	small := encodedGIF(f, 64, 16)
+	f.Add(small)
+	f.Add(gifOf(f, []gifFrame{{full: true, c: red}, {at: image.Pt(1, 1), c: blue, disposal: gif.DisposalPrevious}}))
+	f.Add(bigGIF(8, 3))
+	f.Add(withExtension(small, plainTextHidingTrailer))
+	f.Add(withExtension(small, applicationHidingTrailer))
+	f.Fuzz(func(t *testing.T, data []byte) {
+		counted, err := gifDecoded(data)
+		if err != nil || counted > 4<<20 {
+			return
+		}
+		canvas := int64(binary.LittleEndian.Uint16(data[6:])) * int64(binary.LittleEndian.Uint16(data[8:]))
+		if canvas*int64(bytes.Count(data, []byte{0x2C})) > 64<<20 {
+			return
+		}
+		g, err := gif.DecodeAll(bytes.NewReader(data))
+		if err != nil {
+			return
+		}
+		var pixels int64
+		for _, m := range g.Image {
+			pixels += int64(m.Bounds().Dx()) * int64(m.Bounds().Dy())
+		}
+		if pixels > counted {
+			t.Fatalf("gifDecoded = %d, but image/gif decoded %d frames of %d pixels", counted, len(g.Image), pixels)
+		}
+	})
 }
 
 // A small file of large frames is not decoded: decoding it would take far
