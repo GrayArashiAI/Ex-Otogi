@@ -93,7 +93,20 @@ type MediaConfig struct {
 type JudgeConfig struct {
 	Rules string      `json:"rules,omitempty" doc:"What else counts, or does not, as talking to the agent: for example that its name is also a product people discuss."`
 	Wake  *WakeConfig `json:"wake,omitempty" doc:"Answer group messages addressed to the agent that no trigger caught, such as its name in the middle of a sentence."`
+	Wait  *WaitConfig `json:"wait,omitempty" doc:"In groups, wait until the sender has finished, and answer what was said to the agent meanwhile together. A wait holds one of the process's workers, at most one per agent and group."`
 }
+
+// WaitConfig configures waiting for the sender to finish before answering.
+type WaitConfig struct {
+	Min otogi.Duration `json:"min,omitempty" default:"2s" doc:"How long to wait when the sender has finished. Messages arriving this close together are also judged in one request."`
+	Max otogi.Duration `json:"max,omitempty" default:"20s" doc:"The longest wait, from the first message. At most half of timeout, which also bounds the reply."`
+}
+
+// The wait of a wait block that sets none.
+const (
+	defaultWaitMin = 2 * time.Second
+	defaultWaitMax = 20 * time.Second
+)
 
 // WakeConfig configures answering messages judged to be addressed to the
 // agent.
@@ -113,6 +126,9 @@ type profile struct {
 	provider llm.Provider
 	wake     float64 // how sure a judgment must be to wake it; 0 when it is not judged
 	rules    string  // what else counts as talking to it, for judgments
+	// waitMin and waitMax bound how long it waits in groups for the sender
+	// to finish; waitMax is 0 when it does not wait.
+	waitMin, waitMax time.Duration
 }
 
 // toolsList names the allowlist of the chats where agents get a module's
@@ -233,6 +249,19 @@ func (c *Config) profiles(providers func(string) (llm.Provider, error)) ([]*prof
 			p.rules = strings.TrimSpace(pc.Judge.Rules)
 			if pc.Judge.Wake != nil {
 				p.wake = cmp.Or(pc.Judge.Wake.Threshold, defaultWake)
+			}
+			if w := pc.Judge.Wait; w != nil {
+				p.waitMin, p.waitMax = cmp.Or(time.Duration(w.Min), defaultWaitMin), cmp.Or(time.Duration(w.Max), defaultWaitMax)
+				switch {
+				case p.waitMin < 0:
+					refuse(".judge.wait.min", errors.New("must not be negative"))
+				case p.waitMax < 0:
+					refuse(".judge.wait.max", errors.New("must not be negative"))
+				case p.waitMin > p.waitMax:
+					refuse(".judge.wait.min", fmt.Errorf("%s is longer than max (%s)", p.waitMin, p.waitMax))
+				case p.waitMax > time.Duration(c.Timeout)/2:
+					refuse(".judge.wait.max", fmt.Errorf("%s: at most half of timeout (%s), which also bounds the reply", p.waitMax, time.Duration(c.Timeout)))
+				}
 			}
 		}
 		provider, err := providers(pc.Provider)

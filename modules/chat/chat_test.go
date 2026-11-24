@@ -25,6 +25,7 @@ type provider struct {
 	responses []llm.Response
 	errs      []error
 	requests  []llm.Request
+	before    func(n int) // when set, runs before the nth request is answered, and may block it
 }
 
 func (p *provider) Generate(_ context.Context, req llm.Request, partial func(otogi.Message) error) (llm.Response, error) {
@@ -32,6 +33,9 @@ func (p *provider) Generate(_ context.Context, req llm.Request, partial func(oto
 	p.requests = append(p.requests, req)
 	n := len(p.requests)
 	p.mu.Unlock()
+	if p.before != nil {
+		p.before(n)
+	}
 	if n <= len(p.errs) && p.errs[n-1] != nil {
 		return llm.Response{}, p.errs[n-1]
 	}
@@ -61,6 +65,8 @@ func (s *stream) Update(_ context.Context, msg otogi.Message) error {
 }
 
 func (s *stream) Close(_ context.Context, msg otogi.Message) ([]otogi.EventRef, error) {
+	s.h.mu.Lock()
+	defer s.h.mu.Unlock()
 	s.final = msg
 	s.h.sent++
 	return []otogi.EventRef{{Platform: "telegram", Account: "main", Conversation: "chat:1", SourceEvent: otogi.SourceEventID(fmt.Sprintf("agent-%d", s.h.sent))}}, nil
@@ -72,6 +78,8 @@ type invocation struct {
 }
 
 func (i invocation) Send(_ context.Context, slot string, msg otogi.Message) (otogi.EventRef, error) {
+	i.h.mu.Lock()
+	defer i.h.mu.Unlock()
 	i.h.replies = append(i.h.replies, msg.PlainText())
 	if i.h.sendErr != nil {
 		return otogi.EventRef{}, i.h.sendErr
@@ -89,7 +97,9 @@ type sentEffect struct {
 
 func (i invocation) Stream(context.Context, string, otogi.Destination) otogi.MessageStream {
 	s := &stream{h: i.h}
+	i.h.mu.Lock()
 	i.h.streams = append(i.h.streams, s)
+	i.h.mu.Unlock()
 	return s
 }
 
@@ -99,6 +109,7 @@ func (i invocation) FetchMedia(_ context.Context, _ otogi.Destination, src otogi
 
 type host struct {
 	otogi.Host
+	mu       sync.Mutex
 	storage  *modulestore.Storage
 	records  []otogi.Record
 	services map[string]any
@@ -120,11 +131,16 @@ func (h *host) Logger() *slog.Logger { return slog.New(slog.DiscardHandler) }
 func (h *host) Database(ctx context.Context) (*sql.DB, error) {
 	return h.storage.Database(ctx, "chat")
 }
-func (h *host) Record(_ context.Context, r otogi.Record) { h.records = append(h.records, r) }
+func (h *host) Record(_ context.Context, r otogi.Record) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.records = append(h.records, r)
+}
 func (h *host) Schedule(string, string, otogi.Job) error { return nil }
 
 type harness struct {
 	t       *testing.T
+	mu      sync.Mutex // guards what the invocation and streams record, for handlers running at once
 	m       *Module
 	host    *host
 	llm     map[string]*provider
