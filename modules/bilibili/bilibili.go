@@ -32,7 +32,7 @@ type Module struct {
 // New validates cfg and returns the module.
 func New(cfg Config) (*Module, error) {
 	if err := cardimage.Check(cfg.Chrome); err != nil {
-		return nil, fmt.Errorf("bilibili: %w", err)
+		return nil, &otogi.SettingError{Path: "chrome", Err: err}
 	}
 	if cfg.MaxVideos == 0 {
 		cfg.MaxVideos = 3

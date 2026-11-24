@@ -52,7 +52,7 @@ func New(cfg Config, secret func(name string) (string, bool)) (*Module, error) {
 	}
 	key, err := c.APIKey.Resolve(secret)
 	if err != nil {
-		return nil, fmt.Errorf("decision: jev.api_key: %w", err)
+		return nil, &otogi.SettingError{Path: "jev.api_key", Err: err}
 	}
 	j := &jev{url: c.BaseURL, key: key, model: c.Model, timeout: time.Duration(c.Timeout), http: &http.Client{}}
 	if j.url == "" {

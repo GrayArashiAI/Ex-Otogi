@@ -58,9 +58,9 @@ func TestSettingsErrors(t *testing.T) {
 	text := filepath.Join(t.TempDir(), "notes.txt")
 	_ = os.WriteFile(text, []byte("hello"), 0o600)
 	for want, cfg := range map[string]Config{
-		"blur 50":                {Blur: ptr(50)},
-		"sticker_opacity 0":      {StickerOpacity: ptr(0.0)},
-		"sticker_size 120":       {StickerSize: 120},
+		"blur: 50":               {Blur: ptr(50)},
+		"sticker_opacity: 0":     {StickerOpacity: ptr(0.0)},
+		"sticker_size: 120":      {StickerSize: 120},
 		"no such file":           {Sticker: "/nonexistent/sticker.png"},
 		"not an image (text/pla": {Sticker: text},
 	} {

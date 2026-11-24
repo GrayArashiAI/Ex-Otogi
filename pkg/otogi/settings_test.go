@@ -29,8 +29,28 @@ func TestSecretResolve(t *testing.T) {
 			}
 			continue
 		}
-		if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), c.fails) {
-			t.Errorf("%s: %v, want invalid naming %s", c.secret, err, c.fails)
+		if err == nil || !strings.Contains(err.Error(), c.fails) || strings.HasSuffix(err.Error(), ErrInvalid.Error()) {
+			t.Errorf("%s: %v, want an error naming %s, with no suffix", c.secret, err, c.fails)
 		}
+	}
+}
+
+// A setting refused names its path and says why, with nothing after; it is
+// ErrInvalid, alone or joined with others, and wraps its reason.
+func TestSettingError(t *testing.T) {
+	reason := errors.New("not a time zone")
+	err := &SettingError{Path: "profiles[0].timezone", Err: reason}
+	if got := err.Error(); got != "profiles[0].timezone: not a time zone" {
+		t.Errorf("Error() = %q", got)
+	}
+	if !errors.Is(err, ErrInvalid) || !errors.Is(err, reason) {
+		t.Errorf("%v is not ErrInvalid and its reason", err)
+	}
+	joined := errors.Join(err, &SettingError{Path: "chrome", Err: errors.New("no such file")})
+	if !errors.Is(joined, ErrInvalid) || joined.Error() != "profiles[0].timezone: not a time zone\nchrome: no such file" {
+		t.Errorf("joined: %v", joined)
+	}
+	if got := (&SettingError{Err: reason}).Error(); got != "not a time zone" {
+		t.Errorf("the whole settings' error = %q", got)
 	}
 }

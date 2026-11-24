@@ -1,6 +1,7 @@
 package media
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/TundraWork/Ex-Otogi/pkg/llm"
@@ -33,15 +34,16 @@ type step struct {
 // settings are refused.
 func (c Config) steps(providers func(string) (llm.Provider, error)) ([]step, error) {
 	if len(c.Steps) == 0 {
-		return nil, fmt.Errorf("media: steps: none configured: %w", otogi.ErrInvalid)
+		return nil, &otogi.SettingError{Path: "steps", Err: errors.New("none configured")}
 	}
 	out := make([]step, len(c.Steps))
+	var errs []error
 	for i, s := range c.Steps {
 		p, err := providers(s.Provider)
 		if err != nil {
-			return nil, fmt.Errorf("media: steps[%d].provider: %w", i, err)
+			errs = append(errs, &otogi.SettingError{Path: fmt.Sprintf("steps[%d].provider", i), Err: err})
 		}
 		out[i] = step{Step: s, provider: p}
 	}
-	return out, nil
+	return out, errors.Join(errs...)
 }

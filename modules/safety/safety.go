@@ -40,7 +40,7 @@ func New(cfg Config) (*Module, error) {
 	var errs []error
 	if cfg.Blur != nil {
 		if *cfg.Blur < 0 || *cfg.Blur > 40 {
-			errs = append(errs, fmt.Errorf("blur %d: want 0 to 40", *cfg.Blur))
+			errs = append(errs, &otogi.SettingError{Path: "blur", Err: fmt.Errorf("%d: want 0 to 40", *cfg.Blur)})
 		}
 		p.Blur = *cfg.Blur
 	}
@@ -50,13 +50,13 @@ func New(cfg Config) (*Module, error) {
 	p.CensoredVideos = cfg.CensoredVideos
 	if cfg.StickerOpacity != nil {
 		if *cfg.StickerOpacity < 0.1 || *cfg.StickerOpacity > 1 {
-			errs = append(errs, fmt.Errorf("sticker_opacity %v: want 0.1 to 1", *cfg.StickerOpacity))
+			errs = append(errs, &otogi.SettingError{Path: "sticker_opacity", Err: fmt.Errorf("%v: want 0.1 to 1", *cfg.StickerOpacity)})
 		}
 		p.StickerOpacity = *cfg.StickerOpacity
 	}
 	if cfg.StickerSize != 0 {
 		if cfg.StickerSize < 10 || cfg.StickerSize > 100 {
-			errs = append(errs, fmt.Errorf("sticker_size %d: want 10 to 100", cfg.StickerSize))
+			errs = append(errs, &otogi.SettingError{Path: "sticker_size", Err: fmt.Errorf("%d: want 10 to 100", cfg.StickerSize)})
 		}
 		p.StickerSize = cfg.StickerSize
 	}
@@ -64,15 +64,15 @@ func New(cfg Config) (*Module, error) {
 		data, err := os.ReadFile(cfg.Sticker)
 		switch mime := http.DetectContentType(data); {
 		case err != nil:
-			errs = append(errs, fmt.Errorf("sticker: %w", err))
+			errs = append(errs, &otogi.SettingError{Path: "sticker", Err: err})
 		case !strings.HasPrefix(mime, "image/"):
-			errs = append(errs, fmt.Errorf("sticker %s: not an image (%s)", cfg.Sticker, mime))
+			errs = append(errs, &otogi.SettingError{Path: "sticker", Err: fmt.Errorf("%s: not an image (%s)", cfg.Sticker, mime)})
 		default:
 			p.Sticker = cardimage.DataURI(data, mime)
 		}
 	}
 	if err := errors.Join(errs...); err != nil {
-		return nil, fmt.Errorf("safety: %w", err)
+		return nil, err
 	}
 	return &Module{pictures: p}, nil
 }

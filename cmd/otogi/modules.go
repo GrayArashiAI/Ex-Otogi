@@ -171,17 +171,15 @@ func (k settingsSchema) check(settings []byte) error {
 	}
 	res := &huma.ValidateResult{}
 	huma.Validate(k.registry, k.schema, huma.NewPathBuffer(nil, 0), huma.ModeWriteToServer, v, res)
-	if len(res.Errors) > 0 {
-		// The values stay out: one may be a secret typed in by mistake, and
-		// the caller has them.
-		for _, err := range res.Errors {
-			if d := (*huma.ErrorDetail)(nil); errors.As(err, &d) {
-				d.Value = nil
-			}
+	// Each is at its field, without the value: one may be a secret typed in
+	// by mistake, and the caller has them.
+	var errs []error
+	for _, err := range res.Errors {
+		if d := (*huma.ErrorDetail)(nil); errors.As(err, &d) {
+			errs = append(errs, &otogi.SettingError{Path: d.Location, Err: errors.New(d.Message)})
 		}
-		return &invalidSettings{details: res.Errors}
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 // instance validates settings against the schema and builds the module from
@@ -253,25 +251,6 @@ func fieldOrder(t reflect.Type) []string {
 	}
 	return names
 }
-
-// invalidSettings is settings that break their schema, field by field
-// (huma.ErrorDetail).
-type invalidSettings struct{ details []error }
-
-func (e *invalidSettings) Error() string {
-	var msgs []string
-	for _, err := range e.details {
-		if d := (*huma.ErrorDetail)(nil); errors.As(err, &d) {
-			msgs = append(msgs, d.Location+": "+d.Message)
-		}
-	}
-	return "invalid settings: " + strings.Join(msgs, "; ")
-}
-
-func (e *invalidSettings) Unwrap() error { return otogi.ErrInvalid }
-
-// ErrorDetails lists the problems by field, for the API.
-func (e *invalidSettings) ErrorDetails() []error { return e.details }
 
 // durationSchema describes an otogi.Duration.
 type durationSchema struct{}

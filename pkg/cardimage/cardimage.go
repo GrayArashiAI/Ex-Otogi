@@ -12,6 +12,7 @@ package cardimage
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"html/template"
 	"net/http"
@@ -28,17 +29,18 @@ type Renderer struct {
 }
 
 // Check reports whether path is an executable, for validating a module's
-// configuration before anything starts.
+// configuration before anything starts. The error says why not, for the
+// module to return at the setting that holds the path.
 func Check(path string) error {
 	if path == "" {
-		return fmt.Errorf("the path of chrome-headless-shell is required")
+		return errors.New("the path of chrome-headless-shell is required")
 	}
 	info, err := os.Stat(path)
 	switch {
 	case err != nil:
-		return fmt.Errorf("chrome: %w", err)
+		return err
 	case info.IsDir() || info.Mode()&0o111 == 0:
-		return fmt.Errorf("chrome: %s is not an executable", path)
+		return fmt.Errorf("%s is not an executable", path)
 	}
 	return nil
 }

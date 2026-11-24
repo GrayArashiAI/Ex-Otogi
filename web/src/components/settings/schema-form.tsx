@@ -137,8 +137,12 @@ function SchemaField({ schema, name, title, required }: FieldProps) {
   const kind = kindOf(s);
   const doc = schema.description ?? s.description;
   const id = controlId(prefix, name);
+  // A list of values is one control: a problem with one of them, such as tools[1], is the list's.
   const error = problems
-    .filter((p) => p.path === name)
+    .filter(
+      (p) =>
+        p.path === name || (kind === "array" && /^\[\d+\]$/.test(p.path.slice(name.length)) && p.path.startsWith(name)),
+    )
     .map((p) => p.message)
     .join("; ");
   if (kind === "object") {
@@ -281,7 +285,7 @@ function Row({
       <div className={cn("min-w-0", inline && "pt-0.5")}>
         {children}
         {error && (
-          <p id={`${id}-error`} className="mt-1.5 text-destructive-foreground text-xs">
+          <p id={`${id}-error`} className="mt-1.5 wrap-anywhere text-destructive-foreground text-xs">
             {error}
           </p>
         )}
@@ -676,10 +680,22 @@ function ObjectMap({ schema, name, title, doc, required }: FieldProps) {
                 return (
                   <div key={k} className={cn("rounded-xl border", own && "border-destructive/36")}>
                     <div className="flex items-center gap-2 px-3.5 pt-2.5">
-                      <span className="font-medium font-mono text-sm">{k}</span>
+                      {/* Focused when a problem with the entry, such as its name, is revealed. */}
+                      <span
+                        id={entryId}
+                        tabIndex={-1}
+                        aria-describedby={own ? `${entryId}-error` : undefined}
+                        className="rounded-sm font-medium font-mono text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      >
+                        {k}
+                      </span>
                       <span className="ml-auto">{removeButton}</span>
                     </div>
-                    {own && <p className="px-3.5 pt-1 text-destructive-foreground text-xs">{own}</p>}
+                    {own && (
+                      <p id={`${entryId}-error`} className="px-3.5 pt-1 text-destructive-foreground text-xs">
+                        {own}
+                      </p>
+                    )}
                     <div className="mt-1.5 border-t px-3.5">
                       <SchemaFields schema={item} path={path} />
                     </div>

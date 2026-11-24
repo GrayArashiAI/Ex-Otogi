@@ -529,7 +529,7 @@ func TestConfig(t *testing.T) {
 		{Config{Chrome: chrome(t), Timezone: "Mars/Olympus"}, "timezone: unknown time zone"},
 		{Config{}, "the path of chrome-headless-shell is required"},
 		{Config{Chrome: chrome(t), Translate: &Translate{Provider: "openai", Model: "m"}}, "translate.provider: no provider openai"},
-		{Config{Chrome: chrome(t), Translate: &Translate{Provider: "gemini"}}, "translate.model is required"},
+		{Config{Chrome: chrome(t), Translate: &Translate{Provider: "gemini"}}, "translate.model: required"},
 	} {
 		if _, err := New(c.cfg, noProviders); err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%+v: %v, want %q", c.cfg, err, c.want)

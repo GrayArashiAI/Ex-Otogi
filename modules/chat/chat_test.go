@@ -396,8 +396,8 @@ func TestConfigErrors(t *testing.T) {
 		"no provider":                   {[]ProfileConfig{{Name: "a", Keywords: []string{"a"}, Provider: "openai", Model: "m"}}, "not configured"},
 		"bad thinking":                  {[]ProfileConfig{{Name: "a", Keywords: []string{"a"}, Provider: "gemini", Model: "m", Thinking: "max"}}, "thinking"},
 		"duplicate names":               {[]ProfileConfig{base, {Name: "a", Keywords: []string{"b"}, Provider: "gemini", Model: "m"}}, "used twice"},
-		"hot":                           {[]ProfileConfig{{Name: "a", Keywords: []string{"a"}, Provider: "gemini", Model: "m", Temperature: ptr(2.5)}}, "temperature 2.5: want 0 to 2"},
-		"sticker number 0":              {[]ProfileConfig{{Name: "a", Keywords: []string{"a"}, Provider: "gemini", Model: "m", Media: &MediaConfig{Stickers: []int{1, 0}}}}, "media.stickers[1] 0: want a sticker's number"},
+		"hot":                           {[]ProfileConfig{{Name: "a", Keywords: []string{"a"}, Provider: "gemini", Model: "m", Temperature: ptr(2.5)}}, "temperature: 2.5: want 0 to 2"},
+		"sticker number 0":              {[]ProfileConfig{{Name: "a", Keywords: []string{"a"}, Provider: "gemini", Model: "m", Media: &MediaConfig{Stickers: []int{1, 0}}}}, "media.stickers[1]: 0: want a sticker's number"},
 	} {
 		if _, err := New(Config{Profiles: c.profiles}, providers); err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: err %v, want %q", name, err, c.want)

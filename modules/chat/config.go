@@ -45,14 +45,14 @@ func (c *Config) people() (map[string]person, error) {
 	out := map[string]person{}
 	var errs []error
 	for i, pc := range c.People {
-		field := fmt.Sprintf("people[%d]", i)
+		field := fmt.Sprintf("people[%d].user", i)
 		platform, id, ok := strings.Cut(pc.User, ":")
 		switch {
 		case !ok || platform == "" || id == "" || strings.ContainsFunc(pc.User, unicode.IsSpace):
-			errs = append(errs, fmt.Errorf("%s.user %q: want the platform, a colon, and the sender ID, such as qq:user:7C2E04D1A9B35F86E0C4D2B17A9F3E58", field, pc.User))
+			errs = append(errs, &otogi.SettingError{Path: field, Err: fmt.Errorf("%q: want the platform, a colon, and the sender ID, such as qq:user:7C2E04D1A9B35F86E0C4D2B17A9F3E58", pc.User)})
 			continue
 		case slices.ContainsFunc(c.People[:i], func(o PersonConfig) bool { return o.User == pc.User }):
-			errs = append(errs, fmt.Errorf("%s.user %q is listed twice", field, pc.User))
+			errs = append(errs, &otogi.SettingError{Path: field, Err: fmt.Errorf("%q is listed twice", pc.User)})
 			continue
 		}
 		// The schema keeps a factor within 0.1 to 10; unset is 1. One line
@@ -124,14 +124,15 @@ func toolsList(module otogi.ModuleID) string { return "tools:" + string(module) 
 func (c *Config) toolModules() ([]otogi.ModuleID, error) {
 	var out []otogi.ModuleID
 	var errs []error
-	for _, t := range c.Tools {
+	for i, t := range c.Tools {
+		field := fmt.Sprintf("tools[%d]", i)
 		switch {
 		case slices.Contains(builtinTools, t):
-			errs = append(errs, fmt.Errorf("tools: %q is a built-in tool: set it on the profiles that use it", t))
+			errs = append(errs, &otogi.SettingError{Path: field, Err: fmt.Errorf("%q is a built-in tool: set it on the profiles that use it", t)})
 		case t == "" || strings.ContainsAny(t, " :/"):
-			errs = append(errs, fmt.Errorf("tools: %q: want a module ID", t))
+			errs = append(errs, &otogi.SettingError{Path: field, Err: fmt.Errorf("%q: want a module ID", t)})
 		case slices.Contains(out, otogi.ModuleID(t)):
-			errs = append(errs, fmt.Errorf("tools: %q is listed twice", t))
+			errs = append(errs, &otogi.SettingError{Path: field, Err: fmt.Errorf("%q is listed twice", t)})
 		default:
 			out = append(out, otogi.ModuleID(t))
 		}
@@ -161,12 +162,13 @@ func (c *Config) profiles(providers func(string) (llm.Provider, error)) ([]*prof
 		errs = append(errs, errors.New("retention and timeout must not be negative"))
 	}
 	if len(c.Profiles) == 0 {
-		errs = append(errs, errors.New("profiles: at least one is required"))
+		errs = append(errs, &otogi.SettingError{Path: "profiles", Err: errors.New("at least one is required")})
 	}
 	var out []*profile
 	names, keywords := map[string]bool{}, map[string]string{}
 	for i, pc := range c.Profiles {
 		field := fmt.Sprintf("profiles[%d]", i)
+		refuse := func(path string, err error) { errs = append(errs, &otogi.SettingError{Path: field + path, Err: err}) }
 		p := &profile{ProfileConfig: pc, context: 30}
 		if pc.Context != nil {
 			p.context = *pc.Context
@@ -179,51 +181,51 @@ func (c *Config) profiles(providers func(string) (llm.Provider, error)) ([]*prof
 		}
 		switch {
 		case pc.Name == "":
-			errs = append(errs, fmt.Errorf("%s.name is required", field))
+			refuse(".name", errors.New("required"))
 		case strings.HasPrefix(pc.Name, "tools:"):
-			errs = append(errs, fmt.Errorf("%s.name %q: names starting with tools: are the lists of modules' tools", field, pc.Name))
+			refuse(".name", fmt.Errorf("%q: names starting with tools: are the lists of modules' tools", pc.Name))
 		case names[pc.Name]:
-			errs = append(errs, fmt.Errorf("%s.name %q is used twice", field, pc.Name))
+			refuse(".name", fmt.Errorf("%q is used twice", pc.Name))
 		}
 		names[pc.Name] = true
 		if len(pc.Keywords) == 0 {
-			errs = append(errs, fmt.Errorf("%s.keywords: at least one is required", field))
+			refuse(".keywords", errors.New("at least one is required"))
 		}
-		for _, k := range pc.Keywords {
+		for j, k := range pc.Keywords {
 			k = strings.TrimSpace(k)
 			folded := strings.ToLower(k)
 			switch {
 			case k == "":
-				errs = append(errs, fmt.Errorf("%s.keywords: empty keyword", field))
+				refuse(fmt.Sprintf(".keywords[%d]", j), errors.New("empty keyword"))
 			case keywords[folded] != "" && keywords[folded] != pc.Name:
-				errs = append(errs, fmt.Errorf("%s.keywords: %q also belongs to profile %q", field, k, keywords[folded]))
+				refuse(fmt.Sprintf(".keywords[%d]", j), fmt.Errorf("%q also belongs to profile %q", k, keywords[folded]))
 			}
 			keywords[folded] = pc.Name
 			p.keywords = append(p.keywords, k)
 		}
 		if pc.Model == "" {
-			errs = append(errs, fmt.Errorf("%s.model is required", field))
+			refuse(".model", errors.New("required"))
 		}
 		if pc.Temperature != nil && (*pc.Temperature < 0 || *pc.Temperature > 2) {
-			errs = append(errs, fmt.Errorf("%s.temperature %v: want 0 to 2", field, *pc.Temperature))
+			refuse(".temperature", fmt.Errorf("%v: want 0 to 2", *pc.Temperature))
 		}
 		if !slices.Contains([]string{"", "minimal", "low", "medium", "high"}, pc.Thinking) {
-			errs = append(errs, fmt.Errorf("%s.thinking %q: want minimal, low, medium, or high", field, pc.Thinking))
+			refuse(".thinking", fmt.Errorf("%q: want minimal, low, medium, or high", pc.Thinking))
 		}
 		if p.context < 0 || p.MaxTurns < 0 || p.MaxOutput < 0 || p.MaxToolRounds < 0 {
-			errs = append(errs, fmt.Errorf("%s: context, max_turns, max_output, and max_tool_rounds must not be negative", field))
+			refuse("", errors.New("context, max_turns, max_output, and max_tool_rounds must not be negative"))
 		}
-		for _, t := range pc.Tools {
+		for j, t := range pc.Tools {
 			if !slices.Contains(builtinTools, t) {
-				errs = append(errs, fmt.Errorf("%s.tools: %q: want a built-in (%s); modules' tools are set in tools, per chat", field, t, strings.Join(builtinTools, ", ")))
+				refuse(fmt.Sprintf(".tools[%d]", j), fmt.Errorf("%q: want a built-in (%s); modules' tools are set in tools, per chat", t, strings.Join(builtinTools, ", ")))
 				continue
 			}
 			p.builtins = append(p.builtins, llm.ToolSpec{Builtin: t})
 		}
 		if pc.Media != nil {
-			for i, n := range pc.Media.Stickers {
+			for j, n := range pc.Media.Stickers {
 				if n <= 0 {
-					errs = append(errs, fmt.Errorf("%s.media.stickers[%d] %d: want a sticker's number, as /sticker list shows it", field, i, n))
+					refuse(fmt.Sprintf(".media.stickers[%d]", j), fmt.Errorf("%d: want a sticker's number, as /sticker list shows it", n))
 				}
 			}
 		}
@@ -235,7 +237,7 @@ func (c *Config) profiles(providers func(string) (llm.Provider, error)) ([]*prof
 		}
 		provider, err := providers(pc.Provider)
 		if err != nil {
-			errs = append(errs, fmt.Errorf("%s.provider: %w", field, err))
+			refuse(".provider", err)
 		}
 		p.provider = provider
 		out = append(out, p)

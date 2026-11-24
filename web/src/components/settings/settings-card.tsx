@@ -270,7 +270,7 @@ function SettingsEditor({
           >
             <ul className="mt-1 flex flex-col items-start gap-0.5">
               {summary.map((p) => (
-                <li key={`${p.path} ${p.message}`} className="whitespace-pre-line">
+                <li key={`${p.path} ${p.message}`} className="wrap-anywhere whitespace-pre-line">
                   {p.path ? (
                     <button
                       type="button"

@@ -40,17 +40,17 @@ var providerName = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
 func (c llmSettings) validate() []error {
 	var errs []error
 	if g := c.Gemini; g != nil && g.BaseURL != "" && !httpURL(g.BaseURL) {
-		errs = append(errs, fmt.Errorf("gemini.base_url %q: want an absolute http(s) URL", g.BaseURL))
+		errs = append(errs, &otogi.SettingError{Path: "gemini.base_url", Err: fmt.Errorf("%q: want an absolute http(s) URL", g.BaseURL)})
 	}
 	for _, name := range slices.Sorted(maps.Keys(c.OpenAI)) {
 		switch {
 		case !providerName.MatchString(name):
-			errs = append(errs, fmt.Errorf("openai.%s: want a name of lowercase letters, digits, - and _", name))
+			errs = append(errs, &otogi.SettingError{Path: "openai." + name, Err: errors.New("want a name of lowercase letters, digits, - and _")})
 		case name == gemini.Name:
-			errs = append(errs, fmt.Errorf("openai.%s: the name is the Gemini provider's", name))
+			errs = append(errs, &otogi.SettingError{Path: "openai." + name, Err: errors.New("the name is the Gemini provider's")})
 		}
 		if o := c.OpenAI[name]; !httpURL(o.BaseURL) {
-			errs = append(errs, fmt.Errorf("openai.%s.base_url %q: want an absolute http(s) URL", name, o.BaseURL))
+			errs = append(errs, &otogi.SettingError{Path: "openai." + name + ".base_url", Err: fmt.Errorf("%q: want an absolute http(s) URL", o.BaseURL)})
 		}
 	}
 	return errs
@@ -69,7 +69,7 @@ func buildProviders(c llmSettings, secret func(name string) (string, bool), reco
 	if g := c.Gemini; g != nil {
 		key, err := g.APIKey.Resolve(secret)
 		if err != nil {
-			return nil, fmt.Errorf("gemini.api_key: %w", err)
+			return nil, &otogi.SettingError{Path: "gemini.api_key", Err: err}
 		}
 		p, err := gemini.New(gemini.Config{APIKey: key, BaseURL: g.BaseURL, Recorder: recorder, Logger: log.With("component", "llm:"+gemini.Name)})
 		if err != nil {
@@ -81,7 +81,7 @@ func buildProviders(c llmSettings, secret func(name string) (string, bool), reco
 		o := c.OpenAI[name]
 		key, err := o.APIKey.Resolve(secret)
 		if err != nil {
-			return nil, fmt.Errorf("openai.%s.api_key: %w", name, err)
+			return nil, &otogi.SettingError{Path: "openai." + name + ".api_key", Err: err}
 		}
 		p, err := openai.New(openai.Config{Name: name, BaseURL: o.BaseURL, APIKey: key, Recorder: recorder, Logger: log.With("component", "llm:"+name)})
 		if err != nil {
@@ -96,8 +96,8 @@ func buildProviders(c llmSettings, secret func(name string) (string, bool), reco
 // provider. Modules hold the providers they were built with, so the caller
 // rebuilds those; undo puts the providers there were back.
 func (y *system) applyLLM(c llmSettings, secret func(name string) (string, bool)) (undo func(), err error) {
-	if errs := c.validate(); len(errs) > 0 {
-		return nil, fmt.Errorf("%w: %w", errors.Join(errs...), otogi.ErrInvalid)
+	if err := errors.Join(c.validate()...); err != nil {
+		return nil, err
 	}
 	providers, err := buildProviders(c, secret, y.recorder, y.log)
 	if err != nil {
@@ -107,11 +107,12 @@ func (y *system) applyLLM(c llmSettings, secret func(name string) (string, bool)
 	return func() { y.providers.Store(old) }, nil
 }
 
-// provider finds a provider a module's settings name.
+// provider finds a provider a module's settings name. The module refuses
+// one that is not set at the field that names it.
 func (y *system) provider(name string) (llm.Provider, error) {
 	p, ok := (*y.providers.Load())[name]
 	if !ok {
-		return nil, fmt.Errorf("provider %q is not among the language model providers set in the panel: %w", name, otogi.ErrInvalid)
+		return nil, fmt.Errorf("provider %q is not among the language model providers set in the panel", name)
 	}
 	return p, nil
 }

@@ -53,13 +53,13 @@ type Module struct {
 func New(cfg Config, providers func(string) (llm.Provider, error)) (*Module, error) {
 	var errs []error
 	if err := cardimage.Check(cfg.Chrome); err != nil {
-		errs = append(errs, err)
+		errs = append(errs, &otogi.SettingError{Path: "chrome", Err: err})
 	}
 	zone := time.Local
 	if cfg.Timezone != "" {
 		var err error
 		if zone, err = time.LoadLocation(cfg.Timezone); err != nil {
-			errs = append(errs, fmt.Errorf("timezone: %w", err))
+			errs = append(errs, &otogi.SettingError{Path: "timezone", Err: err})
 		}
 	}
 	var tr *translator
@@ -67,15 +67,15 @@ func New(cfg Config, providers func(string) (llm.Provider, error)) (*Module, err
 		p, err := providers(t.Provider)
 		switch {
 		case err != nil:
-			errs = append(errs, fmt.Errorf("translate.provider: %w", err))
+			errs = append(errs, &otogi.SettingError{Path: "translate.provider", Err: err})
 		case t.Model == "":
-			errs = append(errs, errors.New("translate.model is required"))
+			errs = append(errs, &otogi.SettingError{Path: "translate.model", Err: errors.New("required")})
 		default:
 			tr = &translator{cfg: *t, provider: p}
 		}
 	}
 	if err := errors.Join(errs...); err != nil {
-		return nil, fmt.Errorf("twitter: %w", err)
+		return nil, err
 	}
 	renderer := cardimage.Renderer{Chrome: cfg.Chrome}
 	maxVideoMB := cmp.Or(cfg.MaxVideoMB, 50)

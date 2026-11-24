@@ -1,6 +1,7 @@
 package otogi
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -10,7 +11,38 @@ import (
 // A module's settings are its Config type, decoded from JSON: field names
 // from json tags, and documentation for the operator from doc tags (see
 // docs/extensions.md). Duration and Secret are the setting types the
-// standard library lacks.
+// standard library lacks; SettingError is how a module refuses a value.
+
+// SettingError refuses settings for one setting in them. A module's
+// constructor returns one for a value it cannot take: a provider that is
+// not set, a file that is not there, a name used twice. Several, joined with
+// errors.Join, each keep their own. The panel shows each at its field, as
+// it shows a value that breaks the schema; an error that wraps one in more
+// words, such as fmt.Errorf("building: %w", err), is shown whole, at no
+// field, so return it as it is.
+//
+// A SettingError is ErrInvalid, and wraps Err.
+type SettingError struct {
+	// Path names the setting from the settings' root as the schema's checks
+	// do: fields by their JSON names, joined with dots, list items by their
+	// index, map entries by their key, such as profiles[0].provider or
+	// agents.main.token. Empty is the settings as a whole.
+	Path string
+	// Err says what is wrong with the value, for the operator, such as
+	// "unknown time zone Mars/Olympus".
+	Err error
+}
+
+// Error is the path and the reason: "timezone: unknown time zone Mars".
+func (e *SettingError) Error() string {
+	if e.Path == "" {
+		return e.Err.Error()
+	}
+	return e.Path + ": " + e.Err.Error()
+}
+
+// Unwrap returns Err and ErrInvalid.
+func (e *SettingError) Unwrap() []error { return []error{e.Err, ErrInvalid} }
 
 // Duration is a time.Duration that settings write as text, such as "90s",
 // "5m", or "720h".
@@ -58,15 +90,16 @@ func (s *Secret) UnmarshalText(text []byte) error {
 
 // Resolve returns the secret s refers to, as lookup holds it under the
 // reference's name. The composition root supplies lookup; a name it does
-// not hold is an error wrapping ErrInvalid that names the secret.
+// not hold is an error that names the secret, for the caller to return as
+// a SettingError at the field that refers to it.
 func (s Secret) Resolve(lookup func(name string) (string, bool)) (string, error) {
 	m := SecretReference.FindStringSubmatch(string(s))
 	if m == nil {
-		return "", fmt.Errorf("secret: want a reference to a secret, ${NAME}: %w", ErrInvalid)
+		return "", errors.New("want a reference to a secret, ${NAME}")
 	}
 	v, ok := lookup(m[1])
 	if !ok {
-		return "", fmt.Errorf("secret %s is not set: %w", m[1], ErrInvalid)
+		return "", fmt.Errorf("secret %s is not set", m[1])
 	}
 	return v, nil
 }

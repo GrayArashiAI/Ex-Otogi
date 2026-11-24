@@ -121,20 +121,22 @@ type generalSettings struct {
 
 func (y *system) applyGeneral(c generalSettings, _ func(string) (string, bool)) (func(), error) {
 	var errs []error
-	for _, op := range c.Operators {
+	for i, op := range c.Operators {
 		if platform, actor, ok := strings.Cut(op, ":"); !ok || platform == "" || actor == "" {
-			errs = append(errs, fmt.Errorf("operators: %q: want <platform>:<actor id>, as /whoami prints it", op))
+			errs = append(errs, &otogi.SettingError{Path: fmt.Sprintf("operators[%d]", i), Err: fmt.Errorf("%q: want <platform>:<actor id>, as /whoami prints it", op)})
 		}
 	}
-	if slices.Contains(c.CommandPrefixes, "") {
-		errs = append(errs, errors.New("command_prefixes: a prefix must not be empty"))
+	for i, prefix := range c.CommandPrefixes {
+		if prefix == "" {
+			errs = append(errs, &otogi.SettingError{Path: fmt.Sprintf("command_prefixes[%d]", i), Err: errors.New("a prefix must not be empty")})
+		}
 	}
 	level, err := logLevel(cmp.Or(c.LogLevel, "info"))
 	if err != nil {
-		errs = append(errs, fmt.Errorf("log_level %w", err))
+		errs = append(errs, &otogi.SettingError{Path: "log_level", Err: err})
 	}
-	if len(errs) > 0 {
-		return nil, fmt.Errorf("%w: %w", errors.Join(errs...), otogi.ErrInvalid)
+	if err := errors.Join(errs...); err != nil {
+		return nil, err
 	}
 	if c.CommandPrefixes == nil {
 		c.CommandPrefixes = []string{"/"}

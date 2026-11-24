@@ -130,7 +130,6 @@ func caller(ctx context.Context) string {
 // problem turns an error from the runtime into an RFC 9457 response.
 func problem(err error) error {
 	var stale *StaleRevisionError
-	var detailed interface{ ErrorDetails() []error }
 	switch {
 	case errors.As(err, &stale):
 		return huma.Error412PreconditionFailed(err.Error())
@@ -138,14 +137,35 @@ func problem(err error) error {
 		return huma.Error404NotFound(err.Error())
 	case errors.Is(err, ErrInUse):
 		return huma.Error409Conflict(err.Error())
-	case errors.As(err, &detailed):
-		return huma.Error422UnprocessableEntity(err.Error(), detailed.ErrorDetails()...)
 	case errors.Is(err, otogi.ErrInvalid):
+		if details, fields := settingDetails(err); fields {
+			return huma.Error422UnprocessableEntity(err.Error(), details...)
+		}
 		return huma.Error422UnprocessableEntity(err.Error())
 	case errors.Is(err, otogi.ErrUnavailable):
 		return huma.Error503ServiceUnavailable(err.Error())
 	}
 	return huma.Error500InternalServerError(err.Error())
+}
+
+// settingDetails lists a refusal of settings field by field, as the schema's
+// checks list theirs: an otogi.SettingError at its path, with its reason,
+// and each error errors.Join joins in turn. Any other error is one entry at
+// no field, its whole text: one that wraps a SettingError in more words is
+// about other settings, such as another module's, rebuilt with these.
+// fields reports whether err has a SettingError of its own.
+func settingDetails(err error) (details []error, fields bool) {
+	switch e := err.(type) { //nolint:errorlint // the errors as returned and joined, not those wrapped in more words
+	case *otogi.SettingError:
+		return []error{&huma.ErrorDetail{Location: e.Path, Message: e.Err.Error()}}, true
+	case interface{ Unwrap() []error }:
+		for _, err := range e.Unwrap() {
+			d, f := settingDetails(err)
+			details, fields = append(details, d...), fields || f
+		}
+		return details, fields
+	}
+	return []error{&huma.ErrorDetail{Message: err.Error()}}, false
 }
 
 // etag and revisionOf carry a settings revision in ETag and If-Match.

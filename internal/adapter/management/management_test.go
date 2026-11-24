@@ -3,6 +3,8 @@ package management
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -12,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/danielgtaylor/huma/v2"
 	"go.uber.org/goleak"
 
 	"github.com/TundraWork/Ex-Otogi/pkg/otogi"
@@ -219,5 +222,34 @@ func TestStartupSettingsHoldNoSecret(t *testing.T) {
 	}
 	if got := startup(ServerConfig{Addr: "127.0.0.1:8090"}); !strings.Contains(got, `"token_set":false`) || !strings.Contains(got, `"client_secret_set":false`) || !strings.Contains(got, `"allow":[]`) {
 		t.Fatalf("startup settings with nothing set: %s", got)
+	}
+}
+
+// Settings refused at fields are 422 with each at its field and its reason,
+// joined ones in order; an error with no field, or one that wraps a field's
+// in more words, is the detail alone.
+func TestRefusedSettingsProblem(t *testing.T) {
+	field := func(path, reason string) error { return &otogi.SettingError{Path: path, Err: errors.New(reason)} }
+	for _, c := range []struct {
+		err  error
+		want string // the errors, as location=message, or "" for none
+	}{
+		{field("timezone", "unknown time zone Mars"), "timezone=unknown time zone Mars"},
+		{errors.Join(field("chrome", "no such file"), errors.Join(field("people[0].user", "listed twice"), errors.New("retention must not be negative"))),
+			"chrome=no such file; people[0].user=listed twice; =retention must not be negative"},
+		{fmt.Errorf("rebuild chat: %w", field("profiles[0].provider", "not set")), ""},
+		{fmt.Errorf("requires a service: %w", otogi.ErrInvalid), ""},
+	} {
+		var model *huma.ErrorModel
+		if !errors.As(problem(c.err), &model) || model.Status != http.StatusUnprocessableEntity || model.Detail != c.err.Error() {
+			t.Fatalf("%v: %+v", c.err, model)
+		}
+		var got []string
+		for _, d := range model.Errors {
+			got = append(got, d.Location+"="+d.Message)
+		}
+		if strings.Join(got, "; ") != c.want {
+			t.Errorf("%v: errors %q, want %q", c.err, got, c.want)
+		}
 	}
 }

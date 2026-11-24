@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -62,7 +61,7 @@ func TestLoadConfigRejections(t *testing.T) {
 		"unset variable":     {"telegram:\n  - account: a\n    app_id: 1\n    app_hash: ${OTOGI_TEST_UNSET}\n", "OTOGI_TEST_UNSET"},
 		"duplicate":          {"telegram:\n  - {account: a, app_id: 1, app_hash: h}\n  - {account: a, app_id: 1, app_hash: h}\n", "used twice"},
 		"missing app hash":   {"telegram:\n  - {account: a, app_id: 1}\n", "app_hash"},
-		"no upload threads":  {"telegram:\n  - {account: a, app_id: 1, app_hash: h, upload_threads: -1}\n", "upload_threads -1"},
+		"no upload threads":  {"telegram:\n  - {account: a, app_id: 1, app_hash: h, upload_threads: -1}\n", "upload_threads: -1"},
 		"bad level":          {"log: {level: loud}\n", "log.level"},
 		"panel without oidc": {"management: {public_url: https://otogi.example.com}\n", "management.oidc.issuer"},
 		"oidc without allow": {"management: {public_url: https://otogi.example.com, oidc: {issuer: https://opus.name, client_id: c, client_secret: s}}\n", "management.oidc.allow"},
@@ -101,7 +100,7 @@ func TestLLMProviders(t *testing.T) {
 			t.Fatalf("%s: %v, %v", name, p, err)
 		}
 	}
-	if _, err := sys.provider("openai"); !errors.Is(err, otogi.ErrInvalid) {
-		t.Fatalf("openai: %v, want ErrInvalid", err)
+	if _, err := sys.provider("openai"); err == nil || !strings.Contains(err.Error(), `"openai"`) {
+		t.Fatalf("openai: %v, want an error naming it", err)
 	}
 }

@@ -40,7 +40,7 @@ type Module struct {
 // New validates cfg and returns the module.
 func New(cfg Config) (*Module, error) {
 	if err := cardimage.Check(cfg.Chrome); err != nil {
-		return nil, fmt.Errorf("booth: %w", err)
+		return nil, &otogi.SettingError{Path: "chrome", Err: err}
 	}
 	m := &Module{
 		maxItems: 3, limits: limits{options: 4, tags: 6},

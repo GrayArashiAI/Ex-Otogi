@@ -99,26 +99,26 @@ type watcherState struct {
 func New(cfg Config, operators func() []string, secret func(name string) (string, bool)) (*Module, error) {
 	var errs []error
 	if cfg.CLI == "" {
-		errs = append(errs, errors.New("cli is required"))
+		errs = append(errs, &otogi.SettingError{Path: "cli", Err: errors.New("required")})
 	}
 	if len(cfg.Agents) == 0 {
-		errs = append(errs, errors.New("agents: at least one is required"))
+		errs = append(errs, &otogi.SettingError{Path: "agents", Err: errors.New("at least one is required")})
 	}
 	tokens := map[string]string{}
 	for name, a := range cfg.Agents {
 		token, err := a.Token.Resolve(secret)
 		switch {
 		case !agentName.MatchString(name):
-			errs = append(errs, fmt.Errorf("agents.%s: names are lowercase letters, digits, - and _", name))
+			errs = append(errs, &otogi.SettingError{Path: "agents." + name, Err: errors.New("names are lowercase letters, digits, - and _")})
 		case a.Server == "":
-			errs = append(errs, fmt.Errorf("agents.%s: server is required", name))
+			errs = append(errs, &otogi.SettingError{Path: "agents." + name + ".server", Err: errors.New("required")})
 		case err != nil:
-			errs = append(errs, fmt.Errorf("agents.%s.token: %w", name, err))
+			errs = append(errs, &otogi.SettingError{Path: "agents." + name + ".token", Err: err})
 		}
 		tokens[name] = token
 	}
 	if cfg.MaxBodyChars < 0 || cfg.MaxBodyChars > 3000 {
-		errs = append(errs, errors.New("max_body_chars must be between 1 and 3000"))
+		errs = append(errs, &otogi.SettingError{Path: "max_body_chars", Err: errors.New("must be between 1 and 3000")})
 	}
 	if cfg.MinInterval < 0 || cfg.Debounce < 0 || cfg.CLITimeout < 0 || cfg.MaxAttempts < 0 {
 		errs = append(errs, errors.New("min_interval, debounce, cli_timeout, and max_attempts must not be negative"))

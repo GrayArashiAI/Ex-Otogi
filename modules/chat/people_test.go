@@ -41,7 +41,7 @@ func TestPeopleConfig(t *testing.T) {
 		":user:7C2E":    "people[1].user",
 		"qq:":           "people[1].user",
 		"qq:user:7C 2E": "people[1].user",
-		"qq:user:x":     "people[1].user \"qq:user:x\" is listed twice",
+		"qq:user:x":     "people[1].user: \"qq:user:x\" is listed twice",
 	} {
 		_, err := New(Config{Profiles: base, People: []PersonConfig{{User: "qq:user:x"}, {User: user}}}, providers)
 		if err == nil || !strings.Contains(err.Error(), want) {

@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -16,7 +17,6 @@ import (
 	"github.com/TundraWork/Ex-Otogi/internal/adapter/management"
 	"github.com/TundraWork/Ex-Otogi/internal/adapter/modulestore"
 	"github.com/TundraWork/Ex-Otogi/internal/kernel"
-	"github.com/TundraWork/Ex-Otogi/pkg/llm"
 	"github.com/TundraWork/Ex-Otogi/pkg/otogi"
 )
 
@@ -37,9 +37,8 @@ func apiHarness(t *testing.T, log *slog.Logger) (*kernel.Kernel, func(method, pa
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = events.Close() })
-	settings := &moduleSettings{store: storage, kinds: moduleKinds, recorder: events, log: log, system: newSystem(new(slog.LevelVar), events, log), env: moduleEnv{
-		llm: func(string) (llm.Provider, error) { return silentModel{}, nil },
-	}}
+	settings := &moduleSettings{store: storage, kinds: moduleKinds, recorder: events, log: log, system: newSystem(new(slog.LevelVar), events, log)}
+	settings.env = moduleEnv{llm: settings.system.provider}
 	if err := settings.loadSections(ctx, Config{}); err != nil {
 		t.Fatal(err)
 	}
@@ -118,6 +117,8 @@ func TestManagementAPI(t *testing.T) {
 	do("PATCH", "/api/modules/echo", "", `{"enabled": true}`, 200)
 	_, body = do("PATCH", "/api/modules/chat", "", `{"enabled": true}`, 422) // never configured
 	contains("chat without settings", body, "profiles")
+	t.Setenv("OTOGI_TEST_GEMINI_KEY", "value-gemini")
+	do("PUT", "/api/system/llm/settings", `"0"`, `{"gemini": {"api_key": "${OTOGI_TEST_GEMINI_KEY}"}}`, 200)
 	do("PUT", "/api/modules/chat/settings", `"0"`, `{"profiles": [{"name": "Luna", "keywords": ["luna"], "provider": "gemini", "model": "m"}]}`, 200)
 	_, body = do("PATCH", "/api/modules/chat", "", `{"enabled": true}`, 200)
 	contains("chat", body, `"running":true`, `"allowlists":[{"name":"Luna","title":"Luna"`)
@@ -183,6 +184,106 @@ func TestManagementAPI(t *testing.T) {
 
 	_, body = do("GET", "/api/openapi.json", "", "", 200)
 	contains("OpenAPI document", body, `"openapi":"3.1.0"`, `"/api/chats/{chat}/messages"`)
+}
+
+// Settings a module or a section refuses when it is built are refused at
+// the fields they are about, as the schema's checks are, each with only its
+// reason; settings refused for no field of theirs keep the reason alone.
+func TestRefusedSettingsNameTheirFields(t *testing.T) {
+	_, do := apiHarness(t, slog.New(slog.DiscardHandler))
+	t.Setenv("OTOGI_TEST_GEMINI_KEY", "value-gemini")
+	t.Setenv("OTOGI_TEST_QQ_SECRET", "value-qq")
+	do("PUT", "/api/system/llm/settings", `"0"`, `{"gemini": {"api_key": "${OTOGI_TEST_GEMINI_KEY}"}}`, 200)
+	notImage := filepath.Join(t.TempDir(), "sticker.txt")
+	if err := os.WriteFile(notImage, []byte("not a picture"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	const missing = "/nonexistent/chrome-headless-shell"
+	profile := func(name, keyword, provider string) string {
+		return `{"name": "` + name + `", "keywords": ["` + keyword + `"], "provider": "` + provider + `", "model": "m"}`
+	}
+	type refusal struct {
+		Detail string `json:"detail"`
+		Errors []struct {
+			Location string `json:"location"`
+			Message  string `json:"message"`
+		} `json:"errors"`
+	}
+	refused := func(path, ifMatch, settings string) refusal {
+		t.Helper()
+		_, body := do("PUT", path, ifMatch, settings, 422)
+		var r refusal
+		if err := json.Unmarshal([]byte(body), &r); err != nil {
+			t.Fatal(err)
+		}
+		return r
+	}
+	for _, c := range []struct {
+		path, settings string
+		want           []string // the fields, in order
+	}{
+		{"/api/modules/chat/settings", `{"profiles": [` + profile("Luna", "luna", "nope") + `, ` + profile("Luna", "moon", "gemini") + `, ` + profile("Mizuki", "LUNA", "gemini") + `], "tools": ["notes", "notes"],
+			"people": [{"user": "qq user"}, {"user": "qq:user:1"}, {"user": "qq:user:1"}]}`,
+			[]string{"profiles[0].provider", "profiles[1].name", "profiles[2].keywords[0]", "tools[1]", "people[0].user", "people[2].user"}},
+		{"/api/modules/chat/settings", `{"profiles": [` + profile("tools:x", "luna", "gemini") + `]}`, []string{"profiles[0].name"}},
+		{"/api/modules/media/settings", `{"steps": [{"provider": "nope", "model": "m"}, {"provider": "gemini", "model": "m"}, {"provider": "other", "model": "m"}]}`,
+			[]string{"steps[0].provider", "steps[2].provider"}},
+		{"/api/modules/twitter/settings", `{"chrome": "` + missing + `", "timezone": "Mars/Olympus_Mons", "translate": {"provider": "nope", "model": "m"}}`,
+			[]string{"chrome", "timezone", "translate.provider"}},
+		{"/api/modules/bilibili/settings", `{"chrome": "` + missing + `"}`, []string{"chrome"}},
+		{"/api/modules/booth/settings", `{"chrome": "` + missing + `"}`, []string{"chrome"}},
+		{"/api/modules/safety/settings", `{"sticker": "/nonexistent/sticker.png"}`, []string{"sticker"}},
+		{"/api/modules/safety/settings", `{"sticker": "` + notImage + `"}`, []string{"sticker"}},
+		{"/api/modules/todou/settings", `{"cli": "todou", "agents": {"Main": {"server": "https://todou.test", "token": "${OTOGI_TEST_UNSET}"}}}`, []string{"agents.Main"}},
+		{"/api/modules/todou/settings", `{"cli": "todou", "agents": {"main": {"server": "https://todou.test", "token": "${OTOGI_TEST_UNSET}"}}}`, []string{"agents.main.token"}},
+		{"/api/modules/decision/settings", `{"jev": {"api_key": "${OTOGI_TEST_UNSET}"}}`, []string{"jev.api_key"}},
+		{"/api/system/llm/settings", `{"gemini": {"api_key": "${OTOGI_TEST_GEMINI_KEY}", "base_url": "ftp://gemini.test"},
+			"openai": {"DeepSeek": {"base_url": "https://deepseek.test", "api_key": "${OTOGI_TEST_GEMINI_KEY}"}, "ds": {"base_url": "deepseek.test", "api_key": "${OTOGI_TEST_GEMINI_KEY}"}}}`,
+			[]string{"gemini.base_url", "openai.DeepSeek", "openai.ds.base_url"}},
+		{"/api/system/llm/settings", `{"openai": {"ds": {"base_url": "https://deepseek.test", "api_key": "${OTOGI_TEST_UNSET}"}}}`, []string{"openai.ds.api_key"}},
+		{"/api/system/general/settings", `{"operators": ["alice", "telegram:user:1"], "command_prefixes": ["/", ""]}`, []string{"operators[0]", "command_prefixes[1]"}},
+		{"/api/system/accounts/settings", `{"telegram": [{"account": "a", "app_id": 1, "app_hash": "${OTOGI_TEST_UNSET}"}, {"account": "a", "app_id": 2, "app_hash": "${OTOGI_TEST_UNSET}"}]}`,
+			[]string{"telegram[1].account"}},
+		{"/api/system/accounts/settings", `{"qq": [{"account": "bot", "app_id": "1", "app_secret": "${OTOGI_TEST_UNSET}"}]}`, []string{"qq[0].app_secret"}},
+	} {
+		ifMatch := `"0"`
+		if strings.HasPrefix(c.path, "/api/system/llm/") {
+			ifMatch = `"1"`
+		}
+		r := refused(c.path, ifMatch, c.settings)
+		if strings.HasSuffix(r.Detail, ": invalid") {
+			t.Errorf("%s: the detail ends in its error type: %q", c.path, r.Detail)
+		}
+		var where []string
+		for _, e := range r.Errors {
+			where = append(where, e.Location)
+			if e.Message == "" || strings.HasSuffix(e.Message, ": invalid") || strings.HasPrefix(e.Message, e.Location) {
+				t.Errorf("%s: at %s, the message %q", c.path, e.Location, e.Message)
+			}
+		}
+		if strings.Join(where, " ") != strings.Join(c.want, " ") {
+			t.Errorf("%s %s: refused at %q, want %q (%s)", c.path, c.settings, where, c.want, r.Detail)
+		}
+	}
+
+	// An account renamed is refused at the list it is in.
+	do("PUT", "/api/system/accounts/settings", `"0"`, `{"qq": [{"account": "bot", "app_id": "1", "app_secret": "${OTOGI_TEST_QQ_SECRET}"}]}`, 200)
+	if r := refused("/api/system/accounts/settings", `"1"`, `{"qq": [{"account": "robot", "app_id": "1", "app_secret": "${OTOGI_TEST_QQ_SECRET}"}]}`); len(r.Errors) != 1 || r.Errors[0].Location != "qq" || strings.HasSuffix(r.Errors[0].Message, ": invalid") {
+		t.Errorf("a renamed account refused at %+v", r.Errors)
+	}
+
+	// Refused for nothing in the settings: a module whose tools no running
+	// module provides, and a provider the running chat module uses, gone.
+	// The second is chat's field, which the language model settings have not.
+	do("PUT", "/api/modules/chat/settings", `"0"`, `{"profiles": [`+profile("Luna", "luna", "gemini")+`]}`, 200)
+	do("PATCH", "/api/modules/chat", "", `{"enabled": true}`, 200)
+	if r := refused("/api/modules/chat/settings", `"2"`, `{"profiles": [`+profile("Luna", "luna", "gemini")+`], "tools": ["todou"]}`); len(r.Errors) != 0 || !strings.Contains(r.Detail, "todou") {
+		t.Errorf("tools no module provides: %+v", r)
+	}
+	if r := refused("/api/system/llm/settings", `"1"`, `{}`); len(r.Errors) != 0 || !strings.Contains(r.Detail, "rebuild chat") || !strings.Contains(r.Detail, "profiles[0].provider") ||
+		strings.HasSuffix(r.Detail, ": invalid") {
+		t.Errorf("a provider in use removed: %+v", r)
+	}
 }
 
 func jsonInt(n int64) string {

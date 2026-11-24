@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/TundraWork/Ex-Otogi/pkg/otogi"
@@ -45,12 +46,15 @@ type qqSettings struct {
 // what it does.
 func (c accountsSettings) validate() []error {
 	var errs []error
+	refuse := func(path, reason string) {
+		errs = append(errs, &otogi.SettingError{Path: path, Err: errors.New(reason)})
+	}
 	named := func(field, account string, seen map[string]bool) {
 		switch {
 		case account == "":
-			errs = append(errs, fmt.Errorf("%s.account is required", field))
+			refuse(field+".account", "required")
 		case seen[account]:
-			errs = append(errs, fmt.Errorf("%s.account %q is used twice", field, account))
+			refuse(field+".account", strconv.Quote(account)+" is used twice")
 		}
 		seen[account] = true
 	}
@@ -58,19 +62,25 @@ func (c accountsSettings) validate() []error {
 	for i, a := range c.Telegram {
 		field := fmt.Sprintf("telegram[%d]", i)
 		named(field, a.Account, seen)
-		if a.AppID <= 0 || a.AppHash == "" {
-			errs = append(errs, fmt.Errorf("%s: app_id and app_hash are required", field))
+		if a.AppID <= 0 {
+			refuse(field+".app_id", "required")
+		}
+		if a.AppHash == "" {
+			refuse(field+".app_hash", "required")
 		}
 		if a.UploadThreads < 0 {
-			errs = append(errs, fmt.Errorf("%s.upload_threads %d: must not be negative", field, a.UploadThreads))
+			refuse(field+".upload_threads", strconv.Itoa(a.UploadThreads)+": must not be negative")
 		}
 	}
 	seen = map[string]bool{}
 	for i, a := range c.QQ {
 		field := fmt.Sprintf("qq[%d]", i)
 		named(field, a.Account, seen)
-		if a.AppID == "" || a.AppSecret == "" {
-			errs = append(errs, fmt.Errorf("%s: app_id and app_secret are required", field))
+		if a.AppID == "" {
+			refuse(field+".app_id", "required")
+		}
+		if a.AppSecret == "" {
+			refuse(field+".app_secret", "required")
 		}
 	}
 	return errs
@@ -79,14 +89,14 @@ func (c accountsSettings) validate() []error {
 // resolve returns the accounts as their drivers take them: each with its
 // secret's value, and with the files it does not place itself under dataDir.
 func (c accountsSettings) resolve(dataDir string, secret func(name string) (string, bool)) ([]TelegramAccount, []QQAccount, error) {
-	if errs := c.validate(); len(errs) > 0 {
-		return nil, nil, fmt.Errorf("%w: %w", errors.Join(errs...), otogi.ErrInvalid)
+	if err := errors.Join(c.validate()...); err != nil {
+		return nil, nil, err
 	}
 	var telegram []TelegramAccount
 	for i, a := range c.Telegram {
 		hash, err := a.AppHash.Resolve(secret)
 		if err != nil {
-			return nil, nil, fmt.Errorf("telegram[%d].app_hash: %w", i, err)
+			return nil, nil, &otogi.SettingError{Path: fmt.Sprintf("telegram[%d].app_hash", i), Err: err}
 		}
 		dir := filepath.Join(dataDir, "telegram", a.Account)
 		telegram = append(telegram, TelegramAccount{
@@ -98,7 +108,7 @@ func (c accountsSettings) resolve(dataDir string, secret func(name string) (stri
 	for i, a := range c.QQ {
 		appSecret, err := a.AppSecret.Resolve(secret)
 		if err != nil {
-			return nil, nil, fmt.Errorf("qq[%d].app_secret: %w", i, err)
+			return nil, nil, &otogi.SettingError{Path: fmt.Sprintf("qq[%d].app_secret", i), Err: err}
 		}
 		qq = append(qq, QQAccount{
 			Account: a.Account, AppID: a.AppID, AppSecret: appSecret,
@@ -136,7 +146,7 @@ func names[T any](accounts []T, name func(T) string) []string {
 }
 
 // renamed is the error for a platform whose accounts lose a name and gain
-// another in one save.
+// another in one save, at the platform's list.
 func renamed(platform string, before, after []string) error {
 	var gone, come []string
 	for _, name := range before {
@@ -152,8 +162,8 @@ func renamed(platform string, before, after []string) error {
 	if len(gone) == 0 || len(come) == 0 {
 		return nil
 	}
-	return fmt.Errorf("%s: an account's name cannot be changed, and this save has %s for %s: its login, events, chats, and what modules keep for it are under the name, so another name is another account, which has none of them. To replace an account, remove it in one save and add the other in the next: %w",
-		platform, strings.Join(come, ", "), strings.Join(gone, ", "), otogi.ErrInvalid)
+	return &otogi.SettingError{Path: platform, Err: fmt.Errorf("an account's name cannot be changed, and this save has %s for %s: its login, events, chats, and what modules keep for it are under the name, so another name is another account, which has none of them. To replace an account, remove it in one save and add the other in the next",
+		strings.Join(come, ", "), strings.Join(gone, ", "))}
 }
 
 // checkAccounts refuses accounts a start could not build the drivers from.

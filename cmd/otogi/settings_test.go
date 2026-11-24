@@ -13,8 +13,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/danielgtaylor/huma/v2"
-
 	"github.com/TundraWork/Ex-Otogi/internal/adapter/capture"
 	"github.com/TundraWork/Ex-Otogi/internal/adapter/management"
 	"github.com/TundraWork/Ex-Otogi/internal/adapter/modulestore"
@@ -145,18 +143,10 @@ func TestModuleSettingsValidation(t *testing.T) {
 		"media":     {`{"steps": [{"provider": "gemini", "model": "", "thinking": "max"}]}`, "steps[0].model;steps[0].thinking", ""},
 	} {
 		_, err := s.save(ctx, module, 0, nil, json.RawMessage(c.settings), "x")
-		var invalid *invalidSettings
-		if !errors.As(err, &invalid) {
+		if !errors.Is(err, otogi.ErrInvalid) {
 			t.Fatalf("%s: %v, want invalid settings", module, err)
 		}
-		var where []string
-		for _, d := range invalid.details {
-			var detail *huma.ErrorDetail
-			if errors.As(d, &detail) {
-				where = append(where, detail.Location)
-			}
-		}
-		if got := strings.Join(where, ";"); !strings.Contains(got, strings.Split(c.want, ";")[0]) || c.secret != "" && strings.Contains(err.Error(), c.secret) {
+		if got := strings.Join(refusedAt(err), ";"); !strings.Contains(got, strings.Split(c.want, ";")[0]) || c.secret != "" && strings.Contains(err.Error(), c.secret) {
 			t.Errorf("%s: %v", module, err)
 		}
 	}
@@ -182,19 +172,24 @@ func TestPeopleSettingsValidation(t *testing.T) {
 	s, _ := settingsHarness(t, storage)
 	settings := `{"profiles": [{"name": "Luna", "keywords": ["luna"], "provider": "gemini", "model": "m"}], "people": [{"user": "qq:user:x", "threshold_factor": 20}]}`
 	_, err = s.save(ctx, "chat", 0, nil, json.RawMessage(settings), "x")
-	var invalid *invalidSettings
-	if !errors.As(err, &invalid) {
-		t.Fatalf("%v, want invalid settings", err)
-	}
-	var where []string
-	for _, d := range invalid.details {
-		if detail := (*huma.ErrorDetail)(nil); errors.As(d, &detail) {
-			where = append(where, detail.Location)
-		}
-	}
-	if !strings.Contains(strings.Join(where, ";"), "people[0].threshold_factor") {
+	if where := refusedAt(err); !errors.Is(err, otogi.ErrInvalid) || !strings.Contains(strings.Join(where, ";"), "people[0].threshold_factor") {
 		t.Fatalf("refused at %q", where)
 	}
+}
+
+// refusedAt lists the fields of the settings errors.Join joins in err.
+func refusedAt(err error) []string {
+	var joined interface{ Unwrap() []error }
+	if !errors.As(err, &joined) {
+		return nil
+	}
+	var where []string
+	for _, e := range joined.Unwrap() {
+		if field := (*otogi.SettingError)(nil); errors.As(e, &field) {
+			where = append(where, field.Path)
+		}
+	}
+	return where
 }
 
 // Every module's settings have a schema document with the types it uses.
