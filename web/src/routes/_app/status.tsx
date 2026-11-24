@@ -4,10 +4,13 @@ import { format, formatDistanceToNowStrict } from "date-fns";
 import { Activity, Database } from "lucide-react";
 import type { ReactNode } from "react";
 import type { Schemas } from "@/api/client";
+import { Ago } from "@/components/ago";
+import { CardHeader, CardInset, Card as CardShell, rows } from "@/components/card";
+import { LoadError } from "@/components/load-error";
 import { outcomeTone, StatusDot } from "@/components/status-dot";
 import { Tile } from "@/components/tile";
-import { moduleMeta, platformMeta } from "@/lib/meta";
-import { ago, took, useNow } from "@/lib/time";
+import { moduleMeta, moduleState, platformMeta } from "@/lib/meta";
+import { since, took, useNow } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import { failuresQuery } from "@/queries/events";
 import { modulesQuery } from "@/queries/modules";
@@ -16,15 +19,18 @@ import { statusQuery } from "@/queries/status";
 
 export const Route = createFileRoute("/_app/status")({
   loader: ({ context }) => context.queryClient.ensureQueryData(statusQuery),
+  head: () => ({ meta: [{ title: "Status · otogi" }] }),
   component: StatusPage,
 });
 
 function StatusPage() {
   const { data: status } = useSuspenseQuery(statusQuery);
   const down = status.drivers.filter((d) => !d.ready);
-  const healthy = status.ready && status.event_log.ok;
+  const { data: modules = [] } = useQuery(modulesQuery);
+  const failed = modules.some((m) => m.enabled && !m.running);
+  const healthy = status.ready && status.event_log.ok && !failed;
   return (
-    <main className="mx-auto w-full max-w-6xl px-5 py-7 sm:px-8">
+    <div className="mx-auto w-full max-w-6xl px-5 py-7 sm:px-8">
       <div className="flex flex-wrap items-end gap-x-6 gap-y-2">
         <div>
           <h1 className="font-bold text-[1.875rem] leading-tight tracking-[-0.035em]">
@@ -32,7 +38,9 @@ function StatusPage() {
               ? "Everything is running"
               : down.length
                 ? "A platform is not connected"
-                : "The event log is failing"}
+                : failed
+                  ? "A module failed to start"
+                  : "The event log is failing"}
           </h1>
           <p className="text-muted-foreground text-sm">
             Up {formatDistanceToNowStrict(new Date(status.started_at))}, since{" "}
@@ -57,7 +65,11 @@ function StatusPage() {
           <Working running={status.running} />
           <Failures />
           <Card title="Runtime">
-            <Fact icon={<Tile tone="slate" icon={Activity} size="sm" />} label="Kernel" value={status.kernel.state}>
+            <Fact
+              icon={<Tile tone="slate" icon={Activity} size="sm" />}
+              label="Kernel"
+              value={status.kernel.state.replace(/^./, (c) => c.toUpperCase())}
+            >
               {status.kernel.in_flight} of {status.kernel.max_in_flight} events in flight, {status.kernel.workers}{" "}
               workers
             </Fact>
@@ -74,19 +86,18 @@ function StatusPage() {
           </Card>
         </div>
       </div>
-    </main>
+    </div>
   );
 }
 
 function Card({ title, note, children }: { title: string; note?: string; children: ReactNode }) {
   return (
-    <section className="surface-raised rounded-2xl">
-      <header className="flex items-baseline gap-2 px-4 pt-3.5 pb-2.5">
-        <h2 className="font-semibold text-[15px]">{title}</h2>
-        {note && <span className="text-muted-foreground text-xs">{note}</span>}
-      </header>
-      <ul className="surface-inset mx-3.5 mb-3.5 divide-y divide-border/80 rounded-xl px-3">{children}</ul>
-    </section>
+    <CardShell>
+      <CardHeader title={title} note={note} />
+      <CardInset>
+        <ul className={rows}>{children}</ul>
+      </CardInset>
+    </CardShell>
   );
 }
 
@@ -133,8 +144,9 @@ function Driver({ d }: { d: Schemas["DriverStatus"] }) {
             {p.title} <span className="font-mono text-muted-foreground text-xs">{d.account}</span>
           </div>
           <div className="text-muted-foreground text-xs">
-            {d.last_event ? `Last event ${ago(d.last_event)} ago` : "No events yet"}
-            {backlog && ` · ${d.pending_inbox} waiting, ${d.failed_inbox} failed, ${d.gaps} gaps`}
+            {d.last_event ? `Last event ${since(d.last_event)}` : "No events yet"}
+            {backlog &&
+              ` · ${d.pending_inbox} waiting, ${d.failed_inbox} failed, ${d.gaps} gap${d.gaps === 1 ? "" : "s"}`}
           </div>
         </div>
         <span className="flex items-center gap-2 text-sm">
@@ -149,13 +161,44 @@ function Driver({ d }: { d: Schemas["DriverStatus"] }) {
 }
 
 function Modules() {
-  const { data: modules = [] } = useQuery(modulesQuery);
-  const running = modules.filter((m) => m.running);
+  const { data: modules, error, refetch } = useQuery(modulesQuery);
+  // Modules that are on: those running, and those that failed to start.
+  const on = (modules ?? []).filter((m) => m.enabled || m.running);
+  const running = on.filter((m) => m.running);
+  if (error && !modules) {
+    return (
+      <Card title="Modules">
+        <li>
+          <LoadError what="the modules" error={error} retry={() => void refetch()} />
+        </li>
+      </Card>
+    );
+  }
   return (
-    <Card title="Modules" note={`${running.length} running, runs since start`}>
-      {running.map((m) => {
+    <Card
+      title="Modules"
+      note={`${running.length} running${on.length > running.length ? `, ${on.length - running.length} failed to start` : ""}, runs since start`}
+    >
+      {on.map((m) => {
         const meta = moduleMeta(m.id);
         const failed = m.counts.failed + m.counts.panicked;
+        if (!m.running) {
+          return (
+            <li key={m.id}>
+              <Link
+                to="/modules/$module"
+                params={{ module: m.id }}
+                className="flex items-center gap-3 py-2.5 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <Tile tone={meta.tone} icon={meta.icon} size="sm" className="opacity-55 saturate-50" />
+                <span className="min-w-0 flex-1 truncate font-medium text-sm">{meta.title}</span>
+                <span className="flex items-center gap-2 font-medium text-destructive-foreground text-xs">
+                  <StatusDot tone="error" /> {moduleState(m).label}
+                </span>
+              </Link>
+            </li>
+          );
+        }
         return (
           <li key={m.id}>
             <Link
@@ -183,7 +226,7 @@ function Modules() {
           </li>
         );
       })}
-      {running.length === 0 && <Empty>No module is running. Turn modules on under Modules.</Empty>}
+      {on.length === 0 && <Empty>No module is running. Turn modules on under Modules.</Empty>}
     </Card>
   );
 }
@@ -209,7 +252,7 @@ function Working({ running }: { running: Schemas["Running"][] }) {
                 {r.event ? chatName(r.platform, r.conversation) : "A job or timer"}
               </span>
             </span>
-            <span className="font-medium text-sky-700 text-xs tabular">
+            <span className="font-medium text-info-foreground text-xs tabular">
               {took(now - new Date(r.started).getTime())}
             </span>
           </Link>
@@ -221,31 +264,35 @@ function Working({ running }: { running: Schemas["Running"][] }) {
 }
 
 function Failures() {
-  const { data } = useQuery(failuresQuery);
+  const { data, error, refetch } = useQuery(failuresQuery);
   const records = data?.records ?? [];
   return (
     <Card title="Recent failures">
+      {error && !data && (
+        <li>
+          <LoadError what="recent failures" error={error} retry={() => void refetch()} />
+        </li>
+      )}
       {records.map((r) => (
         <li key={r.id}>
+          {/* A failure opens in its task's trace; one outside any event opens as the record it is. */}
           <Link
             to="/events"
-            search={{ view: "records", record: r.id }}
+            search={r.event ? { view: "tasks", event: r.event } : { view: "records", record: r.id }}
             className="flex items-center gap-2.5 py-2.5 outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
-            <StatusDot tone={outcomeTone(r.outcome)} />
+            <StatusDot tone={outcomeTone(r.outcome)} label={r.outcome} />
             <span className="min-w-0 flex-1">
               <span className="block truncate font-mono text-xs">
                 {r.kind} <span className="text-muted-foreground">· {r.component}</span>
               </span>
               <span className="block truncate text-muted-foreground text-xs">{errorText(r.payload)}</span>
             </span>
-            <time className="font-mono text-[11.5px] text-muted-foreground" dateTime={r.at}>
-              {ago(r.at)}
-            </time>
+            <Ago at={r.at} className="font-mono text-muted-foreground text-xs" />
           </Link>
         </li>
       ))}
-      {records.length === 0 && <Empty>Nothing has failed within the retention.</Empty>}
+      {data && records.length === 0 && <Empty>Nothing has failed within the retention.</Empty>}
     </Card>
   );
 }

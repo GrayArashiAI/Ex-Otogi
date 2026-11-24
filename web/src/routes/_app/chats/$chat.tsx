@@ -2,9 +2,12 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient, useSuspenseQue
 import { createFileRoute, Link, notFound } from "@tanstack/react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { format, isToday, isYesterday } from "date-fns";
-import { ArrowDown, ArrowLeft, ExternalLink, Pencil, ScrollText, X } from "lucide-react";
+import { ArrowDown, ArrowLeft, Copy, ExternalLink, Pencil, ScrollText, X } from "lucide-react";
 import { useLayoutEffect, useRef, useState } from "react";
 import { ApiError, api, data, type Schemas } from "@/api/client";
+import { Ago } from "@/components/ago";
+import { LoadError } from "@/components/load-error";
+import { NotFound } from "@/components/route-states";
 import { outcomeTone, StatusDot } from "@/components/status-dot";
 import { Tile } from "@/components/tile";
 import { Button } from "@/components/ui/button";
@@ -20,9 +23,9 @@ import { Input } from "@/components/ui/input";
 import { Sheet, SheetHeader, SheetPanel, SheetPopup, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
+import { toastManager } from "@/components/ui/toast";
 import { chatKind, chatName } from "@/lib/chats";
-import { listMeta, moduleMeta, platformMeta } from "@/lib/meta";
-import { ago } from "@/lib/time";
+import { listMeta, moduleMeta, moduleState, platformMeta } from "@/lib/meta";
 import { cn } from "@/lib/utils";
 import { chatQuery, messagesQuery } from "@/queries/chats";
 import { modulesQuery } from "@/queries/modules";
@@ -30,26 +33,47 @@ import { modulesQuery } from "@/queries/modules";
 export const Route = createFileRoute("/_app/chats/$chat")({
   loader: async ({ context, params }) => {
     try {
-      await context.queryClient.ensureQueryData(chatQuery(params.chat));
+      return await context.queryClient.ensureQueryData(chatQuery(params.chat));
     } catch (e) {
       if (e instanceof ApiError && e.status === 404) throw notFound();
       throw e;
     }
   },
+  head: ({ loaderData }) => ({ meta: [{ title: `${loaderData ? chatName(loaderData) : "Chat"} · otogi` }] }),
   component: ChatPage,
+  notFoundComponent: NoSuchChat,
 });
+
+function NoSuchChat() {
+  const { chat } = Route.useParams();
+  return (
+    <NotFound
+      title="No such chat"
+      detail={
+        <>
+          The bot has not seen a chat with the ID <span className="font-mono text-xs">{chat}</span>.
+        </>
+      }
+    >
+      <Button variant="outline" render={<Link to="/chats" />}>
+        All chats
+      </Button>
+    </NotFound>
+  );
+}
 
 function ChatPage() {
   const { chat: id } = Route.useParams();
   const { data: chat } = useSuspenseQuery(chatQuery(id));
   const p = platformMeta(chat.platform);
   return (
-    <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_19rem]">
-      <section className="flex min-h-0 flex-col md:h-[calc(100svh-3.5rem)]">
+    <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,1fr)] lg:grid-cols-[minmax(0,1fr)_19rem]">
+      <section className="flex min-h-0 flex-col">
         <header className="flex items-center gap-3 border-b px-4 py-3.5 sm:px-6">
           <Link
             to="/chats"
-            className="-ml-1 rounded-md p-1 text-muted-foreground hover:text-foreground md:hidden"
+            activeOptions={{ exact: true }}
+            className="hit-target relative -ml-1 rounded-md p-1 text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring md:hidden"
             aria-label="All chats"
           >
             <ArrowLeft className="size-5" />
@@ -57,7 +81,7 @@ function ChatPage() {
           <Tile tone={p.tone} icon={p.icon} />
           <div className="min-w-0 flex-1">
             <h1 className="truncate font-semibold text-[17px] leading-tight tracking-[-0.01em]">{chatName(chat)}</h1>
-            <span className="block truncate font-mono text-[11.5px] text-muted-foreground">{chat.id}</span>
+            <span className="block truncate font-mono text-muted-foreground text-xs">{chat.id}</span>
           </div>
           <Button
             variant="outline"
@@ -83,7 +107,7 @@ function ChatPage() {
         </div>
         <Conversation chat={id} people={senders(chat)} />
       </section>
-      <aside className="hidden flex-col gap-5 border-l px-4 py-5 lg:flex lg:h-[calc(100svh-3.5rem)] lg:overflow-y-auto">
+      <aside className="hidden min-h-0 flex-col gap-5 overflow-y-auto border-l px-4 py-5 lg:flex">
         <ModuleSwitches chat={chat} />
         <About chat={chat} />
       </aside>
@@ -116,11 +140,13 @@ function Conversation({ chat, people }: { chat: string; people: Record<string, s
     overscan: 8,
     getItemKey: (i) => items[i]?.id ?? i,
   });
-  // Keep the reader's place: start at the newest, and when older messages
-  // arrive above, keep the ones in view where they were.
+  // Keep the reader's place: start at the newest and stay there while the
+  // reader is there, as rows are measured, pictures load, and messages
+  // arrive; when older messages arrive above, keep the ones in view where
+  // they were.
   const newest = items.at(-1)?.id;
   const oldest = items[0]?.id;
-  const placed = useRef<{ oldest?: number; newest?: number; height: number }>({ height: 0 });
+  const placed = useRef<{ oldest?: number; height: number; atNewest: boolean }>({ height: 0, atNewest: true });
   // away is the newest message when the reader scrolled up from it, so the
   // jump button can say when newer ones arrived.
   const [away, setAway] = useState<number>();
@@ -129,14 +155,12 @@ function Conversation({ chat, people }: { chat: string; people: Record<string, s
     if (!el || items.length === 0) return;
     const before = placed.current;
     const height = virtualizer.getTotalSize();
-    if (before.newest === undefined) {
-      virtualizer.scrollToIndex(items.length - 1, { align: "end" });
+    if (before.atNewest) {
+      el.scrollTop = el.scrollHeight;
     } else if (oldest !== before.oldest) {
       el.scrollTop += height - before.height;
-    } else if (newest !== before.newest && el.scrollHeight - el.scrollTop - el.clientHeight < 160) {
-      virtualizer.scrollToIndex(items.length - 1, { align: "end" });
     }
-    placed.current = { oldest, newest, height };
+    placed.current = { ...before, oldest, height };
   });
   const labels = Object.fromEntries(
     (modules ?? []).flatMap((m) => m.allowlists.map((l, i) => [`${m.id}/${l.name}`, listMeta(m.id, l, i)])),
@@ -150,8 +174,18 @@ function Conversation({ chat, people }: { chat: string; people: Record<string, s
       </div>
     );
   }
+  if (messages.error && items.length === 0) {
+    return (
+      <LoadError
+        className="mx-auto w-full max-w-lg px-4 py-12"
+        what="this chat's messages"
+        error={messages.error}
+        retry={() => void messages.refetch()}
+      />
+    );
+  }
   const toNewest = () => {
-    virtualizer.scrollToIndex(items.length - 1, { align: "end" });
+    placed.current.atNewest = true;
     setAway(undefined);
   };
   return (
@@ -161,10 +195,12 @@ function Conversation({ chat, people }: { chat: string; people: Record<string, s
         className="min-h-0 flex-1 overflow-y-auto px-4 sm:px-6"
         onScroll={(e) => {
           const el = e.currentTarget;
-          if (el.scrollTop < 240 && messages.hasNextPage && !messages.isFetchingNextPage) {
+          if (el.scrollTop < 240 && messages.hasNextPage && !messages.isFetchingNextPage && !messages.error) {
             void messages.fetchNextPage();
           }
-          const far = el.scrollHeight - el.scrollTop - el.clientHeight > 320;
+          const gap = el.scrollHeight - el.scrollTop - el.clientHeight;
+          placed.current.atNewest = gap < 8;
+          const far = gap > 320;
           if (far && away === undefined) setAway(newest);
           if (!far && away !== undefined) setAway(undefined);
         }}
@@ -173,6 +209,14 @@ function Conversation({ chat, people }: { chat: string; people: Record<string, s
           <p className="py-16 text-center text-muted-foreground text-sm">
             Nothing said here within the event log's retention.
           </p>
+        )}
+        {messages.error && (
+          <LoadError
+            className="mx-auto max-w-lg"
+            what="older messages"
+            error={messages.error}
+            retry={() => void (messages.isFetchNextPageError ? messages.fetchNextPage() : messages.refetch())}
+          />
         )}
         <div className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
           {virtualizer.getVirtualItems().map((row) => {
@@ -245,6 +289,7 @@ function MessageRow({
     .map((part) => part.text)
     .join("\n");
   const media = parts.filter((part) => part.media);
+  const outcome = own?.outcome ?? done?.outcome;
   return (
     <div className="flex gap-2.5">
       {meta ? (
@@ -273,9 +318,10 @@ function MessageRow({
           <MediaPart key={part.id} chat={chat} message={m.id} part={part} />
         ))}
         {m.bot && (
-          <div className="mt-1.5 flex items-center gap-1.5 font-mono text-[11.5px] text-muted-foreground">
-            <StatusDot tone={outcomeTone(own?.outcome ?? done?.outcome)} className="mr-0.5" />
+          <div className="mt-1.5 flex items-center gap-2 font-mono text-muted-foreground text-xs">
+            <StatusDot tone={outcomeTone(outcome)} label={outcome === "ok" ? "ok" : undefined} />
             {[
+              outcome !== "ok" && (outcome ?? "no outcome"),
               meta?.title,
               own?.kind,
               done?.duration_ms !== undefined && `${(done.duration_ms / 1000).toFixed(1)} s`,
@@ -293,12 +339,24 @@ function MessageRow({
 function MediaPart({ chat, message, part }: { chat: string; message: number; part: Schemas["Part"] }) {
   const [failed, setFailed] = useState(false);
   const src = `/api/chats/${encodeURIComponent(chat)}/media/${message}/${encodeURIComponent(part.id)}`;
+  // An <img> does not say why it failed; asking again does.
+  const reason = useQuery({
+    queryKey: ["media-failure", src],
+    enabled: failed,
+    staleTime: Number.POSITIVE_INFINITY,
+    queryFn: async () => {
+      const response = await fetch(src);
+      return response.ok ? "" : new ApiError(response.status, await response.json().catch(() => undefined)).message;
+    },
+  });
   const image =
     part.media?.role === "image" || part.media?.role === "sticker" || part.media?.media_type?.startsWith("image/");
   if (!image || failed) {
     return (
       <div className="mt-1 w-fit rounded-xl border bg-background px-3 py-2 text-muted-foreground text-xs">
-        {failed ? "The platform no longer has this image" : (part.media?.filename ?? part.media?.role ?? "File")}
+        {failed
+          ? `This image could not be loaded${reason.data ? `: ${reason.data}` : "."}`
+          : (part.media?.filename ?? part.media?.role ?? "File")}
       </div>
     );
   }
@@ -353,10 +411,10 @@ function Picture({ src }: { src: string }) {
 }
 
 function ModuleSwitches({ chat, compact }: { chat: Schemas["ChatOutputBody"]; compact?: boolean }) {
-  const { data: modules } = useQuery(modulesQuery);
+  const { data: modules, error, refetch } = useQuery(modulesQuery);
   const queryClient = useQueryClient();
   const toggle = useMutation({
-    mutationFn: ({ module, list, on }: { module: string; list: string; on: boolean }) => {
+    mutationFn: ({ module, list, on }: { module: string; list: string; title: string; on: boolean }) => {
       const params = { params: { path: { module, list, chat: chat.id } } };
       return data(
         on
@@ -364,6 +422,8 @@ function ModuleSwitches({ chat, compact }: { chat: Schemas["ChatOutputBody"]; co
           : api.DELETE("/api/modules/{module}/allowlists/{list}/chats/{chat}", params),
       );
     },
+    onSuccess: (_, { title, on }) =>
+      toastManager.add({ type: "success", title: `${title} is ${on ? "on" : "off"} in ${chatName(chat)}` }),
     onSettled: async () => {
       await queryClient.invalidateQueries({ queryKey: ["chats"] });
       await queryClient.invalidateQueries({ queryKey: ["modules"] });
@@ -371,6 +431,9 @@ function ModuleSwitches({ chat, compact }: { chat: Schemas["ChatOutputBody"]; co
   });
   const lists = (modules ?? []).flatMap((m) => m.allowlists.map((l, i) => ({ m, l, meta: listMeta(m.id, l, i) })));
   const on = (module: string, list: string) => chat.lists.some((x) => x.module === module && x.list === list);
+  if (error && !modules) {
+    return <LoadError what="the modules" error={error} retry={() => void refetch()} />;
+  }
   if (compact) {
     return (
       <ul className="-mx-1 flex gap-2 overflow-x-auto px-1 py-0.5">
@@ -384,7 +447,7 @@ function ModuleSwitches({ chat, compact }: { chat: Schemas["ChatOutputBody"]; co
             <Switch
               checked={on(m.id, l.name)}
               disabled={toggle.isPending}
-              onCheckedChange={(v) => toggle.mutate({ module: m.id, list: l.name, on: v })}
+              onCheckedChange={(v) => toggle.mutate({ module: m.id, list: l.name, title: meta.title, on: v })}
               aria-label={meta.toggle}
             />
           </li>
@@ -406,16 +469,25 @@ function ModuleSwitches({ chat, compact }: { chat: Schemas["ChatOutputBody"]; co
                   tone={meta.tone}
                   icon={meta.icon}
                   size="sm"
-                  className={cn(!m.enabled && "opacity-55 saturate-50")}
+                  className={cn(!m.running && "opacity-55 saturate-50")}
                 />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate font-medium text-sm">{meta.title}</span>
-                  {!m.enabled && <span className="block text-muted-foreground text-xs">Module is off</span>}
+                  {!m.running && (
+                    <span
+                      className={cn(
+                        "block text-xs",
+                        m.enabled ? "text-destructive-foreground" : "text-muted-foreground",
+                      )}
+                    >
+                      Module: {moduleState(m).label}
+                    </span>
+                  )}
                 </span>
                 <Switch
                   checked={pending ? toggle.variables.on : checked}
                   disabled={pending}
-                  onCheckedChange={(v) => toggle.mutate({ module: m.id, list: l.name, on: v })}
+                  onCheckedChange={(v) => toggle.mutate({ module: m.id, list: l.name, title: meta.title, on: v })}
                   aria-label={meta.toggle}
                 />
               </li>
@@ -475,39 +547,58 @@ function About({ chat }: { chat: Schemas["ChatOutputBody"] }) {
               </div>
             ))}
           </div>
-          <div className="mt-1 flex justify-between text-[10.5px] text-muted-foreground">
+          <div className="mt-1 flex justify-between text-muted-foreground text-xs">
             <span>{format(new Date(week[0]?.day ?? Date.now()), "MMM d")}</span>
             <span>Today</span>
           </div>
         </div>
       </div>
-      <People people={chat.people_seen} />
+      <People platform={chat.platform} people={chat.people_seen} />
     </section>
   );
 }
 
 /** People lists who has been seen sending messages here, recent first. */
-function People({ people }: { people: Schemas["Person"][] }) {
+function People({ platform, people }: { platform: string; people: Schemas["Person"][] }) {
   if (people.length === 0) return null;
   return (
     <>
       <h2 className="mt-5 mb-2 px-0.5 font-semibold text-[13px]">People</h2>
       <ul className="surface-raised divide-y divide-border/80 rounded-2xl px-3">
-        {people.map((p) => (
-          <li key={p.actor} className="flex items-center gap-2.5 py-2">
-            <span className="grid size-7 flex-none place-items-center rounded-full bg-linear-to-b from-neutral-100 to-neutral-200 font-semibold text-neutral-600 text-xs shadow-[inset_0_0_0_1px_--theme(--color-black/5%)]">
-              {(p.name || "?").slice(0, 1).toUpperCase()}
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block truncate font-medium text-[13px]">{p.name || "Unnamed"}</span>
-              <span className="block truncate font-mono text-[11px] text-muted-foreground">{p.actor}</span>
-            </span>
-            <span className="text-right text-muted-foreground text-xs tabular">
-              {p.messages}
-              <span className="block">{ago(p.last_seen)}</span>
-            </span>
-          </li>
-        ))}
+        {people.map((p) => {
+          // The ID as settings and /whoami write it.
+          const id = `${platform}:${p.actor}`;
+          return (
+            <li key={p.actor} className="flex items-center gap-2.5 py-2">
+              <span className="grid size-7 flex-none place-items-center rounded-full bg-linear-to-b from-neutral-100 to-neutral-200 font-semibold text-neutral-600 text-xs shadow-[inset_0_0_0_1px_--theme(--color-black/5%)]">
+                {(p.name || "?").slice(0, 1).toUpperCase()}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate font-medium text-[13px]">{p.name || "Unnamed"}</span>
+                <span className="block truncate font-mono text-muted-foreground text-xs" title={id}>
+                  {id}
+                </span>
+              </span>
+              <span className="text-right text-muted-foreground text-xs tabular">
+                {p.messages}
+                <Ago at={p.last_seen} className="block" />
+              </span>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="-mr-1.5 text-muted-foreground"
+                aria-label={`Copy the ID of ${p.name || id}`}
+                onClick={() =>
+                  void navigator.clipboard
+                    .writeText(id)
+                    .then(() => toastManager.add({ type: "success", title: `Copied ${id}` }))
+                }
+              >
+                <Copy />
+              </Button>
+            </li>
+          );
+        })}
       </ul>
     </>
   );

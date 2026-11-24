@@ -47,22 +47,36 @@ export function properties(s: JSONSchema): [string, JSONSchema][] {
   return order.filter((k) => k in props).map((k) => [k, props[k] as JSONSchema]);
 }
 
-/** label turns max_tool_rounds into "Max tool rounds". */
+/** label turns max_tool_rounds into "Max tool rounds", and max_media_mb into "Max media MB". */
 export function label(key: string): string {
-  const words = key.replaceAll("_", " ");
+  const words = key.replaceAll("_", " ").replace(/\b[kmg]b\b/g, (unit) => unit.toUpperCase());
   return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/** pathLabel reads profiles[1].model as "Profiles 2 › Model". */
+export function pathLabel(path: string): string {
+  if (!path) return "Settings";
+  return path
+    .split(".")
+    .map((part) => label(part).replace(/\[(\d+)\]/g, (_, i) => ` ${Number(i) + 1}`))
+    .join(" › ");
+}
+
+/** entrySchema is the schema of a map's values. */
+export function entrySchema(s: JSONSchema): JSONSchema {
+  return typeof s.additionalProperties === "object" ? s.additionalProperties : {};
 }
 
 /** check validates one value against its schema, as the server will. */
 export function check(s: JSONSchema, value: unknown, required: boolean): string | undefined {
   const empty = value === undefined || value === null || value === "";
   if (empty) return required ? "Required" : undefined;
+  if (s.enum && !s.enum.includes(value)) return `One of ${s.enum.join(", ")}`;
   if (typeof value === "string") {
     if (s.minLength !== undefined && value.length < s.minLength) return "Required";
     if (s.maxLength !== undefined && value.length > s.maxLength) return `At most ${s.maxLength} characters`;
     if (s.pattern && !new RegExp(s.pattern).test(value))
       return `Should be ${s.patternDescription ?? `like ${s.pattern}`}`;
-    if (s.enum && !s.enum.includes(value)) return `One of ${s.enum.join(", ")}`;
   }
   if (typeof value === "number") {
     if (Number.isNaN(value)) return "A number";
@@ -76,7 +90,44 @@ export function check(s: JSONSchema, value: unknown, required: boolean): string 
   return undefined;
 }
 
-/** blank is a new item's value: an object with nothing set. */
+export type Problem = { path: string; message: string };
+
+/** validate checks whole settings against their schema, whatever part of
+ * the form is open, and lists the problems in the order of the form. */
+export function validate(root: JSONSchema, value: unknown, schema = root, required = true, path = ""): Problem[] {
+  const s = resolve(root, schema);
+  const kind = kindOf(s);
+  const at = (key: string) => (path ? `${path}.${key}` : key);
+  if (kind === "object") {
+    if (value === undefined && !required) return [];
+    const v = (value ?? {}) as Record<string, unknown>;
+    return properties(s).flatMap(([key, prop]) =>
+      validate(root, v[key], prop, s.required?.includes(key) ?? false, at(key)),
+    );
+  }
+  const message = check(s, value, required);
+  if (message) return [{ path, message }];
+  if (kind === "map" && value) {
+    const entries = Object.entries(value);
+    if (s.minProperties !== undefined && entries.length < s.minProperties) {
+      return [{ path, message: `At least ${s.minProperties}` }];
+    }
+    // An entry's empty text is a value: clean keeps it.
+    return entries.flatMap(([key, v]) => validate(root, v, entrySchema(s), v !== "", at(key)));
+  }
+  if (kind === "array" && Array.isArray(value)) {
+    const item = resolve(root, s.items ?? {});
+    if (["object", "map"].includes(kindOf(item))) {
+      return value.flatMap((v, i) => validate(root, v, item, true, `${path}[${i}]`));
+    }
+    // A list of words is one field: its first bad word is its problem.
+    const bad = value.map((v) => check(item, v, true)).find(Boolean);
+    return bad ? [{ path, message: bad }] : [];
+  }
+  return [];
+}
+
+/** blank is a new item's value: an object with nothing set, a number not yet given. */
 export function blank(root: JSONSchema, s: JSONSchema): unknown {
   const r = resolve(root, s);
   switch (kindOf(r)) {
@@ -87,28 +138,51 @@ export function blank(root: JSONSchema, s: JSONSchema): unknown {
       return [];
     case "boolean":
       return false;
+    case "integer":
+    case "number":
+      return undefined;
     default:
       return "";
   }
 }
 
-/** clean drops unset optional values, which the module defaults. */
-export function clean(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(clean);
+/** itemTitle names a list item by its name, its model, or else the first
+ * value it has; an item with none has no title. */
+export function itemTitle(s: JSONSchema, value: unknown): string | undefined {
+  const item = (value ?? {}) as Record<string, unknown>;
+  for (const key of ["name", "label", "model", ...properties(s).map(([k]) => k)]) {
+    const v = item[key];
+    if ((typeof v === "string" && v) || typeof v === "number") return String(v);
+  }
+  return undefined;
+}
+
+/** clean drops unset optional values, which the module defaults. A map
+ * keeps its empty entries: there the key is the setting. */
+export function clean(root: JSONSchema, value: unknown, schema = root): unknown {
+  const s = resolve(root, schema);
+  if (Array.isArray(value)) return value.map((v) => clean(root, v, s.items ?? {}));
   if (value && typeof value === "object") {
+    const map = kindOf(s) === "map";
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value)) {
-      if (v === "" || v === undefined || v === null || (typeof v === "number" && Number.isNaN(v))) continue;
-      out[k] = clean(v);
+      if (v === undefined || v === null || (typeof v === "number" && Number.isNaN(v))) continue;
+      if (v === "" && !map) continue;
+      out[k] = clean(root, v, map ? entrySchema(s) : (s.properties?.[k] ?? {}));
     }
     return out;
   }
   return value;
 }
 
-/** changes lists what differs between two settings, by path. */
-export function changes(before: unknown, after: unknown, path = ""): { path: string; from: unknown; to: unknown }[] {
+export type Change = { path: string; from: unknown; to: unknown };
+
+/** changes lists what differs between two settings, by path. In a list of
+ * objects, the items that stay the same before and after the changed ones
+ * are not changes, so removing one item reports that item only. */
+export function changes(before: unknown, after: unknown, path = ""): Change[] {
   const isObj = (v: unknown) => v !== null && typeof v === "object" && !Array.isArray(v);
+  const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
   if (isObj(before) && isObj(after)) {
     const a = before as Record<string, unknown>;
     const b = after as Record<string, unknown>;
@@ -116,10 +190,20 @@ export function changes(before: unknown, after: unknown, path = ""): { path: str
       changes(a[k], b[k], path ? `${path}.${k}` : k),
     );
   }
-  if (Array.isArray(before) && Array.isArray(after) && before.some(isObj)) {
-    return Array.from({ length: Math.max(before.length, after.length) }, (_, i) =>
-      changes(before[i], after[i], `${path}[${i}]`),
-    ).flat();
+  if (Array.isArray(before) && Array.isArray(after) && [...before, ...after].some(isObj)) {
+    const short = Math.min(before.length, after.length);
+    let head = 0;
+    while (head < short && same(before[head], after[head])) head++;
+    let tail = 0;
+    while (tail < short - head && same(before.at(-1 - tail), after.at(-1 - tail))) tail++;
+    return Array.from({ length: Math.max(before.length, after.length) - head - tail }, (_, n) => {
+      const i = head + n;
+      return changes(
+        i < before.length - tail ? before[i] : undefined,
+        i < after.length - tail ? after[i] : undefined,
+        `${path}[${i}]`,
+      );
+    }).flat();
   }
-  return JSON.stringify(before) === JSON.stringify(after) ? [] : [{ path, from: before, to: after }];
+  return same(before, after) ? [] : [{ path, from: before, to: after }];
 }

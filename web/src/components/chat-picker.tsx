@@ -1,7 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Search } from "lucide-react";
+import { Check } from "lucide-react";
 import { useMemo, useState } from "react";
 import { api, data } from "@/api/client";
+import { Ago } from "@/components/ago";
+import { LoadError } from "@/components/load-error";
+import { SearchInput } from "@/components/search-input";
 import { Segmented } from "@/components/segmented";
 import { Tile } from "@/components/tile";
 import { Button } from "@/components/ui/button";
@@ -14,10 +17,9 @@ import {
   DialogPopup,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
+import { toastManager } from "@/components/ui/toast";
 import { chatKind, chatName } from "@/lib/chats";
 import { platformMeta } from "@/lib/meta";
-import { ago } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import { chatsQuery } from "@/queries/chats";
 
@@ -37,7 +39,7 @@ export function ChatPicker({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const { data: chats = [] } = useQuery({ ...chatsQuery, enabled: open });
+  const { data: chats = [], error, refetch } = useQuery({ ...chatsQuery, enabled: open });
   const [search, setSearch] = useState("");
   const [platform, setPlatform] = useState("all");
   const [picked, setPicked] = useState<string[]>([]);
@@ -64,6 +66,10 @@ export function ChatPicker({
       await queryClient.invalidateQueries({ queryKey: ["chats"] });
     },
     onSuccess: () => {
+      toastManager.add({
+        type: "success",
+        title: `Added ${picked.length} chat${picked.length === 1 ? "" : "s"} to ${title}`,
+      });
       setPicked([]);
       onOpenChange(false);
     },
@@ -76,17 +82,15 @@ export function ChatPicker({
           <DialogDescription>Chats the bot has seen, most recent first.</DialogDescription>
         </DialogHeader>
         <DialogPanel className="flex flex-col gap-3">
-          <div className="relative">
-            <Search className="pointer-events-none absolute top-1/2 left-2.5 z-10 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              className="ps-7"
-              placeholder="Search by name or ID"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              autoFocus
-            />
-          </div>
+          <SearchInput
+            aria-label="Search by name or ID"
+            placeholder="Search by name or ID"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            autoFocus
+          />
           <Segmented
+            label="Platform"
             value={platform}
             onChange={setPlatform}
             options={[
@@ -117,9 +121,7 @@ export function ChatPicker({
                         {chatKind(c)} · <span className="font-mono">{c.id}</span>
                       </span>
                     </span>
-                    <time className="text-muted-foreground text-xs" dateTime={c.last_seen}>
-                      {ago(c.last_seen)}
-                    </time>
+                    <Ago at={c.last_seen} className="text-muted-foreground text-xs" />
                     <span
                       className={cn(
                         "grid size-5 place-items-center rounded-md border transition-colors",
@@ -134,7 +136,12 @@ export function ChatPicker({
                 </li>
               );
             })}
-            {shown.length === 0 && (
+            {error && chats.length === 0 && (
+              <li className="px-2">
+                <LoadError what="the chats" error={error} retry={() => void refetch()} />
+              </li>
+            )}
+            {shown.length === 0 && !error && (
               <li className="px-2 py-8 text-center text-muted-foreground text-sm">
                 {chats.length === 0 ? "The bot has not seen any chats yet." : "No chats match."}
               </li>

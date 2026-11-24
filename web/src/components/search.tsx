@@ -1,16 +1,17 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { Search as SearchIcon } from "lucide-react";
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { Activity, Blocks, MessagesSquare, ScrollText, Search as SearchIcon } from "lucide-react";
+import { Fragment, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { LoadError } from "@/components/load-error";
 import { Tile } from "@/components/tile";
-import { Dialog, DialogPopup, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogPopup, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { chatKind, chatName } from "@/lib/chats";
 import { listMeta, moduleMeta, platformMeta } from "@/lib/meta";
 import { cn } from "@/lib/utils";
 import { chatsQuery } from "@/queries/chats";
 import { modulesQuery } from "@/queries/modules";
 
-/** Search jumps to a module, an agent, or a chat: Ctrl K anywhere. */
+/** Search jumps to a page, a module, an agent, or a chat: Ctrl K anywhere. */
 export function Search() {
   const [open, setOpen] = useState(false);
   useEffect(() => {
@@ -24,33 +25,41 @@ export function Search() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
   return (
-    <>
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="ml-auto hidden w-60 items-center gap-2 rounded-lg border bg-background px-2.5 py-1.5 text-muted-foreground text-sm shadow-xs/5 outline-none transition-colors hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring md:flex"
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger
+        aria-label="Search"
+        className="hit-target relative flex size-8 items-center justify-center gap-2 rounded-lg border bg-background text-muted-foreground text-sm shadow-xs/5 outline-none transition-colors hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring md:h-auto md:w-60 md:justify-start md:px-2.5 md:py-1.5"
       >
         <SearchIcon className="size-4" />
-        Search
-        <kbd className="ml-auto rounded-md border bg-muted px-1.5 font-mono text-[11px]">Ctrl K</kbd>
-      </button>
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogPopup className="top-[12vh] sm:max-w-lg" showCloseButton={false}>
-          <DialogTitle className="sr-only">Search</DialogTitle>
-          {open && <Results onPick={() => setOpen(false)} />}
-        </DialogPopup>
-      </Dialog>
-    </>
+        <span className="max-md:hidden">Search</span>
+        <kbd className="ml-auto rounded-md border bg-muted px-1.5 font-mono text-xs max-md:hidden">Ctrl K</kbd>
+      </DialogTrigger>
+      <DialogPopup className="top-[12vh] sm:max-w-lg" showCloseButton={false}>
+        <DialogTitle className="sr-only">Search</DialogTitle>
+        {open && <Results onPick={() => setOpen(false)} />}
+      </DialogPopup>
+    </Dialog>
   );
 }
 
 type LinkProps = {
   ref: (el: HTMLAnchorElement | null) => void;
+  id: string;
+  role: "option";
+  "aria-selected": boolean;
+  tabIndex: -1;
   onClick: () => void;
   onMouseMove: () => void;
   className: string;
   children: ReactNode;
 };
+
+const pages = [
+  { to: "/status", title: "Status", icon: Activity },
+  { to: "/modules", title: "Modules", icon: Blocks },
+  { to: "/chats", title: "Chats", icon: MessagesSquare },
+  { to: "/events", title: "Event log", icon: ScrollText },
+] as const;
 
 type Result = {
   key: string;
@@ -61,13 +70,23 @@ type Result = {
 };
 
 function Results({ onPick }: { onPick: () => void }) {
-  const { data: modules = [] } = useQuery(modulesQuery);
-  const { data: chats = [] } = useQuery(chatsQuery);
+  const modulesList = useQuery(modulesQuery);
+  const chatsList = useQuery(chatsQuery);
+  const { data: modules = [] } = modulesList;
+  const { data: chats = [] } = chatsList;
+  const failed = modulesList.error ?? chatsList.error;
   const [q, setQ] = useState("");
   const [at, setAt] = useState(0);
   const links = useRef<(HTMLAnchorElement | null)[]>([]);
   const results = useMemo(() => {
     const all: Result[] = [
+      ...pages.map((p) => ({
+        key: `p${p.to}`,
+        title: p.title,
+        detail: "Page",
+        meta: { ...moduleMeta(""), tone: "slate" as const, icon: p.icon },
+        link: (props: LinkProps) => <Link to={p.to} {...props} />,
+      })),
       ...modules.flatMap((m) => [
         {
           key: `m/${m.id}`,
@@ -99,15 +118,25 @@ function Results({ onPick }: { onPick: () => void }) {
     const words = q.trim().toLowerCase();
     return (words ? all.filter((r) => `${r.title} ${r.detail}`.toLowerCase().includes(words)) : all).slice(0, 12);
   }, [modules, chats, q]);
+  const move = (to: number) => {
+    setAt(to);
+    links.current[to]?.scrollIntoView({ block: "nearest" });
+  };
   return (
-    <div className="flex flex-col">
+    <div className="flex min-h-0 flex-col">
       <div className="flex items-center gap-2 border-b px-4">
         <SearchIcon className="size-4 text-muted-foreground" />
         <input
           // biome-ignore lint/a11y/noAutofocus: the dialog opens to type into
           autoFocus
-          className="h-12 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/72"
-          placeholder="Modules, agents, and chats"
+          role="combobox"
+          aria-label="Search pages, modules, agents, and chats"
+          aria-expanded
+          aria-controls="search-results"
+          aria-autocomplete="list"
+          aria-activedescendant={results.length ? `search-result-${at}` : undefined}
+          className="h-12 flex-1 bg-transparent text-base outline-none placeholder:text-muted-foreground sm:text-sm"
+          placeholder="Pages, modules, agents, and chats"
           value={q}
           onChange={(e) => {
             setQ(e.target.value);
@@ -116,23 +145,47 @@ function Results({ onPick }: { onPick: () => void }) {
           onKeyDown={(e) => {
             if (e.key === "ArrowDown" || e.key === "ArrowUp") {
               e.preventDefault();
-              setAt((i) => Math.max(0, Math.min(results.length - 1, i + (e.key === "ArrowDown" ? 1 : -1))));
+              move(Math.max(0, Math.min(results.length - 1, at + (e.key === "ArrowDown" ? 1 : -1))));
             } else if (e.key === "Enter") {
               links.current[at]?.click();
             }
           }}
         />
       </div>
-      <ul className="max-h-96 overflow-y-auto p-2">
+      {failed && (
+        <LoadError
+          className="border-b px-4"
+          what={modulesList.error ? "the modules" : "the chats"}
+          error={failed}
+          retry={() => {
+            void modulesList.refetch();
+            void chatsList.refetch();
+          }}
+        />
+      )}
+      <div
+        id="search-results"
+        role="listbox"
+        aria-label="Results"
+        tabIndex={-1}
+        className="max-h-96 overflow-y-auto p-2 outline-none"
+      >
         {results.map((r, i) => (
-          <li key={r.key}>
+          <Fragment key={r.key}>
             {r.link({
               ref: (el) => {
                 links.current[i] = el;
               },
+              id: `search-result-${i}`,
+              role: "option",
+              "aria-selected": i === at,
+              tabIndex: -1,
               onClick: onPick,
               onMouseMove: () => setAt(i),
-              className: cn("flex items-center gap-3 rounded-lg px-2 py-1.5 outline-none", i === at && "bg-accent"),
+              className: cn(
+                "flex items-center gap-3 rounded-lg px-2 py-1.5 outline-none pointer-coarse:py-2",
+                i === at && "bg-accent",
+              ),
               children: (
                 <>
                   <Tile tone={r.meta.tone} icon={r.meta.icon} size="sm" />
@@ -143,10 +196,10 @@ function Results({ onPick }: { onPick: () => void }) {
                 </>
               ),
             })}
-          </li>
+          </Fragment>
         ))}
-        {results.length === 0 && <li className="py-8 text-center text-muted-foreground text-sm">Nothing matches.</li>}
-      </ul>
+        {results.length === 0 && <p className="py-8 text-center text-muted-foreground text-sm">Nothing matches.</p>}
+      </div>
     </div>
   );
 }

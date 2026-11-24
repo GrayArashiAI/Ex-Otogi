@@ -158,6 +158,14 @@ export function moduleMeta(id: string): ModuleMeta {
   return modules[id] ?? { title: id, about: "", icon: Bot, tone: "slate" };
 }
 
+/** moduleState is a module's state in the panel's one vocabulary: it runs,
+ * it is off, or it is on and failed to start. */
+export function moduleState(m: { running: boolean; enabled: boolean }) {
+  if (m.running) return { label: "Running", tone: "ok" } as const;
+  if (m.enabled) return { label: "Failed to start", tone: "error" } as const;
+  return { label: "Off", tone: "off" } as const;
+}
+
 const agentTones: Tone[] = ["emerald", "violet", "sky", "amber", "rose", "indigo"];
 
 export type ListMeta = ModuleMeta & {

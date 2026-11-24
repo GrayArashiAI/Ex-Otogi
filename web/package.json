@@ -7,6 +7,7 @@
     "build": "vite build",
     "typecheck": "tsc --noEmit",
     "lint": "biome check .",
+    "test": "node --test \"src/**/*.test.ts\"",
     "format": "biome check --write .",
     "gen:api": "go run ../cmd/otogi openapi > openapi.json && pnpm dlx --package=openapi-typescript@7.13.0 --package=typescript@5.9.3 openapi-typescript openapi.json -o src/api/schema.ts"
   },

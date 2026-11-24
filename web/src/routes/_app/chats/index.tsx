@@ -6,7 +6,7 @@ export const Route = createFileRoute("/_app/chats/")({ component: NoChat });
 
 function NoChat() {
   return (
-    <div className="hidden flex-1 flex-col items-center justify-center gap-3 text-center md:flex">
+    <div className="hidden min-h-0 flex-col items-center justify-center gap-3 text-center md:flex">
       <Tile tone="slate" icon={MessagesSquare} size="lg" />
       <div>
         <p className="font-medium">Pick a chat</p>

@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as SignInRouteImport } from './routes/sign-in'
 import { Route as AppIndexRouteImport } from './routes/_app/index'
+import { Route as AppSplatRouteImport } from './routes/_app/$'
 import { Route as AppChatsRouteImport } from './routes/_app/chats'
 import { Route as AppEventsRouteImport } from './routes/_app/events'
 import { Route as AppModulesRouteImport } from './routes/_app/modules'
@@ -33,6 +34,11 @@ const SignInRoute = SignInRouteImport.update({
 const AppIndexRoute = AppIndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSplatRoute = AppSplatRouteImport.update({
+  id: '/$',
+  path: '/$',
   getParentRoute: () => AppRoute,
 } as any)
 const AppChatsRoute = AppChatsRouteImport.update({
@@ -79,6 +85,7 @@ const AppModulesModuleRoute = AppModulesModuleRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
   '/sign-in': typeof SignInRoute
+  '/$': typeof AppSplatRoute
   '/chats': typeof AppChatsRouteWithChildren
   '/events': typeof AppEventsRoute
   '/modules': typeof AppModulesRouteWithChildren
@@ -90,6 +97,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/sign-in': typeof SignInRoute
+  '/$': typeof AppSplatRoute
   '/events': typeof AppEventsRoute
   '/status': typeof AppStatusRoute
   '/': typeof AppIndexRoute
@@ -102,6 +110,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_app': typeof AppRouteWithChildren
   '/sign-in': typeof SignInRoute
+  '/_app/$': typeof AppSplatRoute
   '/_app/chats': typeof AppChatsRouteWithChildren
   '/_app/events': typeof AppEventsRoute
   '/_app/modules': typeof AppModulesRouteWithChildren
@@ -117,6 +126,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/sign-in'
+    | '/$'
     | '/chats'
     | '/events'
     | '/modules'
@@ -128,6 +138,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/sign-in'
+    | '/$'
     | '/events'
     | '/status'
     | '/'
@@ -139,6 +150,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/_app'
     | '/sign-in'
+    | '/_app/$'
     | '/_app/chats'
     | '/_app/events'
     | '/_app/modules'
@@ -176,6 +188,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof AppIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/$': {
+      id: '/_app/$'
+      path: '/$'
+      fullPath: '/$'
+      preLoaderRoute: typeof AppSplatRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/chats': {
@@ -266,6 +285,7 @@ const AppModulesRouteWithChildren = AppModulesRoute._addFileChildren(
 )
 
 interface AppRouteChildren {
+  AppSplatRoute: typeof AppSplatRoute
   AppChatsRoute: typeof AppChatsRouteWithChildren
   AppEventsRoute: typeof AppEventsRoute
   AppModulesRoute: typeof AppModulesRouteWithChildren
@@ -274,6 +294,7 @@ interface AppRouteChildren {
 }
 
 const AppRouteChildren: AppRouteChildren = {
+  AppSplatRoute: AppSplatRoute,
   AppChatsRoute: AppChatsRouteWithChildren,
   AppEventsRoute: AppEventsRoute,
   AppModulesRoute: AppModulesRouteWithChildren,

@@ -1,18 +1,18 @@
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute, Link, Outlet, useMatch } from "@tanstack/react-router";
-import { Search } from "lucide-react";
 import { useMemo, useState } from "react";
+import { Ago } from "@/components/ago";
+import { SearchInput } from "@/components/search-input";
 import { Segmented } from "@/components/segmented";
 import { Tile } from "@/components/tile";
-import { Input } from "@/components/ui/input";
 import { chatName, preview } from "@/lib/chats";
 import { platformMeta } from "@/lib/meta";
-import { ago } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import { chatsQuery } from "@/queries/chats";
 
 export const Route = createFileRoute("/_app/chats")({
   loader: ({ context }) => context.queryClient.ensureQueryData(chatsQuery),
+  head: () => ({ meta: [{ title: "Chats · otogi" }] }),
   component: Chats,
 });
 
@@ -35,28 +35,25 @@ function Chats() {
   const open = useMatch({ from: "/_app/chats/$chat", shouldThrow: false });
   const current = open?.params.chat;
   return (
-    <div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[21rem_minmax(0,1fr)]">
-      <aside
-        className={cn("min-h-0 flex-col md:flex md:h-[calc(100svh-3.5rem)] md:border-r", open ? "hidden" : "flex")}
-      >
+    <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,1fr)] md:grid-cols-[21rem_minmax(0,1fr)]">
+      <aside className={cn("min-h-0 flex-col md:flex md:border-r", open ? "hidden" : "flex")}>
+        {!open && <h1 className="sr-only">Chats</h1>}
         <div className="flex flex-col gap-2.5 px-3 pt-4 pb-2">
-          <div className="relative">
-            <Search className="pointer-events-none absolute top-1/2 left-2.5 z-10 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              className="ps-7"
-              placeholder="Search chats or messages"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-          </div>
+          <SearchInput
+            aria-label="Search chats or messages"
+            placeholder="Search chats or messages"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
           <Segmented
+            label="Which chats"
             value={filter}
             onChange={setFilter}
             options={[
               { value: "all", label: "All" },
               { value: "telegram", label: "Telegram" },
               { value: "qq", label: "QQ" },
-              { value: "off", label: "Not enabled" },
+              { value: "off", label: "Modules off" },
             ]}
           />
         </div>
@@ -78,10 +75,8 @@ function Chats() {
                   <span className="min-w-0 flex-1">
                     <span className="flex items-baseline gap-2">
                       <span className="truncate font-semibold text-sm">{chatName(c)}</span>
-                      {fresh && <span className="font-semibold text-[10.5px] text-sky-600 tracking-wide">NEW</span>}
-                      <time className="ml-auto flex-none text-muted-foreground text-xs" dateTime={c.last_seen}>
-                        {ago(c.last_seen)}
-                      </time>
+                      {fresh && <span className="font-semibold text-info-foreground text-xs tracking-wide">NEW</span>}
+                      <Ago at={c.last_seen} className="ml-auto flex-none text-muted-foreground text-xs" />
                     </span>
                     <span className="block truncate text-[12.5px] text-muted-foreground">{preview(c) || " "}</span>
                   </span>

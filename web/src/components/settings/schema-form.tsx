@@ -1,6 +1,6 @@
-import type { AnyFieldApi, ReactFormExtendedApi } from "@tanstack/react-form";
-import { Check, ChevronRight, Plus, Trash2, X } from "lucide-react";
-import { type ReactNode, useState } from "react";
+import { type AnyFieldApi, getBy, type ReactFormExtendedApi } from "@tanstack/react-form";
+import { Check, ChevronRight, CircleAlert, Plus, Trash2, X } from "lucide-react";
+import { createContext, type ReactNode, useContext, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
@@ -8,15 +8,106 @@ import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "@/c
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import { blank, check, type JSONSchema, kindOf, label, properties, resolve } from "./schema";
+import {
+  blank,
+  entrySchema,
+  itemTitle,
+  type JSONSchema,
+  kindOf,
+  label,
+  type Problem,
+  properties,
+  resolve,
+} from "./schema";
 
 // biome-ignore lint/suspicious/noExplicitAny: settings are any module's, shaped by the schema at runtime
 export type SettingsForm = ReactFormExtendedApi<any, any, any, any, any, any, any, any, any, any, any, any>;
 
-type Props = { form: SettingsForm; root: JSONSchema };
+/** Settings is what the fields of one settings form share. */
+export type Settings = {
+  form: SettingsForm;
+  root: JSONSchema;
+  /** id starts the element ID of every control: see controlId. */
+  id: string;
+  /** saved is the settings the form started from. */
+  saved: unknown;
+  /** problems are the ones to show, each on the field or row at its path. */
+  problems: Problem[];
+} & ReturnType<typeof useReveal>;
+
+export const SettingsContext = createContext<Settings | null>(null);
+
+function useSettings(): Settings {
+  return useContext(SettingsContext) as Settings;
+}
+
+/** controlId is the element ID of the control at a path: a field's input,
+ * a list item's header, a list's Add button; the empty path is the summary. */
+export function controlId(id: string, path: string): string {
+  return `${id}-${path}`;
+}
+
+/** useReveal keeps which list items are open, and opens the ones around a
+ * path to move the focus to its control. */
+export function useReveal(id: string) {
+  const [open, setOpenPaths] = useState<ReadonlySet<string>>(new Set());
+  const [target, setTarget] = useState<{ path: string } | null>(null);
+  useEffect(() => {
+    if (!target) return;
+    // A path without a control of its own, such as a required object, is its nearest row's.
+    let path = target.path;
+    let control = document.getElementById(controlId(id, path));
+    while (!control && path) {
+      path = path.replace(/(^|\.)[^.[\]]+$|\[\d+\]$/, "");
+      control = document.getElementById(controlId(id, path));
+    }
+    control?.focus({ preventScroll: true });
+    control?.scrollIntoView({ block: "center" });
+  }, [target, id]);
+  return {
+    open,
+    setOpen: (path: string, on: boolean) =>
+      setOpenPaths((paths) => {
+        const next = new Set(paths);
+        if (on) next.add(path);
+        else next.delete(path);
+        return next;
+      }),
+    /** forget follows a removed list item: the items after it move up one. */
+    forget: (list: string, index: number) =>
+      setOpenPaths((paths) => {
+        const next = new Set<string>();
+        for (const path of paths) {
+          const at = path.startsWith(`${list}[`) ? Number.parseInt(path.slice(list.length + 1), 10) : -1;
+          if (at < index) next.add(path);
+          else if (at > index) next.add(`${list}[${at - 1}${path.slice(path.indexOf("]", list.length))}`);
+        }
+        return next;
+      }),
+    reveal: (path: string) => {
+      const around = [...path.matchAll(/\[\d+\]/g)].map((m) => path.slice(0, m.index + m[0].length));
+      setOpenPaths((paths) => new Set([...paths, ...around]));
+      setTarget({ path });
+    },
+  };
+}
+
+/** labelling names and describes a control by its row's title, description and error. */
+function labelling(id: string, row: { doc?: string; error?: string; required?: boolean }) {
+  return {
+    id,
+    "aria-labelledby": `${id}-label`,
+    "aria-describedby": [row.doc && `${id}-doc`, row.error && `${id}-error`].filter(Boolean).join(" ") || undefined,
+    "aria-invalid": row.error ? true : undefined,
+    "aria-required": row.required || undefined,
+  } as const;
+}
+
+type Labelling = ReturnType<typeof labelling>;
 
 /** SchemaFields renders an object's fields, in the order of the type. */
-export function SchemaFields({ form, root, schema, path }: Props & { schema: JSONSchema; path: string }) {
+export function SchemaFields({ schema, path }: { schema: JSONSchema; path: string }) {
+  const { root } = useSettings();
   const s = resolve(root, schema);
   const required = new Set(s.required ?? []);
   return (
@@ -24,30 +115,28 @@ export function SchemaFields({ form, root, schema, path }: Props & { schema: JSO
       {properties(s).map(([key, prop]) => (
         <SchemaField
           key={key}
-          form={form}
-          root={root}
           schema={prop}
           name={path ? `${path}.${key}` : key}
           title={label(key)}
           required={required.has(key)}
         />
       ))}
-      {properties(s).length === 0 && <p className="py-3 text-muted-foreground text-sm">This module has no settings.</p>}
     </div>
   );
 }
 
-function SchemaField({
-  form,
-  root,
-  schema,
-  name,
-  title,
-  required,
-}: Props & { schema: JSONSchema; name: string; title: string; required: boolean }) {
+type FieldProps = { schema: JSONSchema; name: string; title: string; doc?: string; required: boolean };
+
+function SchemaField({ schema, name, title, required }: FieldProps) {
+  const { form, root, id: prefix, problems } = useSettings();
   const s = resolve(root, schema);
   const kind = kindOf(s);
   const doc = schema.description ?? s.description;
+  const id = controlId(prefix, name);
+  const error = problems
+    .filter((p) => p.path === name)
+    .map((p) => p.message)
+    .join("; ");
   if (kind === "object") {
     return (
       <form.Field name={name}>
@@ -55,24 +144,27 @@ function SchemaField({
           const set = required || field.state.value !== undefined;
           return (
             <Row
-              title={
-                <span className="flex items-center justify-between gap-3">
-                  {title}
-                  {!required && (
-                    <Switch
-                      checked={set}
-                      onCheckedChange={(on) => field.handleChange(on ? {} : undefined)}
-                      aria-label={`Use ${title.toLowerCase()}`}
-                    />
-                  )}
-                </span>
-              }
+              id={id}
+              title={title}
+              required={required}
               doc={doc}
+              error={error}
               block
+              action={
+                !required && (
+                  <Switch
+                    {...labelling(id, { doc, error })}
+                    aria-labelledby={undefined}
+                    aria-label={`Use ${title.toLowerCase()}`}
+                    checked={set}
+                    onCheckedChange={(on) => field.handleChange(on ? {} : undefined)}
+                  />
+                )
+              }
             >
               {set && (
                 <div className="w-full border-l pl-4">
-                  <SchemaFields form={form} root={root} schema={s} path={name} />
+                  <SchemaFields schema={s} path={name} />
                 </div>
               )}
             </Row>
@@ -82,22 +174,31 @@ function SchemaField({
     );
   }
   if (kind === "array" && s.items && ["object", "map"].includes(kindOf(resolve(root, s.items)))) {
-    return <ObjectList form={form} root={root} schema={s} name={name} title={title} doc={doc} />;
+    return <ObjectList schema={s} name={name} title={title} doc={doc} required={required} />;
   }
   if (kind === "map") {
-    return <ObjectMap form={form} root={root} schema={s} name={name} title={title} doc={doc} />;
+    return <ObjectMap schema={s} name={name} title={title} doc={doc} required={required} />;
   }
+  // A switch is always one way or the other: nothing about it is required.
+  const row = { doc, error, required: required && kind !== "boolean" };
   return (
-    <form.Field name={name} validators={{ onChange: ({ value }: { value: unknown }) => check(s, value, required) }}>
+    <form.Field name={name}>
       {(field: AnyFieldApi) => (
         <Row
+          id={id}
           title={title}
-          doc={doc}
-          error={field.state.meta.errors.filter(Boolean).join("; ")}
+          {...row}
+          labels={!s.items?.enum}
           block={kind === "array" || s.format === "markdown"}
           inline={kind === "boolean"}
         >
-          <Control field={field} schema={s} />
+          <Control
+            schema={s}
+            value={field.state.value}
+            onChange={field.handleChange}
+            onBlur={field.handleBlur}
+            labelling={labelling(id, row)}
+          />
         </Row>
       )}
     </form.Field>
@@ -105,20 +206,39 @@ function SchemaField({
 }
 
 function Row({
+  id,
   title,
+  required,
   doc,
   error,
   block,
   inline,
+  labels,
+  action,
   children,
 }: {
-  title: ReactNode;
+  id: string;
+  title: string;
+  required?: boolean;
   doc?: string;
   error?: string;
   block?: boolean;
   inline?: boolean;
+  /** labels says the title is the label of the control: clicking it goes there. */
+  labels?: boolean;
+  action?: ReactNode;
   children: ReactNode;
 }) {
+  const text = (
+    <>
+      {title}
+      {required && (
+        <span className="text-destructive-foreground" title="Required" aria-hidden>
+          {" *"}
+        </span>
+      )}
+    </>
+  );
   return (
     <div
       className={cn(
@@ -128,63 +248,83 @@ function Row({
       )}
     >
       <div className="min-w-0">
-        <div className="font-medium text-sm">{title}</div>
-        {doc && <p className="mt-0.5 text-muted-foreground text-xs leading-relaxed">{doc}</p>}
+        <div className="flex items-center justify-between gap-3 font-medium text-sm">
+          {labels ? (
+            <label id={`${id}-label`} htmlFor={id}>
+              {text}
+            </label>
+          ) : (
+            <div id={`${id}-label`}>{text}</div>
+          )}
+          {action}
+        </div>
+        {doc && (
+          <p id={`${id}-doc`} className="mt-0.5 text-muted-foreground text-xs leading-relaxed">
+            {doc}
+          </p>
+        )}
       </div>
       <div className={cn("min-w-0", inline && "pt-0.5")}>
         {children}
-        {error && <p className="mt-1.5 text-destructive-foreground text-xs">{error}</p>}
+        {error && (
+          <p id={`${id}-error`} className="mt-1.5 text-destructive-foreground text-xs">
+            {error}
+          </p>
+        )}
       </div>
     </div>
   );
 }
 
-function Control({ field, schema }: { field: AnyFieldApi; schema: JSONSchema }) {
+function Control({
+  schema,
+  value,
+  onChange,
+  onBlur,
+  labelling: a,
+}: {
+  schema: JSONSchema;
+  value: unknown;
+  onChange: (value: unknown) => void;
+  onBlur?: () => void;
+  labelling: Labelling;
+}) {
   const kind = kindOf(schema);
-  const value = field.state.value;
   if (kind === "boolean") {
     // An unset switch shows the value the module gives it.
-    return (
-      <Switch
-        checked={Boolean(value === undefined ? schema.default : value)}
-        onCheckedChange={(v) => field.handleChange(v)}
-      />
-    );
-  }
-  if (kind === "integer" || kind === "number") {
-    return (
-      <Input
-        type="number"
-        inputMode={kind === "integer" ? "numeric" : "decimal"}
-        className="tabular"
-        value={value ?? ""}
-        min={schema.minimum}
-        max={schema.maximum}
-        step={kind === "integer" ? 1 : "any"}
-        placeholder={schema.default === undefined ? "Default" : `Default ${schema.default}`}
-        onChange={(e) => field.handleChange(e.target.value === "" ? undefined : Number(e.target.value))}
-        onBlur={field.handleBlur}
-      />
-    );
+    return <Switch {...a} checked={Boolean(value === undefined ? schema.default : value)} onCheckedChange={onChange} />;
   }
   if (kind === "array") {
-    const choices = (schema.items as { enum?: unknown[] } | undefined)?.enum;
-    const words = (value as string[] | undefined) ?? [];
-    if (choices) {
+    const item = schema.items ?? {};
+    if (item.enum) {
       // An unset list shows the choices the module makes for it.
-      const chosen = (value ?? schema.default ?? []) as string[];
-      return <Choices options={choices.map(String)} value={chosen} onChange={(v) => field.handleChange(v)} />;
+      const chosen = (value ?? schema.default ?? []) as unknown[];
+      return <Choices labelling={a} options={item.enum} value={chosen} onChange={onChange} />;
     }
-    return <Tags value={words} onChange={(v) => field.handleChange(v)} />;
+    return (
+      <Tags
+        labelling={a}
+        numeric={["integer", "number"].includes(kindOf(item))}
+        value={(value as unknown[] | undefined) ?? []}
+        // An optional list emptied is unset, not a list of nothing.
+        onChange={(v) => onChange(v.length || a["aria-required"] ? v : undefined)}
+      />
+    );
   }
   if (schema.enum) {
+    // A choice keeps its type: an integer's choices are saved as numbers.
+    const choices = schema.enum;
     const items = [
       { value: "", label: schema.default === undefined ? "Default" : `Default (${schema.default})` },
-      ...schema.enum.map((v) => ({ value: String(v), label: String(v) })),
+      ...choices.map((v) => ({ value: String(v), label: String(v) })),
     ];
     return (
-      <Select items={items} value={value ?? ""} onValueChange={(v) => field.handleChange(v || undefined)}>
-        <SelectTrigger>
+      <Select
+        items={items}
+        value={value === undefined ? "" : String(value)}
+        onValueChange={(v) => onChange(choices.find((c) => String(c) === v))}
+      >
+        <SelectTrigger {...a} onBlur={onBlur}>
           <SelectValue />
         </SelectTrigger>
         <SelectPopup>
@@ -197,25 +337,45 @@ function Control({ field, schema }: { field: AnyFieldApi; schema: JSONSchema }) 
       </Select>
     );
   }
+  if (kind === "integer" || kind === "number") {
+    return (
+      <Input
+        {...a}
+        type="number"
+        inputMode={kind === "integer" ? "numeric" : "decimal"}
+        className="tabular"
+        value={(value as number | undefined) ?? ""}
+        min={schema.minimum}
+        max={schema.maximum}
+        step={kind === "integer" ? 1 : "any"}
+        placeholder={schema.default !== undefined ? `Default ${schema.default}` : a["aria-required"] ? "" : "Default"}
+        onChange={(e) => onChange(e.target.value === "" ? undefined : Number(e.target.value))}
+        onBlur={onBlur}
+      />
+    );
+  }
+  const text = (value as string | undefined) ?? "";
   if (schema.format === "markdown") {
     return (
       <div>
         <Textarea
+          {...a}
           className="min-h-72 font-[450] text-[13.5px] leading-relaxed"
-          value={value ?? ""}
-          onChange={(e) => field.handleChange(e.target.value)}
-          onBlur={field.handleBlur}
+          value={text}
+          onChange={(e) => onChange(e.target.value)}
+          onBlur={onBlur}
           placeholder="Who the agent is, how it talks, what it knows. Markdown."
         />
-        <p className="mt-1 text-right text-muted-foreground text-xs tabular">{(value ?? "").length} characters</p>
+        <p className="mt-1 text-right text-muted-foreground text-xs tabular">{text.length} characters</p>
       </div>
     );
   }
   const mono = schema.format === "secret" || schema.format === "duration";
   return (
     <Input
+      {...a}
       className={cn(mono && "font-mono text-[13px]")}
-      value={value ?? ""}
+      value={text}
       placeholder={
         schema.format === "secret"
           ? // biome-ignore lint/suspicious/noTemplateCurlyInString: the placeholder shows a ${NAME} reference
@@ -227,29 +387,39 @@ function Control({ field, schema }: { field: AnyFieldApi; schema: JSONSchema }) 
               : ""
       }
       spellCheck={!mono}
-      onChange={(e) => field.handleChange(e.target.value)}
-      onBlur={field.handleBlur}
+      onChange={(e) => onChange(e.target.value)}
+      onBlur={onBlur}
     />
   );
 }
 
-/** Choices picks any of a few fixed words, each a chip that toggles. */
+/** Choices picks any of a few fixed values, each a chip that toggles. */
 function Choices({
+  labelling: a,
   options,
   value,
   onChange,
 }: {
-  options: string[];
-  value: string[];
-  onChange: (v: string[]) => void;
+  labelling: Labelling;
+  options: unknown[];
+  value: unknown[];
+  onChange: (v: unknown[]) => void;
 }) {
   return (
-    <div className="flex flex-wrap gap-1.5">
+    // biome-ignore lint/a11y/useSemanticElements: a fieldset would need the row's title inside it as its legend
+    <div
+      role="group"
+      id={a.id}
+      tabIndex={-1}
+      aria-labelledby={a["aria-labelledby"]}
+      aria-describedby={a["aria-describedby"]}
+      className="flex flex-wrap gap-1.5 outline-none"
+    >
       {options.map((o) => {
         const on = value.includes(o);
         return (
           <button
-            key={o}
+            key={String(o)}
             type="button"
             aria-pressed={on}
             onClick={() =>
@@ -263,7 +433,7 @@ function Choices({
             )}
           >
             {on && <Check className="size-3" />}
-            {o}
+            {String(o)}
           </button>
         );
       })}
@@ -271,25 +441,44 @@ function Choices({
   );
 }
 
-/** Tags edits a list of words: Enter or comma adds one. */
-function Tags({ value, onChange }: { value: string[]; onChange: (v: string[]) => void }) {
+/** Tags edits a list of words or numbers: Enter or comma adds one. */
+function Tags({
+  labelling: a,
+  numeric,
+  value,
+  onChange,
+}: {
+  labelling: Labelling;
+  numeric: boolean;
+  value: unknown[];
+  onChange: (v: unknown[]) => void;
+}) {
   const [draft, setDraft] = useState("");
   const add = () => {
-    const word = draft.trim().replace(/,$/, "");
-    if (word && !value.includes(word)) onChange([...value, word]);
+    const text = draft.trim();
+    const word = numeric && text ? Number(text) : text;
+    // What is not a number stays in the box to be corrected.
+    if (Number.isNaN(word)) return;
+    if (text && !value.includes(word)) onChange([...value, word]);
     setDraft("");
   };
   return (
-    <div className="flex min-h-9 w-full flex-wrap items-center gap-1.5 rounded-lg border border-input bg-background px-1.5 py-1 shadow-xs/5 focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/24 sm:min-h-8">
+    <div
+      className={cn(
+        "flex min-h-9 w-full flex-wrap items-center gap-1.5 rounded-lg border border-input bg-background px-1.5 py-1 shadow-xs/5 focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/24 sm:min-h-8",
+        a["aria-invalid"] &&
+          "border-destructive/36 focus-within:border-destructive/64 focus-within:ring-destructive/16",
+      )}
+    >
       {value.map((word) => (
         <span
-          key={word}
+          key={String(word)}
           className="inline-flex items-center gap-1 rounded-md border bg-linear-to-b from-white to-neutral-50 py-0.5 ps-2 pe-1 font-mono text-xs shadow-[0_1px_--theme(--color-black/4%)]"
         >
-          {word}
+          {String(word)}
           <button
             type="button"
-            className="rounded text-muted-foreground hover:text-foreground"
+            className="rounded text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
             aria-label={`Remove ${word}`}
             onClick={() => onChange(value.filter((w) => w !== word))}
           >
@@ -298,10 +487,12 @@ function Tags({ value, onChange }: { value: string[]; onChange: (v: string[]) =>
         </span>
       ))}
       <input
+        {...a}
         className="min-w-24 flex-1 bg-transparent px-1 text-sm outline-none placeholder:text-muted-foreground/72"
+        inputMode={numeric ? "decimal" : undefined}
         value={draft}
         placeholder={value.length ? "" : "Type, then Enter"}
-        onChange={(e) => (e.target.value.endsWith(",") ? setDraft(e.target.value) : setDraft(e.target.value))}
+        onChange={(e) => setDraft(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === ",") {
             e.preventDefault();
@@ -316,53 +507,95 @@ function Tags({ value, onChange }: { value: string[]; onChange: (v: string[]) =>
   );
 }
 
+/** RowProblems says how many problems the fields inside a row have. */
+function RowProblems({ count }: { count: number }) {
+  return (
+    <span className="flex flex-none items-center gap-1 font-normal text-destructive-foreground text-xs">
+      <CircleAlert className="size-3.5" />
+      {count} {count === 1 ? "problem" : "problems"}
+    </span>
+  );
+}
+
 /** ObjectList edits a list of objects, such as chat agent profiles. */
-function ObjectList({
-  form,
-  root,
-  schema,
-  name,
-  title,
-  doc,
-}: Props & { schema: JSONSchema; name: string; title: string; doc?: string }) {
+function ObjectList({ schema, name, title, doc, required }: FieldProps) {
+  const { form, root, id: prefix, saved, problems, open, setOpen, forget, reveal } = useSettings();
   const item = resolve(root, schema.items ?? {});
+  const id = controlId(prefix, name);
+  const noun = title.replace(/s$/, "");
+  const error = problems.find((p) => p.path === name)?.message;
+  const savedCount = ((getBy(saved, name) as unknown[] | undefined) ?? []).length;
   return (
     <form.Field name={name} mode="array">
       {(field: AnyFieldApi) => {
-        const items = (field.state.value as Record<string, unknown>[] | undefined) ?? [];
+        const items = (field.state.value as unknown[] | undefined) ?? [];
         return (
-          <Row title={title} doc={doc} block>
+          <Row id={id} title={title} required={required} doc={doc} error={error} block>
             <div className="flex flex-col gap-2">
-              {items.map((value, i) => (
-                <Collapsible
-                  // biome-ignore lint/suspicious/noArrayIndexKey: items have no identity until named
-                  key={i}
-                  defaultOpen={!value?.name}
-                  className="rounded-xl border"
-                >
-                  <div className="flex items-center gap-2 px-2 py-1.5">
-                    <CollapsibleTrigger className="group flex flex-1 items-center gap-1.5 rounded-md px-1.5 py-1 text-left font-medium text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                      <ChevronRight className="size-4 text-muted-foreground transition-transform group-data-panel-open:rotate-90" />
-                      {String(value?.name || value?.label || `New ${title.toLowerCase().replace(/s$/, "")}`)}
-                    </CollapsibleTrigger>
-                    <Button variant="ghost" size="icon-sm" aria-label="Remove" onClick={() => field.removeValue(i)}>
-                      <Trash2 />
-                    </Button>
-                  </div>
-                  <CollapsiblePanel>
-                    <div className="border-t px-3.5">
-                      <SchemaFields form={form} root={root} schema={item} path={`${name}[${i}]`} />
+              {items.map((value, i) => {
+                const path = `${name}[${i}]`;
+                const itemId = controlId(prefix, path);
+                // A saved item with nothing to call it by is its place in the list.
+                const heading =
+                  itemTitle(item, value) ?? (i < savedCount ? `${noun} ${i + 1}` : `New ${noun.toLowerCase()}`);
+                const own = problems.find((p) => p.path === path)?.message;
+                const inside = problems.filter((p) => p.path.startsWith(`${path}.`) || p.path.startsWith(`${path}[`));
+                const isOpen = open.has(path);
+                return (
+                  <Collapsible
+                    // biome-ignore lint/suspicious/noArrayIndexKey: items have no identity until named
+                    key={i}
+                    open={isOpen}
+                    onOpenChange={(on) => setOpen(path, on)}
+                    className={cn("rounded-xl border", (own || inside.length > 0) && "border-destructive/36")}
+                  >
+                    <div className="flex items-center gap-2 px-2 py-1.5">
+                      <CollapsibleTrigger
+                        id={itemId}
+                        aria-describedby={own ? `${itemId}-error` : undefined}
+                        className="group flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-1.5 py-1 text-left font-medium text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      >
+                        <ChevronRight className="size-4 flex-none text-muted-foreground transition-transform group-data-panel-open:rotate-90" />
+                        <span className="min-w-0 flex-1 truncate">{heading}</span>
+                        {!isOpen && inside.length > 0 && <RowProblems count={inside.length} />}
+                      </CollapsibleTrigger>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label={`Remove ${heading}`}
+                        onClick={() => {
+                          field.removeValue(i);
+                          forget(name, i);
+                        }}
+                      >
+                        <Trash2 />
+                      </Button>
                     </div>
-                  </CollapsiblePanel>
-                </Collapsible>
-              ))}
+                    {own && (
+                      <p id={`${itemId}-error`} className="px-3.5 pb-2.5 text-destructive-foreground text-xs">
+                        {own}
+                      </p>
+                    )}
+                    <CollapsiblePanel>
+                      <div className="border-t px-3.5">
+                        <SchemaFields schema={item} path={path} />
+                      </div>
+                    </CollapsiblePanel>
+                  </Collapsible>
+                );
+              })}
               <Button
+                id={id}
+                aria-describedby={error ? `${id}-error` : undefined}
                 variant="outline"
                 size="sm"
                 className="self-start"
-                onClick={() => field.pushValue(blank(root, item))}
+                onClick={() => {
+                  field.pushValue(blank(root, item));
+                  reveal(`${name}[${items.length}]`);
+                }}
               >
-                <Plus /> Add
+                <Plus /> Add {noun.toLowerCase()}
               </Button>
             </div>
           </Row>
@@ -372,63 +605,94 @@ function ObjectList({
   );
 }
 
-/** ObjectMap edits named objects, such as todou's agents. */
-function ObjectMap({
-  form,
-  root,
-  schema,
-  name,
-  title,
-  doc,
-}: Props & { schema: JSONSchema; name: string; title: string; doc?: string }) {
+/** ObjectMap edits named values: objects, such as todou's agents, each
+ * with its fields, or plain values, each a row of name and value. */
+function ObjectMap({ schema, name, title, doc, required }: FieldProps) {
+  const { form, root, id: prefix, problems } = useSettings();
   const [key, setKey] = useState("");
-  const item = typeof schema.additionalProperties === "object" ? resolve(root, schema.additionalProperties) : {};
+  const item = resolve(root, entrySchema(schema));
+  const id = controlId(prefix, name);
+  const noun = title.replace(/s$/, "").toLowerCase();
+  const error = problems.find((p) => p.path === name)?.message;
   return (
     <form.Field name={name}>
       {(field: AnyFieldApi) => {
-        const entries = Object.keys((field.state.value as Record<string, unknown> | undefined) ?? {});
+        const map = (field.state.value as Record<string, unknown> | undefined) ?? {};
+        const remove = (k: string) => {
+          const { [k]: _, ...rest } = map;
+          field.handleChange(rest);
+        };
+        const add = () => {
+          field.handleChange({ ...map, [key]: blank(root, item) });
+          setKey("");
+        };
         return (
-          <Row title={title} doc={doc} block>
+          <Row id={id} title={title} required={required} doc={doc} error={error} block>
             <div className="flex flex-col gap-2">
-              {entries.map((k) => (
-                <div key={k} className="rounded-xl border">
-                  <div className="flex items-center gap-2 px-3.5 pt-2.5">
-                    <span className="font-medium font-mono text-sm">{k}</span>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      className="ml-auto"
-                      aria-label={`Remove ${k}`}
-                      onClick={() => {
-                        const { [k]: _, ...rest } = field.state.value as Record<string, unknown>;
-                        field.handleChange(rest);
-                      }}
-                    >
-                      <Trash2 />
-                    </Button>
+              {Object.keys(map).map((k) => {
+                const path = `${name}.${k}`;
+                const entryId = controlId(prefix, path);
+                const own = problems.find((p) => p.path === path)?.message;
+                const removeButton = (
+                  <Button variant="ghost" size="icon-sm" aria-label={`Remove ${k}`} onClick={() => remove(k)}>
+                    <Trash2 />
+                  </Button>
+                );
+                if (kindOf(item) !== "object") {
+                  return (
+                    <div key={k}>
+                      <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_auto] items-center gap-2">
+                        <span id={`${entryId}-label`} className="truncate font-medium font-mono text-[13px]">
+                          {k}
+                        </span>
+                        <Control
+                          schema={item}
+                          value={map[k]}
+                          onChange={(v) => field.handleChange({ ...map, [k]: v })}
+                          onBlur={field.handleBlur}
+                          labelling={labelling(entryId, { error: own, required: kindOf(item) !== "string" })}
+                        />
+                        {removeButton}
+                      </div>
+                      {own && (
+                        <p id={`${entryId}-error`} className="mt-1.5 text-destructive-foreground text-xs">
+                          {own}
+                        </p>
+                      )}
+                    </div>
+                  );
+                }
+                return (
+                  <div key={k} className={cn("rounded-xl border", own && "border-destructive/36")}>
+                    <div className="flex items-center gap-2 px-3.5 pt-2.5">
+                      <span className="font-medium font-mono text-sm">{k}</span>
+                      <span className="ml-auto">{removeButton}</span>
+                    </div>
+                    {own && <p className="px-3.5 pt-1 text-destructive-foreground text-xs">{own}</p>}
+                    <div className="mt-1.5 border-t px-3.5">
+                      <SchemaFields schema={item} path={path} />
+                    </div>
                   </div>
-                  <div className="mt-1.5 border-t px-3.5">
-                    <SchemaFields form={form} root={root} schema={item} path={`${name}.${k}`} />
-                  </div>
-                </div>
-              ))}
+                );
+              })}
               <div className="flex gap-2">
                 <Input
+                  id={id}
+                  aria-label={`Name of a new ${noun}`}
+                  aria-describedby={error ? `${id}-error` : undefined}
                   className="max-w-48 font-mono text-[13px]"
                   placeholder="name"
                   value={key}
                   onChange={(e) => setKey(e.target.value.trim())}
-                />
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={!key || entries.includes(key)}
-                  onClick={() => {
-                    field.handleChange({ ...(field.state.value ?? {}), [key]: blank(root, item) });
-                    setKey("");
+                  onKeyDown={(e) => {
+                    if (e.key !== "Enter") return;
+                    // Enter adds the entry; it does not save the form.
+                    e.preventDefault();
+                    if (key && !(key in map)) add();
                   }}
-                >
-                  <Plus /> Add
+                />
+                <Button variant="outline" size="sm" disabled={!key || key in map} onClick={add}>
+                  <Plus /> Add {noun}
                 </Button>
               </div>
             </div>

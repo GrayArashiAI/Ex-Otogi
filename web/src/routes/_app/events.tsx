@@ -2,10 +2,13 @@ import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { format } from "date-fns";
-import { Radio, Search, X } from "lucide-react";
+import { Radio, X } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { z } from "zod";
 import type { Schemas } from "@/api/client";
+import { ChatFilter } from "@/components/chat-filter";
+import { LoadError } from "@/components/load-error";
+import { SearchInput } from "@/components/search-input";
 import { Segmented } from "@/components/segmented";
 import { outcomeTone, StatusDot } from "@/components/status-dot";
 import { Button } from "@/components/ui/button";
@@ -15,7 +18,15 @@ import { Sheet, SheetDescription, SheetHeader, SheetPanel, SheetPopup, SheetTitl
 import { Switch } from "@/components/ui/switch";
 import { took, useNow } from "@/lib/time";
 import { cn } from "@/lib/utils";
-import { type EventFilter, eventsQuery, newerQuery, type TaskFilter, tasksQuery, traceQuery } from "@/queries/events";
+import {
+  type EventFilter,
+  eventsQuery,
+  newerQuery,
+  recordQuery,
+  type TaskFilter,
+  tasksQuery,
+  traceQuery,
+} from "@/queries/events";
 import { useChatNames } from "@/queries/names";
 
 const search = z.object({
@@ -31,6 +42,7 @@ const search = z.object({
 
 export const Route = createFileRoute("/_app/events")({
   validateSearch: search,
+  head: () => ({ meta: [{ title: "Event log · otogi" }] }),
   component: EventLog,
 });
 
@@ -50,9 +62,11 @@ function EventLog() {
   const set = (patch: Partial<z.infer<typeof search>>) =>
     void navigate({ search: (s) => ({ ...s, ...patch, record: undefined, event: undefined }), replace: true });
   return (
-    <main className="flex min-h-0 flex-1 flex-col md:h-[calc(100svh-3.5rem)]">
-      <div className="grid grid-cols-2 items-center gap-2 border-b px-4 py-3 sm:flex sm:px-6">
+    <div className="flex min-h-0 flex-1 flex-col">
+      <h1 className="sr-only">Event log</h1>
+      <div className="grid flex-none grid-cols-2 items-center gap-2 border-b px-4 py-3 sm:flex sm:flex-wrap sm:px-6">
         <Segmented
+          label="View"
           className="col-span-2 sm:w-44"
           value={view}
           onChange={(v) => set({ view: v, kind: undefined, component: undefined, outcome: undefined })}
@@ -61,39 +75,35 @@ function EventLog() {
             { value: "records", label: "Records" },
           ]}
         />
-        <div className="relative col-span-2 min-w-48 flex-1">
-          <Search className="pointer-events-none absolute top-1/2 left-2.5 z-10 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            key={view}
-            className="ps-7"
-            placeholder="Text in the payload"
-            defaultValue={filter.q}
-            onKeyDown={(e) => e.key === "Enter" && set({ q: e.currentTarget.value || undefined })}
-          />
-        </div>
+        <TextFilter
+          className="col-span-2 sm:min-w-48 sm:flex-1"
+          label="Text in the payload"
+          value={filter.q}
+          onChange={(q) => set({ q })}
+          search
+        />
         {view === "records" && (
           <>
-            <FilterInput label="Kind" value={filter.kind} onChange={(kind) => set({ kind })} placeholder="Kind" />
-            <FilterInput
+            <TextFilter className="sm:w-36" label="Kind" value={filter.kind} onChange={(kind) => set({ kind })} />
+            <TextFilter
+              className="sm:w-36"
               label="Component"
               value={filter.component}
               onChange={(component) => set({ component })}
-              placeholder="Component"
             />
           </>
         )}
-        <FilterInput
-          label="Chat"
+        <ChatFilter
+          className="sm:w-44"
           value={filter.conversation}
           onChange={(conversation) => set({ conversation })}
-          placeholder="Chat"
         />
         <Select
           items={outcomes[view].map((v) => ({ value: v, label: v || "Any outcome" }))}
           value={filter.outcome ?? ""}
           onValueChange={(v) => set({ outcome: v || undefined })}
         >
-          <SelectTrigger className="w-full sm:w-36">
+          <SelectTrigger className="w-full sm:w-36" aria-label="Outcome">
             <SelectValue />
           </SelectTrigger>
           <SelectPopup>
@@ -105,7 +115,7 @@ function EventLog() {
           </SelectPopup>
         </Select>
         <span className="col-span-2 flex items-center justify-end gap-2 text-sm sm:ml-auto">
-          <Radio className={cn("size-4", live ? "text-emerald-600" : "text-muted-foreground")} />
+          <Radio className={cn("size-4", live ? "text-success" : "text-muted-foreground")} />
           Live
           <Switch checked={live} onCheckedChange={setLive} aria-label="Show new records as they arrive" />
         </span>
@@ -124,7 +134,7 @@ function EventLog() {
         <RecordList filter={filter} live={live} selected={record} />
       )}
       <TaskSheet event={event} />
-    </main>
+    </div>
   );
 }
 
@@ -134,6 +144,9 @@ function Rows<T>({
   itemKey,
   header,
   pending,
+  error,
+  retry,
+  what,
   empty,
   more,
   render,
@@ -142,6 +155,10 @@ function Rows<T>({
   itemKey: (item: T) => string | number;
   header: ReactNode;
   pending: boolean;
+  /** error is why the list, or its next page, failed to load. */
+  error: Error | null;
+  retry: () => void;
+  what: string;
   empty: string;
   more: { has: boolean; fetching: boolean; fetch: () => void };
   render: (item: T) => ReactNode;
@@ -162,11 +179,17 @@ function Rows<T>({
         className="min-h-0 flex-1 overflow-y-auto"
         onScroll={(e) => {
           const el = e.currentTarget;
-          if (el.scrollHeight - el.scrollTop - el.clientHeight < 400 && more.has && !more.fetching) more.fetch();
+          const near = el.scrollHeight - el.scrollTop - el.clientHeight < 400;
+          if (near && more.has && !more.fetching && !error) more.fetch();
         }}
       >
         {pending && <p className="py-16 text-center text-muted-foreground text-sm">Loading…</p>}
-        {!pending && items.length === 0 && <p className="py-16 text-center text-muted-foreground text-sm">{empty}</p>}
+        {error && items.length === 0 && (
+          <LoadError className="mx-auto max-w-lg px-4 py-12" what={what} error={error} retry={retry} />
+        )}
+        {!pending && !error && items.length === 0 && (
+          <p className="py-16 text-center text-muted-foreground text-sm">{empty}</p>
+        )}
         <div className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
           {virtualizer.getVirtualItems().map((row) => (
             <div
@@ -181,6 +204,9 @@ function Rows<T>({
           ))}
         </div>
         {more.fetching && <p className="py-4 text-center text-muted-foreground text-xs">Loading older…</p>}
+        {error && items.length > 0 && (
+          <LoadError className="mx-auto max-w-lg px-4" what={`older ${what}`} error={error} retry={more.fetch} />
+        )}
       </div>
     </>
   );
@@ -222,6 +248,9 @@ function TaskList({ filter, live, selected }: { filter: TaskFilter; live: boolea
       items={tasks}
       itemKey={(t: Task) => t.event}
       pending={list.isPending}
+      error={list.error}
+      retry={() => void list.refetch()}
+      what="tasks"
       empty="No tasks match. A task is an event a module did something about."
       more={{ has: list.hasNextPage, fetching: list.isFetchingNextPage, fetch: () => void list.fetchNextPage() }}
       header={
@@ -242,9 +271,9 @@ function TaskList({ filter, live, selected }: { filter: TaskFilter; live: boolea
             search={(s) => ({ ...s, event: t.event })}
             className={cn(rowClass, taskColumns, selected === t.event && "bg-accent")}
           >
-            <StatusDot tone={outcomeTone(t.outcome)} />
-            <time className="order-3 font-mono text-[11.5px] text-muted-foreground sm:order-none" dateTime={t.started}>
-              {running && <span className="font-medium text-sky-700 sm:hidden">{elapsed}</span>}
+            <StatusDot tone={outcomeTone(t.outcome)} label={t.outcome} />
+            <time className="order-3 font-mono text-muted-foreground text-xs sm:order-none" dateTime={t.started}>
+              {running && <span className="font-medium text-info-foreground sm:hidden">{elapsed}</span>}
               <span className={cn(running && "hidden sm:inline")}>{format(new Date(t.started), "MMM d HH:mm:ss")}</span>
             </time>
             <span className="truncate">
@@ -260,7 +289,7 @@ function TaskList({ filter, live, selected }: { filter: TaskFilter; live: boolea
             <span
               className={cn(
                 "hidden text-right text-xs tabular sm:block",
-                running ? "font-medium text-sky-700" : "text-muted-foreground",
+                running ? "font-medium text-info-foreground" : "text-muted-foreground",
               )}
             >
               {elapsed}
@@ -292,6 +321,9 @@ function RecordList({ filter, live, selected }: { filter: EventFilter; live: boo
         items={records}
         itemKey={(r: Entry) => r.id}
         pending={list.isPending}
+        error={list.error}
+        retry={() => void list.refetch()}
+        what="records"
         empty="No records match."
         more={{ has: list.hasNextPage, fetching: list.isFetchingNextPage, fetch: () => void list.fetchNextPage() }}
         header={
@@ -315,8 +347,8 @@ function RecordList({ filter, live, selected }: { filter: EventFilter; live: boo
               fresh.some((f) => f.id === r.id) && "animate-in fade-in",
             )}
           >
-            <StatusDot tone={outcomeTone(r.outcome)} />
-            <time className="order-3 font-mono text-[11.5px] text-muted-foreground sm:order-none" dateTime={r.at}>
+            <StatusDot tone={outcomeTone(r.outcome)} label={r.outcome ?? "no outcome"} />
+            <time className="order-3 font-mono text-xs text-muted-foreground sm:order-none" dateTime={r.at}>
               {format(new Date(r.at), "MMM d HH:mm:ss")}
             </time>
             <span className="truncate font-mono text-xs">{r.kind}</span>
@@ -330,57 +362,73 @@ function RecordList({ filter, live, selected }: { filter: EventFilter; live: boo
           </Link>
         )}
       />
-      <RecordSheet record={records.find((r) => r.id === selected)} open={selected !== undefined} />
+      <RecordSheet id={selected} loaded={records.find((r) => r.id === selected)} />
     </>
   );
 }
 
-function FilterInput({
+/** TextFilter is a filter one types: it applies a moment after the typing
+ * stops, and its button clears it. */
+function TextFilter({
   label,
   value,
   onChange,
-  placeholder,
+  search,
+  className,
 }: {
   label: string;
   value?: string;
   onChange: (v: string | undefined) => void;
-  placeholder: string;
+  search?: boolean;
+  className?: string;
 }) {
-  if (value) {
-    return (
-      <button
-        type="button"
-        onClick={() => onChange(undefined)}
-        className="inline-flex h-8 items-center gap-1.5 rounded-lg border bg-accent px-2.5 text-xs"
-        aria-label={`Clear ${label.toLowerCase()} filter`}
-      >
-        <span className="text-muted-foreground">{label}</span>
-        <span className="font-mono">{value}</span>
-        <X className="size-3.5 text-muted-foreground" />
-      </button>
-    );
-  }
+  const [text, setText] = useState(value ?? "");
+  // A filter set from elsewhere, such as a link, shows here.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: only when the applied value changes
+  useEffect(() => {
+    if ((value ?? "") !== text.trim()) setText(value ?? "");
+  }, [value]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: only typing starts the wait
+  useEffect(() => {
+    const next = text.trim() || undefined;
+    if (next === value) return;
+    const timer = setTimeout(() => onChange(next), 300);
+    return () => clearTimeout(timer);
+  }, [text]);
+  const input = { "aria-label": label, placeholder: label, value: text };
+  const typed = (e: { target: { value: string } }) => setText(e.target.value);
   return (
-    <Input
-      className="w-full text-xs sm:w-36"
-      placeholder={placeholder}
-      aria-label={label}
-      onKeyDown={(e) => e.key === "Enter" && e.currentTarget.value && onChange(e.currentTarget.value.trim())}
-    />
+    <div className={cn("relative", className)}>
+      {search ? <SearchInput {...input} onChange={typed} /> : <Input className="text-xs" {...input} onChange={typed} />}
+      {text && (
+        <button
+          type="button"
+          onClick={() => setText("")}
+          aria-label={`Clear ${label.toLowerCase()}`}
+          className="hit-target absolute top-1/2 right-1 z-10 grid size-6 -translate-y-1/2 place-items-center rounded-md bg-background text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <X className="size-3.5" />
+        </button>
+      )}
+    </div>
   );
 }
 
-function RecordSheet({ record, open }: { record?: Entry; open: boolean }) {
+/** RecordSheet shows one record. One that is not among the rows loaded,
+ * as when a link names it, is fetched by its ID. */
+function RecordSheet({ id, loaded }: { id?: number; loaded?: Entry }) {
   const navigate = useNavigate({ from: Route.fullPath });
   const close = () => void navigate({ search: (s) => ({ ...s, record: undefined }), replace: true });
+  const fetched = useQuery({ ...recordQuery(id ?? 0), enabled: id !== undefined && !loaded });
+  const record = loaded ?? fetched.data ?? undefined;
   const trace = useQuery({ ...traceQuery(record?.event ?? ""), enabled: Boolean(record?.event) });
   return (
-    <Sheet open={open} onOpenChange={(o) => !o && close()}>
+    <Sheet open={id !== undefined} onOpenChange={(o) => !o && close()}>
       <SheetPopup className="sm:max-w-2xl">
         {record ? (
           <>
             <SheetHeader>
-              <SheetTitle className="flex items-center gap-2 font-mono text-base">
+              <SheetTitle className="flex items-center gap-2.5 font-mono text-base">
                 <StatusDot tone={outcomeTone(record.outcome)} />
                 {record.kind}
               </SheetTitle>
@@ -406,12 +454,15 @@ function RecordSheet({ record, open }: { record?: Entry; open: boolean }) {
                 )}
                 {record.platform && <ChatFact entry={record} />}
               </dl>
+              {trace.error && (
+                <LoadError what="this record's trace" error={trace.error} retry={() => void trace.refetch()} />
+              )}
               {trace.data && trace.data.records.length > 0 && (
                 <Trace
                   records={trace.data.records}
                   running={trace.data.running}
                   selected={record.id}
-                  onSelect={(id) => void navigate({ search: (s) => ({ ...s, record: id }) })}
+                  onSelect={(next) => void navigate({ search: (s) => ({ ...s, record: next }) })}
                 />
               )}
               <section>
@@ -421,11 +472,22 @@ function RecordSheet({ record, open }: { record?: Entry; open: boolean }) {
             </SheetPanel>
           </>
         ) : (
-          <SheetPanel>
-            <p className="text-muted-foreground text-sm">
-              This record is not among those loaded; it may be gone with the retention.
-            </p>
-          </SheetPanel>
+          <>
+            <SheetHeader>
+              <SheetTitle className="text-base">Record {id}</SheetTitle>
+            </SheetHeader>
+            <SheetPanel>
+              {fetched.error ? (
+                <LoadError what={`record ${id}`} error={fetched.error} retry={() => void fetched.refetch()} />
+              ) : (
+                <p className="text-muted-foreground text-sm">
+                  {fetched.data === null
+                    ? "The event log has no record with this ID. Records older than the retention are deleted."
+                    : "Loading…"}
+                </p>
+              )}
+            </SheetPanel>
+          </>
         )}
       </SheetPopup>
     </Sheet>
@@ -437,9 +499,13 @@ function RecordSheet({ record, open }: { record?: Entry; open: boolean }) {
 function TaskSheet({ event }: { event?: string }) {
   const navigate = useNavigate({ from: Route.fullPath });
   const close = () => void navigate({ search: (s) => ({ ...s, event: undefined }), replace: true });
-  const { data, isPending } = useQuery({ ...traceQuery(event ?? ""), enabled: Boolean(event) });
-  const [opened, setOpened] = useState<number>();
+  const { data, error, refetch } = useQuery({ ...traceQuery(event ?? ""), enabled: Boolean(event) });
+  // What the reader opened in this event's trace; until then, the record
+  // that failed is open.
+  const [opened, setOpened] = useState<{ event?: string; id?: number }>();
   const records = data?.records ?? [];
+  const failure = records.find((r) => r.outcome === "error");
+  const shown = opened?.event === event ? opened?.id : failure?.id;
   const running = data?.running ?? [];
   const now = useNow(running.length > 0);
   const chatName = useChatNames();
@@ -462,7 +528,7 @@ function TaskSheet({ event }: { event?: string }) {
         {first ? (
           <>
             <SheetHeader>
-              <SheetTitle className="flex items-center gap-2 text-base">
+              <SheetTitle className="flex items-center gap-2.5 text-base">
                 <StatusDot tone={outcomeTone(outcome)} />
                 <span className="font-mono">{names.join(" · ") || "Nothing done"}</span>
               </SheetTitle>
@@ -475,13 +541,21 @@ function TaskSheet({ event }: { event?: string }) {
               <dl className="surface-inset grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1.5 rounded-xl px-3.5 py-3 text-[13px]">
                 <Fact label="State">
                   {running.length ? (
-                    <span className="text-sky-700">
+                    <span className="text-info-foreground">
                       Running for {took(now - started)}, last record {took(now - ended)} ago
                     </span>
                   ) : (
                     `${outcome}, took ${took(ended - started)}`
                   )}
                 </Fact>
+                {failure && (
+                  <Fact label="Failed" wrap>
+                    <span className="text-destructive-foreground">
+                      {failure.kind}
+                      {errorText(failure) && `: ${errorText(failure)}`}
+                    </span>
+                  </Fact>
+                )}
                 <Fact label="Event">{first.event}</Fact>
                 <Fact label="Records">{records.length}</Fact>
                 {first.platform && <ChatFact entry={first} />}
@@ -500,18 +574,29 @@ function TaskSheet({ event }: { event?: string }) {
               <Trace
                 records={records}
                 running={running}
-                selected={opened}
-                onSelect={(id) => setOpened(opened === id ? undefined : id)}
+                selected={shown}
+                onSelect={(id) => setOpened({ event, id: shown === id ? undefined : id })}
                 expand
               />
             </SheetPanel>
           </>
         ) : (
-          <SheetPanel>
-            <p className="text-muted-foreground text-sm">
-              {isPending ? "Loading…" : "This event has no records; they may be gone with the retention."}
-            </p>
-          </SheetPanel>
+          <>
+            <SheetHeader>
+              <SheetTitle className="text-base">Task</SheetTitle>
+            </SheetHeader>
+            <SheetPanel>
+              {error ? (
+                <LoadError what="this task" error={error} retry={() => void refetch()} />
+              ) : (
+                <p className="text-muted-foreground text-sm">
+                  {data
+                    ? "The event log has no records of this event. Records older than the retention are deleted."
+                    : "Loading…"}
+                </p>
+              )}
+            </SheetPanel>
+          </>
         )}
       </SheetPopup>
     </Sheet>
@@ -535,6 +620,10 @@ function plainText(message: NonNullable<ReceivedEvent["message"]>): string {
  * event's receipt and the plain finish of a delivery. */
 function isWork(r: Entry): boolean {
   return !(r.kind === "event.received" || (r.kind === "module.completed" && r.outcome === "ok"));
+}
+
+function errorText(r: Entry): string {
+  return (r.payload as { error?: string } | null)?.error ?? "";
 }
 
 function worstOutcome(records: Entry[]): string {
@@ -561,11 +650,11 @@ function ChatFact({ entry }: { entry: Entry }) {
   );
 }
 
-function Fact({ label, children }: { label: string; children: ReactNode }) {
+function Fact({ label, wrap, children }: { label: string; wrap?: boolean; children: ReactNode }) {
   return (
     <>
       <dt className="text-muted-foreground">{label}</dt>
-      <dd className="truncate font-mono text-xs leading-5">{children}</dd>
+      <dd className={cn("font-mono text-xs leading-5", wrap ? "wrap-anywhere" : "truncate")}>{children}</dd>
     </>
   );
 }
@@ -619,13 +708,16 @@ function Trace({
     left: `${((a - t0) / (t1 - t0)) * 100}%`,
     width: `max(0.375rem, ${((b - a) / (t1 - t0)) * 100}%)`,
   });
+  // On a phone the label sits over its bar, which then has the full width.
   const row =
-    "grid w-full grid-cols-[minmax(0,13rem)_minmax(0,1fr)_3.5rem] items-center gap-3 rounded-md px-1 py-0.5 text-left";
+    "grid w-full grid-cols-[minmax(0,1fr)_3.5rem] items-center gap-x-3 rounded-md px-1 py-0.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:min-h-11 sm:grid-cols-[minmax(0,13rem)_minmax(0,1fr)_3.5rem]";
+  const bar = "relative col-span-2 row-start-2 h-4 sm:col-span-1 sm:row-start-auto";
+  const time = "col-start-2 row-start-1 text-right text-xs tabular sm:col-start-auto sm:row-start-auto";
   return (
     <section>
       <h3 className="mb-2 font-semibold text-[13px]">
         Trace <span className="font-normal text-muted-foreground">· {took(t1 - t0)}</span>
-        {live && <span className="font-normal text-sky-700"> · running</span>}
+        {live && <span className="font-normal text-info-foreground"> · running</span>}
       </h3>
       <ol className="surface-inset flex flex-col gap-1 rounded-xl px-3.5 py-3">
         {records.map((r) => {
@@ -643,15 +735,18 @@ function Trace({
                   selected === r.id && "bg-background shadow-[0_0_0_1px_--theme(--color-black/6%)]",
                 )}
               >
-                <span className="truncate font-mono text-[11.5px]">
+                <span className="truncate font-mono text-xs">
+                  {r.outcome && r.outcome !== "ok" && (
+                    <StatusDot tone={outcomeTone(r.outcome)} label={r.outcome} className="mr-1.5 ml-0" />
+                  )}
                   {r.kind} <span className="text-muted-foreground">{detail(r)}</span>
                 </span>
-                <span className="relative h-4">
+                <span className={bar}>
                   <span
                     className={cn(
                       "absolute top-1/2 h-2 -translate-y-1/2 rounded-full",
                       r.outcome === "error"
-                        ? "bg-red-500"
+                        ? "bg-destructive"
                         : r.duration_ms
                           ? "bg-linear-to-r from-neutral-600 to-neutral-800"
                           : "bg-neutral-400",
@@ -659,9 +754,7 @@ function Trace({
                     style={place(a, b)}
                   />
                 </span>
-                <span className="text-right text-[11.5px] text-muted-foreground tabular">
-                  {r.duration_ms ? took(r.duration_ms) : ""}
-                </span>
+                <span className={cn(time, "text-muted-foreground")}>{r.duration_ms ? took(r.duration_ms) : ""}</span>
               </button>
               {open && <Payload value={r.payload} className="mt-1 mb-2" />}
             </li>
@@ -671,16 +764,16 @@ function Trace({
           const a = new Date(r.started).getTime();
           return (
             <li key={`${r.module}/${r.origin}`} className={row}>
-              <span className="truncate font-mono text-[11.5px]">
-                {r.module} <span className="text-sky-700">running</span>
+              <span className="truncate font-mono text-xs">
+                {r.module} <span className="text-info-foreground">running</span>
               </span>
-              <span className="relative h-4">
+              <span className={bar}>
                 <span
-                  className="absolute top-1/2 h-2 -translate-y-1/2 animate-pulse rounded-full bg-sky-500"
+                  className="absolute top-1/2 h-2 -translate-y-1/2 animate-pulse rounded-full bg-info"
                   style={place(a, now)}
                 />
               </span>
-              <span className="text-right font-medium text-[11.5px] text-sky-700 tabular">{took(now - a)}</span>
+              <span className={cn(time, "font-medium text-info-foreground")}>{took(now - a)}</span>
             </li>
           );
         })}

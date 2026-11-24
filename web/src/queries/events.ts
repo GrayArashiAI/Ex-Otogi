@@ -28,6 +28,16 @@ export const newerQuery = (filter: EventFilter, after: number | undefined) =>
     enabled: after !== undefined,
   });
 
+/** recordQuery is one record by its ID, or null once it is gone. */
+export const recordQuery = (id: number) =>
+  queryOptions({
+    queryKey: ["events", "record", id],
+    queryFn: async () => {
+      const page = await data(api.GET("/api/events", { params: { query: { before: id + 1, limit: 1 } } }));
+      return page.records.find((r) => r.id === id) ?? null;
+    },
+  });
+
 export const failuresQuery = queryOptions({
   queryKey: ["events", "failures"],
   queryFn: () => data(api.GET("/api/events", { params: { query: { outcome: "error", limit: 8 } } })),

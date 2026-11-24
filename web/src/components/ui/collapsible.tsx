@@ -24,5 +24,3 @@ export function CollapsiblePanel({ className, ...props }: CollapsiblePrimitive.P
     />
   );
 }
-
-export { CollapsiblePanel as CollapsibleContent, CollapsiblePrimitive };

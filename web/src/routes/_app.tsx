@@ -26,8 +26,17 @@ const nav = [
 function Shell() {
   return (
     <>
-      <header className="sticky top-0 z-20 flex h-14 items-center gap-7 border-b bg-background/88 px-4 backdrop-blur-md sm:px-7">
-        <Link to="/" className="font-bold text-lg tracking-[-0.04em]">
+      <a
+        href="#content"
+        className="sr-only z-30 rounded-lg bg-background px-3 py-2 font-medium text-sm shadow-md/10 outline-none ring-2 ring-ring focus:not-sr-only focus:absolute focus:top-2 focus:left-2"
+      >
+        Skip to content
+      </a>
+      <header className="z-20 flex h-14 flex-none items-center gap-7 border-b bg-background px-4 sm:px-7">
+        <Link
+          to="/"
+          className="hit-target relative rounded-md font-bold text-lg tracking-[-0.04em] outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        >
           otogi
         </Link>
         <nav className="hidden gap-1 sm:flex">
@@ -35,17 +44,28 @@ function Shell() {
             <Link
               key={item.to}
               to={item.to}
-              className="rounded-lg px-2.5 py-1.5 text-muted-foreground text-sm transition-colors hover:text-foreground data-[status=active]:bg-accent data-[status=active]:font-medium data-[status=active]:text-foreground"
+              className="rounded-lg px-2.5 py-1.5 text-muted-foreground text-sm outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring data-[status=active]:bg-accent data-[status=active]:font-medium data-[status=active]:text-foreground"
             >
               {item.label}
             </Link>
           ))}
         </nav>
         <PhoneNav />
-        <Search />
-        <Account />
+        <div className="ml-auto flex items-center gap-3 md:gap-7">
+          <Search />
+          <Account />
+        </div>
       </header>
-      <Outlet />
+      {/* The one scroll region under the header: pages either scroll in it
+          or fill it and scroll their own lists. */}
+      <main
+        id="content"
+        tabIndex={-1}
+        data-scroll-restoration-id="content"
+        className="flex min-h-0 flex-1 flex-col overflow-y-auto outline-none"
+      >
+        <Outlet />
+      </main>
     </>
   );
 }
@@ -56,7 +76,7 @@ function PhoneNav() {
   const current = nav.find((item) => here.startsWith(item.to));
   return (
     <Menu>
-      <MenuTrigger className="-ml-3 flex items-center gap-1 rounded-lg px-2 py-1.5 font-medium text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring sm:hidden">
+      <MenuTrigger className="hit-target relative -ml-3 flex items-center gap-1 rounded-lg px-2 py-1.5 font-medium text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring sm:hidden">
         {current?.label ?? "Menu"} <ChevronDown className="size-4 text-muted-foreground" />
       </MenuTrigger>
       <MenuPopup align="start">
@@ -85,7 +105,7 @@ function Account() {
   return (
     <Menu>
       <MenuTrigger
-        className="ml-auto grid size-8 place-items-center rounded-full md:ml-0 bg-linear-to-b from-neutral-700 to-neutral-900 font-semibold text-white text-xs shadow-xs inset-shadow-[0_1px_--theme(--color-white/20%)] outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+        className="hit-target relative grid size-8 place-items-center rounded-full bg-linear-to-b from-neutral-700 to-neutral-900 font-semibold text-white text-xs shadow-xs inset-shadow-[0_1px_--theme(--color-white/20%)] outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
         aria-label="Account"
       >
         {name.slice(0, 1).toUpperCase() || "?"}

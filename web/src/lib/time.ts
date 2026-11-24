@@ -10,6 +10,12 @@ export function ago(at: string | Date): string {
   return new Date(at).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
+/** since puts ago in a sentence: just now, 3m ago, on Mar 4. */
+export function since(at: string | Date): string {
+  const short = ago(at);
+  return short === "now" ? "just now" : /^\d+[mhd]$/.test(short) ? `${short} ago` : `on ${short}`;
+}
+
 /** took says how long something took or has been running: 45s, 2m 13s, 1h 4m. */
 export function took(ms: number): string {
   const s = Math.max(0, Math.round(ms / 1000));

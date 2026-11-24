@@ -11,7 +11,7 @@ DEPLOY_SERVICE ?= ex-otogi-next
 DEPLOY_READY_URL ?= http://127.0.0.1:8383/readyz
 DEPLOY_ENV := DEPLOY_HOST=$(DEPLOY_HOST) DEPLOY_DIR=$(DEPLOY_DIR) DEPLOY_SERVICE=$(DEPLOY_SERVICE) DEPLOY_READY_URL=$(DEPLOY_READY_URL)
 
-.PHONY: generate generated web web-lint web-typecheck format lint test test-race test-fuzz-smoke smoke telegram-smoke quality deploy deploy-rollback
+.PHONY: generate generated web web-lint web-typecheck web-test format lint test test-race test-fuzz-smoke smoke telegram-smoke quality deploy deploy-rollback
 
 # Go code for the SQL queries (sqlc.yaml), and the panel's API types from
 # the OpenAPI document.
@@ -33,6 +33,9 @@ web-lint:
 
 web-typecheck:
 	cd web && pnpm install --frozen-lockfile && pnpm typecheck
+
+web-test:
+	cd web && pnpm test
 
 format:
 	$(LINT) fmt
@@ -59,7 +62,7 @@ smoke:
 telegram-smoke:
 	$(GO) run ./cmd/telegram-smoke
 
-quality: generated lint web-lint web-typecheck web test-race test-fuzz-smoke smoke
+quality: generated lint web-lint web-typecheck web-test web test-race test-fuzz-smoke smoke
 
 # Deploy the current checkout to the test host, or restore its previous binary.
 deploy: web

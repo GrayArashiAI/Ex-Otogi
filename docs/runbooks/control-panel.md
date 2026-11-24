@@ -61,7 +61,7 @@ Removing a username from `allow` (and restarting) ends its sessions. To end ever
 
 ## Set up modules
 
-Modules come with no settings. In Modules, pick one, fill in its Configuration (each field says what it does), Save, review the changes, and Apply; then turn it on. Saving applies the settings to the running bot at once; if they do not build or the module does not start, nothing changes and the panel says why. History lists every revision with who saved it, and Restore saves an old one again.
+Modules come with no settings. In Modules, pick one, fill in its Settings (each field says what it does), Save, review the changes, and Apply; then turn it on. Saving applies the settings to the running bot at once; if they do not build or the module does not start, nothing changes and the panel says why. History lists every revision with who saved it, and Restore saves an old one again.
 
 BOOTH cards and X cards draw with Content safety's settings: turn Content safety on first (its defaults need nothing filled in). Changing it applies to every card module at once.
 

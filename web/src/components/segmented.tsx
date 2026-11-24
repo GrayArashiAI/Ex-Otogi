@@ -6,22 +6,25 @@ export function Segmented<T extends string>({
   value,
   onChange,
   options,
+  label,
   className,
 }: {
+  /** label names the choice for assistive tech. */
+  label: string;
   value: T;
   onChange: (value: T) => void;
   options: { value: T; label: string }[];
   className?: string;
 }) {
   return (
-    <SegmentedControl className={cn("flex w-full", className)}>
+    <SegmentedControl role="group" aria-label={label} className={cn("flex w-full", className)}>
       {options.map((o) => (
         <SegmentedControlItem
           key={o.value}
           aria-pressed={o.value === value}
           data-pressed={o.value === value ? "" : undefined}
           onClick={() => onChange(o.value)}
-          className="flex-1"
+          className="hit-target flex-1"
         >
           {o.label}
         </SegmentedControlItem>

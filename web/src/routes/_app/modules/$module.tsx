@@ -5,12 +5,18 @@ import { ArrowLeft, Bot, CircleAlert } from "lucide-react";
 import { Suspense } from "react";
 import { api, data, type Schemas } from "@/api/client";
 import { AllowlistCard } from "@/components/allowlist-card";
+import { Card, CardHeader, CardInset, rows } from "@/components/card";
+import { LoadError } from "@/components/load-error";
+import { NotFound } from "@/components/route-states";
 import { SettingsCard } from "@/components/settings/settings-card";
 import { outcomeTone, StatusDot } from "@/components/status-dot";
 import { Tile } from "@/components/tile";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
-import { listMeta, moduleMeta } from "@/lib/meta";
+import { toastManager } from "@/components/ui/toast";
+import { listMeta, moduleMeta, moduleState } from "@/lib/meta";
+import { cn } from "@/lib/utils";
 import { modulesQuery, recordsQuery, settingsQuery } from "@/queries/modules";
 import { useChatNames } from "@/queries/names";
 
@@ -20,8 +26,21 @@ export const Route = createFileRoute("/_app/modules/$module")({
     if (!modules.some((m) => m.id === params.module)) throw notFound();
     void context.queryClient.prefetchQuery(settingsQuery(params.module));
   },
+  head: ({ params }) => ({ meta: [{ title: `${moduleMeta(params.module).title} · otogi` }] }),
   component: ModulePage,
+  notFoundComponent: NoSuchModule,
 });
+
+function NoSuchModule() {
+  const { module } = Route.useParams();
+  return (
+    <NotFound title={`No module called ${module}`} detail="The bot is built with the modules in the list.">
+      <Button variant="outline" render={<Link to="/modules" />}>
+        All modules
+      </Button>
+    </NotFound>
+  );
+}
 
 function ModulePage() {
   const { module: id } = Route.useParams();
@@ -29,8 +48,12 @@ function ModulePage() {
   const m = modules.find((x) => x.id === id) as Schemas["Module"];
   const meta = moduleMeta(id);
   return (
-    <main className="min-w-0 px-5 py-6 sm:px-10 sm:py-7">
-      <Link to="/modules" className="mb-4 inline-flex items-center gap-1 text-muted-foreground text-sm md:hidden">
+    <div className="min-w-0 px-5 py-6 sm:px-10 sm:py-7">
+      <Link
+        to="/modules"
+        activeOptions={{ exact: true }}
+        className="hit-target relative mb-4 inline-flex items-center gap-1 rounded-md text-muted-foreground text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring md:hidden"
+      >
         <ArrowLeft className="size-4" /> Modules
       </Link>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
@@ -70,7 +93,7 @@ function ModulePage() {
           <Activity module={m} />
         </div>
       </div>
-    </main>
+    </div>
   );
 }
 
@@ -79,13 +102,24 @@ function Power({ module: m }: { module: Schemas["Module"] }) {
   const toggle = useMutation({
     mutationFn: (enabled: boolean) =>
       data(api.PATCH("/api/modules/{module}", { params: { path: { module: m.id } }, body: { enabled } })),
+    onSuccess: (now) => {
+      const state = moduleState(now);
+      toastManager.add({
+        type: state.tone === "error" ? "error" : "success",
+        title: `${moduleMeta(m.id).title}: ${state.label}`,
+        description: now.problem,
+      });
+    },
     onSettled: () => queryClient.invalidateQueries({ queryKey: ["modules"] }),
   });
   const on = toggle.isPending ? Boolean(toggle.variables) : m.enabled;
+  const state = moduleState(m);
   return (
     <div className="flex items-center gap-3 rounded-full border bg-background py-1.5 ps-3 pe-1.5 shadow-xs/5">
-      <StatusDot tone={m.running ? "ok" : m.problem ? "error" : "off"} />
-      <span className="font-medium text-sm">{m.running ? "Running" : m.enabled ? "Not running" : "Off"}</span>
+      <StatusDot tone={state.tone} />
+      <span className={cn("font-medium text-sm", state.tone === "error" && "text-destructive-foreground")}>
+        {state.label}
+      </span>
       <Switch
         checked={on}
         disabled={toggle.isPending}
@@ -103,6 +137,11 @@ function IgnoreBots({ module: m }: { module: Schemas["Module"] }) {
   const toggle = useMutation({
     mutationFn: (ignore_bots: boolean) =>
       data(api.PATCH("/api/modules/{module}", { params: { path: { module: m.id } }, body: { ignore_bots } })),
+    onSuccess: (now) =>
+      toastManager.add({
+        type: "success",
+        title: `${moduleMeta(m.id).title} ${now.ignore_bots ? "ignores" : "hears"} bot accounts`,
+      }),
     onSettled: () => queryClient.invalidateQueries({ queryKey: ["modules"] }),
   });
   const on = toggle.isPending ? Boolean(toggle.variables) : m.ignore_bots;
@@ -124,7 +163,7 @@ function IgnoreBots({ module: m }: { module: Schemas["Module"] }) {
 }
 
 function Activity({ module: m }: { module: Schemas["Module"] }) {
-  const { data: records } = useQuery(recordsQuery(m.id));
+  const { data: records, error, refetch } = useQuery(recordsQuery(m.id));
   const chatName = useChatNames();
   const stats = [
     { label: "Completed", value: m.counts.completed },
@@ -132,11 +171,8 @@ function Activity({ module: m }: { module: Schemas["Module"] }) {
     { label: "Failed", value: m.counts.failed + m.counts.panicked },
   ];
   return (
-    <section className="surface-raised rounded-2xl">
-      <header className="flex items-baseline gap-2 px-4 pt-3.5 pb-2.5">
-        <h2 className="font-semibold text-[15px]">Activity</h2>
-        <span className="text-muted-foreground text-xs">since the bot started</span>
-      </header>
+    <Card>
+      <CardHeader title="Activity" note="since the bot started" />
       <div className="mx-3.5 grid grid-cols-3 gap-2">
         {stats.map((s) => (
           <div key={s.label} className="surface-inset rounded-xl px-3 py-2">
@@ -145,25 +181,28 @@ function Activity({ module: m }: { module: Schemas["Module"] }) {
           </div>
         ))}
       </div>
-      <ul className="surface-inset mx-3.5 mt-2 mb-3.5 divide-y divide-border/80 rounded-xl px-3">
-        {(records?.records ?? []).map((r) => (
-          <li key={r.id} className="flex items-center gap-2.5 py-2">
-            <StatusDot tone={outcomeTone(r.outcome)} />
-            <span className="min-w-0 flex-1 truncate font-mono text-xs">
-              {r.kind}
-              {r.conversation && (
-                <span className="font-sans text-muted-foreground"> · {chatName(r.platform, r.conversation)}</span>
-              )}
-            </span>
-            <time className="font-mono text-[11.5px] text-muted-foreground" dateTime={r.at}>
-              {format(new Date(r.at), "MMM d HH:mm:ss")}
-            </time>
-          </li>
-        ))}
-        {records?.records?.length === 0 && (
-          <li className="py-4 text-center text-muted-foreground text-sm">No records yet.</li>
-        )}
-      </ul>
-    </section>
+      <CardInset className="mt-2">
+        {error && !records && <LoadError what="its latest records" error={error} retry={() => void refetch()} />}
+        <ul className={rows}>
+          {(records?.records ?? []).map((r) => (
+            <li key={r.id} className="flex items-center gap-2.5 py-2">
+              <StatusDot tone={outcomeTone(r.outcome)} label={r.outcome ?? "no outcome"} />
+              <span className="min-w-0 flex-1 truncate font-mono text-xs">
+                {r.kind}
+                {r.conversation && (
+                  <span className="font-sans text-muted-foreground"> · {chatName(r.platform, r.conversation)}</span>
+                )}
+              </span>
+              <time className="font-mono text-muted-foreground text-xs" dateTime={r.at}>
+                {format(new Date(r.at), "MMM d HH:mm:ss")}
+              </time>
+            </li>
+          ))}
+          {records?.records?.length === 0 && (
+            <li className="py-4 text-center text-muted-foreground text-sm">No records yet.</li>
+          )}
+        </ul>
+      </CardInset>
+    </Card>
   );
 }
