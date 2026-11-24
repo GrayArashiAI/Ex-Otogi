@@ -142,6 +142,7 @@ func TestModuleSettingsValidation(t *testing.T) {
 		"todou":     {`{"cli": "todou", "agents": {"neptune": {"server": "https://todou.test", "token": "todou_pat_x"}}}`, "agents.neptune.token", "todou_pat_x"},
 		"reminders": {`{"max_delay": "soon"}`, "max_delay", ""},
 		"decision":  {`{"jev": {"api_key": "ts_pasted_key"}}`, "jev.api_key", "ts_pasted_key"},
+		"media":     {`{"steps": [{"provider": "gemini", "model": "", "thinking": "max"}]}`, "steps[0].model;steps[0].thinking", ""},
 	} {
 		_, err := s.save(ctx, module, 0, nil, json.RawMessage(c.settings), "x")
 		var invalid *invalidSettings
