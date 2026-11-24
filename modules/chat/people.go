@@ -19,7 +19,9 @@ func (m *Module) known(platform otogi.PlatformID, actor string) (person, bool) {
 // nameOf is how a model is told who sent a message: the name the people list
 // gives them, then the name the platform shows where it differs, since
 // others mention them by it. The transcript keeps the platform's names, so
-// a changed list applies to the messages already kept.
+// a changed list applies at once to the recent messages and judgments, which
+// are read from it each time; a thread's turns keep the names they were sent
+// with.
 func (m *Module) nameOf(platform otogi.PlatformID, actor, shown string) string {
 	p, ok := m.known(platform, actor)
 	switch {

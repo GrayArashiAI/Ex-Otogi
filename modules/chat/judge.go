@@ -65,7 +65,8 @@ type (
 // fails Handle. When a judged agent reads descriptions, the judgment sees
 // them, waiting until until at most for the message's own. Each agent's
 // threshold is multiplied by the sender's factor; an agent whose threshold
-// that takes past 1 is not asked about the message.
+// that takes past 1 is not asked about the message, and a chat.unjudged
+// record says so, since nothing else would show why it stayed quiet.
 func (m *Module) wake(ctx context.Context, e otogi.Event, until time.Time) (*profile, *judgment, error) {
 	if e.Conversation.Kind != otogi.ConversationGroup {
 		return nil, nil, nil
@@ -73,11 +74,19 @@ func (m *Module) wake(ctx context.Context, e otogi.Event, until time.Time) (*pro
 	factor := m.factor(e.Platform, string(e.Actor.ID))
 	var present, judged []*profile
 	for _, p := range m.profiles {
-		if m.answers(p, e.ChatKey()) {
-			present = append(present, p)
-			if p.wake > 0 && p.wake*factor <= 1 {
-				judged = append(judged, p)
-			}
+		if !m.answers(p, e.ChatKey()) {
+			continue
+		}
+		present = append(present, p)
+		switch {
+		case p.wake > 0 && p.wake*factor <= 1:
+			judged = append(judged, p)
+		case p.wake > 0:
+			m.host.Record(ctx, otogi.Record{Kind: "chat.unjudged", Event: e.ID, Platform: e.Platform, Account: e.Account, Conversation: e.Conversation.ID, Outcome: "skipped", Payload: map[string]any{
+				"agent":     p.Name,
+				"threshold": p.wake * factor,
+				"factor":    factor,
+			}})
 		}
 	}
 	if len(judged) == 0 {
