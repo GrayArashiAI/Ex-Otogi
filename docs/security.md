@@ -9,6 +9,8 @@ Ex-Otogi runs on a host the operator controls, for one operator. Security covers
 - Credentials are not written to logs or the event log. They are configuration, not event data, so nothing needs redacting: just do not log them.
 - The language model API keys come from the config file, normally as `${OTOGI_GEMINI_API_KEY}` and, for each `llm.openai` service, a variable of its own such as `${OTOGI_DEEPSEEK_API_KEY}`. Each is sent only to its provider's configured base URL.
 - The decision module's TypeSafe API key is a setting saved as a reference, normally `${OTOGI_TYPESAFE_API_KEY}`, and is sent only to its `base_url`.
+- A module setting that is a secret holds only a reference, `${NAME}`. The secret itself is either set in the control panel, which stores it in `modules.sqlite` in the data directory, or left in an environment variable of that name; one set in the panel wins. A stored secret is kept as given, not encrypted: a key to decrypt it could only live in the same data directory, so the directory's permissions are what protects it, as they protect the session file. Backups of the data directory therefore contain secrets.
+- The management API sets and deletes secrets and never returns one: `GET /api/secrets` lists names only, a refused request does not get its values back, and each change is recorded as `secret.changed` with the name and who made it, without the value.
 - Do not commit credentials. `.env.example` shows the variable names.
 
 ## Language model data
@@ -27,6 +29,7 @@ The notes in the chat module's `people` list go to the agents' model service wit
 
 - The management HTTP server binds to `127.0.0.1` by default.
 - When bound to any other address, it requires a bearer token from the configuration. Use TLS or a reverse proxy when it is reachable over a network.
+- Bound to loopback with no token, any process on the host can use the API: change module settings, and set, replace, or delete secrets (it cannot read them back). Set `management.token` where other local processes are not trusted.
 - The control panel signs in only through an OpenID Connect provider (`management.oidc`): the authorization code flow with PKCE (S256), a `state` and a `nonce` checked on return, and the ID token verified against the provider's keys, issuer, and client ID (go-oidc). The panel keeps no credentials of its own.
 - Who may use the panel is `management.oidc.allow`: the provider's usernames. An account the provider vouches for but the list does not name gets no session; a session ends as soon as its username leaves the list. The provider can restrict the client too.
 - A session is a cookie sealed (signed and encrypted) with a key generated into `<data_dir>/panel.key`: `Secure`, `HttpOnly`, `SameSite=Lax` (the provider's redirect back is a cross-site navigation), valid 7 days. Signing out ends it and the provider's session. Cross-origin writes from browsers are refused (`http.CrossOriginProtection`).

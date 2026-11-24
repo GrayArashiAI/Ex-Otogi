@@ -42,14 +42,15 @@ type Module struct {
 	host otogi.Host
 }
 
-// New reads the API key and builds the module, filling unset fields with
-// their defaults. It does no I/O.
-func New(cfg Config) (*Module, error) {
+// New reads the API key through secret, which returns a secret by name, and
+// builds the module, filling unset fields with their defaults. It does no
+// I/O.
+func New(cfg Config, secret func(name string) (string, bool)) (*Module, error) {
 	c := JevConfig{}
 	if cfg.Jev != nil {
 		c = *cfg.Jev
 	}
-	key, err := c.APIKey.Value()
+	key, err := c.APIKey.Resolve(secret)
 	if err != nil {
 		return nil, fmt.Errorf("decision: jev.api_key: %w", err)
 	}

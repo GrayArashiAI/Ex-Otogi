@@ -39,6 +39,8 @@ type ServerConfig struct {
 	// Modules serves the module, allowlist, and chat routes; without it
 	// they are absent.
 	Modules Modules
+	// Secrets serves the secret routes; without it they are absent.
+	Secrets Secrets
 	// Media fetches media people sent through the platform's driver.
 	Media func(context.Context, otogi.Destination, otogi.MediaSource) ([]byte, error)
 	// Version is the build, as the OpenAPI document names it.
@@ -182,6 +184,7 @@ func newAPI(cfg ServerConfig, signIn *signIn, every bool) (*http.ServeMux, huma.
 	config := huma.DefaultConfig("Ex-Otogi management API", cmp.Or(cfg.Version, "dev"))
 	config.OpenAPIPath, config.SchemasPath, config.DocsPath = "/api/openapi", "/api/schemas", ""
 	config.CreateHooks = nil // no $schema links in bodies
+	config.Transformers = append(config.Transformers, withoutSecretValues)
 	api := humago.New(apiMux, config)
 	huma.Register(api, huma.Operation{OperationID: "get-status", Method: http.MethodGet, Path: "/api/status", Summary: "The process's health", Tags: []string{"Status"}},
 		func(ctx context.Context, _ *struct{}) (*struct{ Body Status }, error) {
@@ -242,6 +245,9 @@ func newAPI(cfg ServerConfig, signIn *signIn, every bool) (*http.ServeMux, huma.
 		registerModules(api, cfg.Modules)
 		registerAllowlists(api, cfg.Modules, cfg.Events)
 		registerChats(api, cfg.Modules, cfg.Events, cfg.Media)
+	}
+	if cfg.Secrets != nil || every {
+		registerSecrets(api, cfg.Secrets)
 	}
 	if signIn != nil || every {
 		registerSignIn(api, signIn)

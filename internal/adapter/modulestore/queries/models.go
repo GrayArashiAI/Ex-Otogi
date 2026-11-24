@@ -34,6 +34,13 @@ type ModuleSetting struct {
 	At       int64
 }
 
+type Secret struct {
+	Name  string
+	Value string
+	By    string
+	At    int64
+}
+
 type Timer struct {
 	Module    string
 	Key       string

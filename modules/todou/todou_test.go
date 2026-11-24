@@ -249,7 +249,7 @@ func startHarness(t *testing.T, storage *modulestore.Storage, cfg Config, stream
 	if cfg.Agents == nil {
 		cfg.Agents = map[string]AgentConfig{"neptune": {Server: "https://todou.test", Token: "${TODOU_TOKEN}"}}
 	}
-	m, err := New(cfg, []string{"telegram:user:1"})
+	m, err := New(cfg, []string{"telegram:user:1"}, os.LookupEnv)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -758,7 +758,7 @@ func TestLinksFromBeforeAgents(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			m, err := New(Config{CLI: "todou", Agents: agents}, nil)
+			m, err := New(Config{CLI: "todou", Agents: agents}, nil, os.LookupEnv)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -935,11 +935,11 @@ func TestToolsSayWhenNothingIsLinked(t *testing.T) {
 func TestSchemaDefaultsAreTheDefaults(t *testing.T) {
 	t.Setenv("OTOGI_TEST_TODOU_TOKEN", "todou_pat_x")
 	cfg := Config{CLI: "todou", Agents: map[string]AgentConfig{"neptune": {Server: "https://todou.test", Token: "${OTOGI_TEST_TODOU_TOKEN}"}}}
-	unset, err := New(cfg, nil)
+	unset, err := New(cfg, nil, os.LookupEnv)
 	if err != nil {
 		t.Fatal(err)
 	}
-	typed, err := New(settingstest.WithDefaults(t, cfg), nil)
+	typed, err := New(settingstest.WithDefaults(t, cfg), nil, os.LookupEnv)
 	if err != nil || !reflect.DeepEqual(typed.cfg, unset.cfg) {
 		t.Fatalf("schema defaults give %+v (%v), unset fields %+v", typed.cfg, err, unset.cfg)
 	}

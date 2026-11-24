@@ -7,7 +7,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"reflect"
+	"slices"
 	"strings"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -32,6 +34,7 @@ import (
 // settings. Status and commands are only valid once the process runs.
 type moduleEnv struct {
 	operators []string
+	secret    func(name string) (string, bool) // see moduleSettings.environment
 	llm       func(name string) (llm.Provider, error)
 	status    func(context.Context) utility.Status
 	commands  func() []utility.CommandInfo
@@ -44,14 +47,16 @@ var moduleKinds = map[otogi.ModuleID]moduleKind{
 	"chat": kind(func(c chat.Config, env moduleEnv) (otogi.Module, error) {
 		return built(chat.New(c, env.llm))
 	}),
-	"decision":  kind(func(c decision.Config, _ moduleEnv) (otogi.Module, error) { return built(decision.New(c)) }),
+	"decision": kind(func(c decision.Config, env moduleEnv) (otogi.Module, error) {
+		return built(decision.New(c, env.secret))
+	}),
 	"echo":      kind(func(struct{}, moduleEnv) (otogi.Module, error) { return echo.New(), nil }),
 	"media":     kind(func(c media.Config, env moduleEnv) (otogi.Module, error) { return built(media.New(c, env.llm)) }),
 	"notes":     kind(func(c notes.Config, _ moduleEnv) (otogi.Module, error) { return notes.New(c), nil }),
 	"reminders": kind(func(c reminders.Config, _ moduleEnv) (otogi.Module, error) { return reminders.New(c), nil }),
 	"safety":    kind(func(c safety.Config, _ moduleEnv) (otogi.Module, error) { return built(safety.New(c)) }),
 	"todou": kind(func(c todou.Config, env moduleEnv) (otogi.Module, error) {
-		return built(todou.New(c, env.operators))
+		return built(todou.New(c, env.operators, env.secret))
 	}),
 	"twitter": kind(func(c twitter.Config, env moduleEnv) (otogi.Module, error) { return built(twitter.New(c, env.llm)) }),
 	"utility": kind(func(c utility.Config, env moduleEnv) (otogi.Module, error) {
@@ -75,21 +80,70 @@ type moduleKind struct {
 	registry huma.Registry // the schema's $defs
 	schema   *huma.Schema
 	build    func(settings []byte, env moduleEnv) (otogi.Module, error)
+	// secrets names the secrets settings refer to, from their Secret fields.
+	secrets func(settings []byte) ([]string, error)
 }
 
 func kind[C any](build func(C, moduleEnv) (otogi.Module, error)) moduleKind {
 	r := huma.NewMapRegistry("#/$defs/", huma.DefaultSchemaNamer)
 	r.RegisterTypeAlias(reflect.TypeFor[otogi.Duration](), reflect.TypeFor[durationSchema]())
 	r.RegisterTypeAlias(reflect.TypeFor[otogi.Secret](), reflect.TypeFor[secretSchema]())
-	return moduleKind{config: reflect.TypeFor[C](), registry: r, schema: huma.SchemaFromType(r, reflect.TypeFor[C]()), build: func(settings []byte, env moduleEnv) (otogi.Module, error) {
+	decode := func(settings []byte) (C, error) {
 		var cfg C
 		decoder := json.NewDecoder(bytes.NewReader(settings))
 		decoder.DisallowUnknownFields()
 		if err := decoder.Decode(&cfg); err != nil {
-			return nil, fmt.Errorf("decode settings: %w", err)
+			return cfg, fmt.Errorf("decode settings: %w", err)
 		}
-		return build(cfg, env)
-	}}
+		return cfg, nil
+	}
+	return moduleKind{
+		config: reflect.TypeFor[C](), registry: r, schema: huma.SchemaFromType(r, reflect.TypeFor[C]()),
+		build: func(settings []byte, env moduleEnv) (otogi.Module, error) {
+			cfg, err := decode(settings)
+			if err != nil {
+				return nil, err
+			}
+			return build(cfg, env)
+		},
+		secrets: func(settings []byte) ([]string, error) {
+			cfg, err := decode(settings)
+			if err != nil {
+				return nil, err
+			}
+			names := map[string]bool{}
+			secretNames(reflect.ValueOf(cfg), names)
+			return slices.Sorted(maps.Keys(names)), nil
+		},
+	}
+}
+
+// secretNames collects the names of the secrets a decoded Config refers to.
+func secretNames(v reflect.Value, names map[string]bool) {
+	if v.Type() == reflect.TypeFor[otogi.Secret]() {
+		if m := otogi.SecretReference.FindStringSubmatch(v.String()); m != nil {
+			names[m[1]] = true
+		}
+		return
+	}
+	switch v.Kind() {
+	case reflect.Pointer, reflect.Interface:
+		if !v.IsNil() {
+			secretNames(v.Elem(), names)
+		}
+	case reflect.Struct:
+		for i := range v.NumField() {
+			secretNames(v.Field(i), names)
+		}
+	case reflect.Slice, reflect.Array:
+		for i := range v.Len() {
+			secretNames(v.Index(i), names)
+		}
+	case reflect.Map:
+		for _, value := range v.Seq2() {
+			secretNames(value, names)
+		}
+	}
 }
 
 // instance validates settings against the schema and builds the module from
@@ -201,7 +255,7 @@ func (durationSchema) Schema(huma.Registry) *huma.Schema {
 type secretSchema struct{}
 
 func (secretSchema) Schema(huma.Registry) *huma.Schema {
-	return &huma.Schema{Type: huma.TypeString, Format: "secret", Pattern: otogi.SecretReference.String(), PatternDescription: "a reference to an environment variable, ${NAME}"}
+	return &huma.Schema{Type: huma.TypeString, Format: "secret", Pattern: otogi.SecretReference.String(), PatternDescription: "a reference to a secret, ${NAME}"}
 }
 
 // commandsOf lists the commands the modules declare, for /help.

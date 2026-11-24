@@ -103,3 +103,34 @@ func TestTimers(t *testing.T) {
 		t.Fatalf("after finish and cancel = %v", got)
 	}
 }
+
+// A secret is kept under its name with who set it and when; setting it again
+// replaces it.
+func TestSecrets(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(ctx, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	at := time.UnixMilli(1700000000000)
+	for _, secret := range []Secret{
+		{Name: "B_TOKEN", Value: "b", By: "Tundra", At: at},
+		{Name: "A_TOKEN", Value: "a1", By: "Tundra", At: at},
+		{Name: "A_TOKEN", Value: "a2", By: "Luna", At: at.Add(time.Hour)},
+	} {
+		if err := s.SetSecret(ctx, secret); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want := []Secret{{Name: "A_TOKEN", Value: "a2", By: "Luna", At: at.Add(time.Hour)}, {Name: "B_TOKEN", Value: "b", By: "Tundra", At: at}}
+	if got, err := s.Secrets(ctx); err != nil || !slices.Equal(got, want) {
+		t.Fatalf("Secrets = %+v, %v", got, err)
+	}
+	if err := s.DeleteSecret(ctx, "A_TOKEN"); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := s.Secrets(ctx); err != nil || !slices.Equal(got, want[1:]) {
+		t.Fatalf("after delete: %+v, %v", got, err)
+	}
+}

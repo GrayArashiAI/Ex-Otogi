@@ -321,6 +321,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/secrets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The secrets settings refer to, without their values
+         * @description The secrets set in the panel, and every other name settings refer to as ${NAME}: one an environment variable provides, or one set nowhere.
+         */
+        get: operations["list-secrets"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/secrets/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set or replace a secret
+         * @description The running modules whose settings refer to the secret are rebuilt with the new value, which is stored only if they all build. It wins over an environment variable of the same name. Recorded as secret.changed, without the value.
+         */
+        put: operations["put-secret"];
+        post?: never;
+        /**
+         * Delete a secret set in the panel
+         * @description Refused with 409, naming the settings, while settings refer to the secret and no environment variable of the name exists; with one, the modules referring to it are rebuilt to read that. Recorded as secret.changed.
+         */
+        delete: operations["delete-secret"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/shutdown": {
         parameters: {
             query?: never;
@@ -792,6 +836,31 @@ export interface components {
             platform?: string;
             /** Format: date-time */
             started: string;
+        };
+        Secret: {
+            /**
+             * Format: date-time
+             * @description When it was set in the panel.
+             */
+            at?: string;
+            /** @description Who set it in the panel. */
+            by?: string;
+            name: string;
+            /** @description The modules whose current settings refer to it. */
+            references: string[];
+            /**
+             * @description Where its value is: set in the panel, which wins; an environment variable of the name; or missing, when settings refer to a name set in neither.
+             * @enum {string}
+             */
+            source: "panel" | "environment" | "missing";
+        };
+        SecretChangedBody: {
+            /** @description The modules rebuilt with the change. */
+            restarted: string[];
+        };
+        SecretValue: {
+            /** @description The secret itself. */
+            value: string;
         };
         SeenChat: {
             account: string;
@@ -1631,6 +1700,103 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Revision"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "list-secrets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Secret"][] | null;
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "put-secret": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The secret's name, as settings refer to it: ${NAME}. */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SecretValue"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SecretChangedBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "delete-secret": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The secret's name, as settings refer to it: ${NAME}. */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SecretChangedBody"];
                 };
             };
             /** @description Error */

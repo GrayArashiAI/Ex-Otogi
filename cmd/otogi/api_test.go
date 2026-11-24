@@ -20,25 +20,27 @@ import (
 	"github.com/TundraWork/Ex-Otogi/pkg/otogi"
 )
 
-// The management API over the real runtime: settings saved and applied,
-// allowlists, and the chats the bot has seen with their conversations.
-func TestManagementAPI(t *testing.T) {
+// apiHarness serves the management API over the real runtime, with no
+// module on, and returns its kernel and a function that makes a request and
+// checks the status of the response.
+func apiHarness(t *testing.T, log *slog.Logger) (*kernel.Kernel, func(method, path, ifMatch, body string, wantCode int) (http.Header, string)) {
+	t.Helper()
 	ctx := context.Background()
-	dir, quiet := t.TempDir(), slog.New(slog.DiscardHandler)
+	dir := t.TempDir()
 	storage, err := modulestore.Open(ctx, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = storage.Close() })
-	events, err := management.OpenEventLog(ctx, filepath.Join(dir, "eventlog.sqlite"), quiet)
+	events, err := management.OpenEventLog(ctx, filepath.Join(dir, "eventlog.sqlite"), log)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = events.Close() })
-	settings := &moduleSettings{store: storage, kinds: moduleKinds, recorder: events, log: quiet, env: moduleEnv{
+	settings := &moduleSettings{store: storage, kinds: moduleKinds, recorder: events, log: log, env: moduleEnv{
 		llm: func(string) (llm.Provider, error) { return silentModel{}, nil },
 	}}
-	k, err := kernel.New(kernel.Config{Storage: storage, Recorder: events}, nil, nil, capture.New(), quiet)
+	k, err := kernel.New(kernel.Config{Storage: storage, Recorder: events}, nil, nil, capture.New(), log)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,8 +50,8 @@ func TestManagementAPI(t *testing.T) {
 	t.Cleanup(func() { _ = k.Stop(ctx) })
 	settings.kernel = k
 	server, err := management.StartServer(management.ServerConfig{
-		Addr: "127.0.0.1:0", Token: "secret", Events: events, Logger: quiet, Ready: func() bool { return true }, Shutdown: func() {},
-		Status: func(context.Context) management.Status { return management.Status{} }, Modules: moduleAPI{settings},
+		Addr: "127.0.0.1:0", Token: "secret", Events: events, Logger: log, Ready: func() bool { return true }, Shutdown: func() {},
+		Status: func(context.Context) management.Status { return management.Status{} }, Modules: moduleAPI{settings}, Secrets: moduleAPI{settings},
 		Media: func(context.Context, otogi.Destination, otogi.MediaSource) ([]byte, error) {
 			return []byte("JPEG"), nil
 		},
@@ -58,8 +60,7 @@ func TestManagementAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = server.Stop(ctx) })
-
-	do := func(method, path, ifMatch, body string, wantCode int) (http.Header, string) {
+	return k, func(method, path, ifMatch, body string, wantCode int) (http.Header, string) {
 		t.Helper()
 		req, _ := http.NewRequestWithContext(ctx, method, "http://"+server.Addr()+path, strings.NewReader(body))
 		req.Header.Set("Authorization", "Bearer secret")
@@ -80,6 +81,13 @@ func TestManagementAPI(t *testing.T) {
 		}
 		return resp.Header, string(data)
 	}
+}
+
+// The management API over the real runtime: settings saved and applied,
+// allowlists, and the chats the bot has seen with their conversations.
+func TestManagementAPI(t *testing.T) {
+	ctx := context.Background()
+	k, do := apiHarness(t, slog.New(slog.DiscardHandler))
 	contains := func(what, body string, want ...string) {
 		t.Helper()
 		for _, w := range want {
@@ -125,7 +133,7 @@ func TestManagementAPI(t *testing.T) {
 	msg := otogi.TextMessage("hi")
 	msg.Parts, msg.Roots = append(msg.Parts, photo), append(msg.Roots, "p1")
 	done := make(chan otogi.Outcome, 1)
-	err = k.Submit(ctx, otogi.Event{
+	err := k.Submit(ctx, otogi.Event{
 		ID: "e1", Platform: "telegram", Account: "main", Conversation: otogi.Conversation{ID: "chat:1", Kind: otogi.ConversationGroup, Title: "Friends"},
 		Actor: otogi.Actor{ID: "user:5", Name: "Alice"}, Action: otogi.ActionMessageCreated, Direction: otogi.DirectionIncoming, OccurredAt: time.Now(), Message: msg,
 	}, func(o otogi.Outcome) { done <- o })
@@ -177,4 +185,66 @@ func TestManagementAPI(t *testing.T) {
 func jsonInt(n int64) string {
 	data, _ := json.Marshal(n)
 	return string(data)
+}
+
+// The secret routes over the real runtime. A secret's value is in no
+// response, no record, and no log line, whatever the request looked like.
+func TestSecretsAPI(t *testing.T) {
+	var log bytes.Buffer
+	_, request := apiHarness(t, slog.New(slog.NewTextHandler(&log, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	var answers []string
+	do := func(method, path, ifMatch, body string, wantCode int) string {
+		t.Helper()
+		_, answer := request(method, path, ifMatch, body, wantCode)
+		answers = append(answers, method+" "+path+": "+answer)
+		return answer
+	}
+	contains := func(what, body string, want ...string) {
+		t.Helper()
+		for _, w := range want {
+			if !strings.Contains(body, w) {
+				t.Fatalf("%s: %s lacks %s", what, body, w)
+			}
+		}
+	}
+	const settings = `{"jev": {"api_key": "${OTOGI_TEST_JEV_KEY}"}}`
+
+	contains("settings referring to a secret set nowhere", do("PUT", "/api/modules/decision/settings", `"0"`, settings, 422), "OTOGI_TEST_JEV_KEY")
+	contains("a secret nothing uses yet", do("PUT", "/api/secrets/OTOGI_TEST_JEV_KEY", "", `{"value": "value-first"}`, 200), `"restarted":[]`)
+	do("PUT", "/api/modules/decision/settings", `"0"`, settings, 200)
+	do("PATCH", "/api/modules/decision", "", `{"enabled": true}`, 200)
+	contains("a secret a running module uses", do("PUT", "/api/secrets/OTOGI_TEST_JEV_KEY", "", `{"value": "value-second"}`, 200), `"restarted":["decision"]`)
+	contains("secrets", do("GET", "/api/secrets", "", "", 200), `"name":"OTOGI_TEST_JEV_KEY","source":"panel","by":"management API","at":"`, `"references":["decision"]`)
+
+	// Requests that are refused do not get their values back.
+	for _, c := range []struct {
+		path, body string
+		code       int
+	}{
+		{"/api/secrets/OTOGI_TEST_JEV_KEY", `{"value": ""}`, 422},
+		{"/api/secrets/OTOGI_TEST_JEV_KEY", `{"value": ["value-in-a-list"]}`, 422},
+		{"/api/secrets/OTOGI_TEST_JEV_KEY", `{"value": "value-with-more", "note": "value-noted"}`, 422},
+		{"/api/secrets/OTOGI_TEST_JEV_KEY", `{"value": "value-cut-short`, 400},
+		{"/api/secrets/OTOGI_TEST_JEV_KEY", `{"secret": "value-misnamed"}`, 422},
+		{"/api/secrets/not-a-name", `{"value": "value-misplaced"}`, 422},
+	} {
+		do("PUT", c.path, "", c.body, c.code)
+	}
+	contains("deleting a secret in use", do("DELETE", "/api/secrets/OTOGI_TEST_JEV_KEY", "", "", 409), "decision")
+	do("DELETE", "/api/secrets/OTOGI_TEST_NEVER_SET", "", "", 404)
+	t.Setenv("OTOGI_TEST_JEV_KEY", "value-from-environment")
+	contains("deleting a secret the environment has too", do("DELETE", "/api/secrets/OTOGI_TEST_JEV_KEY", "", "", 200), `"restarted":["decision"]`)
+	contains("secrets", do("GET", "/api/secrets", "", "", 200), `{"name":"OTOGI_TEST_JEV_KEY","source":"environment","references":["decision"]}`)
+
+	records := do("GET", "/api/events?kind=secret.changed", "", "", 200)
+	contains("records", records, `"component":"secret:OTOGI_TEST_JEV_KEY"`, `"action":"set"`, `"action":"replaced"`, `"action":"deleted"`, `"by":"management API"`, `"restarted":["decision"]`)
+	do("GET", "/api/events", "", "", 200)
+	do("GET", "/api/modules/decision/settings", "", "", 200)
+	do("GET", "/api/modules", "", "", 200)
+	contains("the log", log.String(), "OTOGI_TEST_JEV_KEY")
+	for _, text := range append(answers, log.String()) {
+		if strings.Contains(text, "value-") {
+			t.Fatalf("a secret's value is in %s", text)
+		}
+	}
 }

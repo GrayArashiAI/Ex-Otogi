@@ -93,8 +93,9 @@ type watcherState struct {
 }
 
 // New validates cfg and returns the module. operators are the
-// platform-qualified actor IDs allowed to link and unlink projects.
-func New(cfg Config, operators []string) (*Module, error) {
+// platform-qualified actor IDs allowed to link and unlink projects; secret
+// returns a secret, such as an agent's token, by name.
+func New(cfg Config, operators []string, secret func(name string) (string, bool)) (*Module, error) {
 	var errs []error
 	if cfg.CLI == "" {
 		errs = append(errs, errors.New("cli is required"))
@@ -104,7 +105,7 @@ func New(cfg Config, operators []string) (*Module, error) {
 	}
 	tokens := map[string]string{}
 	for name, a := range cfg.Agents {
-		token, err := a.Token.Value()
+		token, err := a.Token.Resolve(secret)
 		switch {
 		case !agentName.MatchString(name):
 			errs = append(errs, fmt.Errorf("agents.%s: names are lowercase letters, digits, - and _", name))

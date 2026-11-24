@@ -1275,6 +1275,75 @@
         ],
         "type": "object"
       },
+      "Secret": {
+        "additionalProperties": false,
+        "properties": {
+          "at": {
+            "description": "When it was set in the panel.",
+            "format": "date-time",
+            "type": "string"
+          },
+          "by": {
+            "description": "Who set it in the panel.",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "references": {
+            "description": "The modules whose current settings refer to it.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "source": {
+            "description": "Where its value is: set in the panel, which wins; an environment variable of the name; or missing, when settings refer to a name set in neither.",
+            "enum": [
+              "panel",
+              "environment",
+              "missing"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "source",
+          "references"
+        ],
+        "type": "object"
+      },
+      "SecretChangedBody": {
+        "additionalProperties": false,
+        "properties": {
+          "restarted": {
+            "description": "The modules rebuilt with the change.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "restarted"
+        ],
+        "type": "object"
+      },
+      "SecretValue": {
+        "additionalProperties": false,
+        "properties": {
+          "value": {
+            "description": "The secret itself.",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "value"
+        ],
+        "type": "object"
+      },
       "SeenChat": {
         "additionalProperties": false,
         "properties": {
@@ -2832,6 +2901,144 @@
         "summary": "Restore earlier settings",
         "tags": [
           "Settings"
+        ]
+      }
+    },
+    "/api/secrets": {
+      "get": {
+        "description": "The secrets set in the panel, and every other name settings refer to as ${NAME}: one an environment variable provides, or one set nowhere.",
+        "operationId": "list-secrets",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Secret"
+                  },
+                  "type": [
+                    "array",
+                    "null"
+                  ]
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "The secrets settings refer to, without their values",
+        "tags": [
+          "Secrets"
+        ]
+      }
+    },
+    "/api/secrets/{name}": {
+      "delete": {
+        "description": "Refused with 409, naming the settings, while settings refer to the secret and no environment variable of the name exists; with one, the modules referring to it are rebuilt to read that. Recorded as secret.changed.",
+        "operationId": "delete-secret",
+        "parameters": [
+          {
+            "description": "The secret's name, as settings refer to it: ${NAME}.",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "description": "The secret's name, as settings refer to it: ${NAME}.",
+              "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+              "patternDescription": "letters, digits, and _, not starting with a digit",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SecretChangedBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Delete a secret set in the panel",
+        "tags": [
+          "Secrets"
+        ]
+      },
+      "put": {
+        "description": "The running modules whose settings refer to the secret are rebuilt with the new value, which is stored only if they all build. It wins over an environment variable of the same name. Recorded as secret.changed, without the value.",
+        "operationId": "put-secret",
+        "parameters": [
+          {
+            "description": "The secret's name, as settings refer to it: ${NAME}.",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "description": "The secret's name, as settings refer to it: ${NAME}.",
+              "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+              "patternDescription": "letters, digits, and _, not starting with a digit",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SecretValue"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SecretChangedBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Set or replace a secret",
+        "tags": [
+          "Secrets"
         ]
       }
     },

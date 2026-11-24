@@ -130,6 +130,8 @@ func problem(err error) error {
 		return huma.Error412PreconditionFailed(err.Error())
 	case errors.Is(err, ErrNotFound):
 		return huma.Error404NotFound(err.Error())
+	case errors.Is(err, ErrInUse):
+		return huma.Error409Conflict(err.Error())
 	case errors.As(err, &detailed):
 		return huma.Error422UnprocessableEntity(err.Error(), detailed.ErrorDetails()...)
 	case errors.Is(err, otogi.ErrInvalid):

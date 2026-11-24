@@ -172,7 +172,7 @@ func run(ctx context.Context, cfg Config, log *slog.Logger) (failure error) {
 			PublicURL: cfg.Management.PublicURL, CookieKey: key, Panel: web.Panel(),
 			OIDC: management.OIDC{Issuer: o.Issuer, ClientID: o.ClientID, ClientSecret: o.ClientSecret, Allow: o.Allow},
 			Addr: addr, Token: cfg.Management.Token, Events: events, Logger: log,
-			Shutdown: requestShutdown, Modules: moduleAPI{settings}, Media: routes.FetchMedia, Version: version(),
+			Shutdown: requestShutdown, Modules: moduleAPI{settings}, Secrets: moduleAPI{settings}, Media: routes.FetchMedia, Version: version(),
 			Ready: func() bool { return allReady(drivers) },
 			Running: func() []management.Running {
 				out := []management.Running{}

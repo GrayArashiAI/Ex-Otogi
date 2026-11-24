@@ -65,9 +65,26 @@ Modules come with no settings. In Modules, pick one, fill in its Settings (each 
 
 BOOTH cards and X cards draw with Content safety's settings: turn Content safety on first (its defaults need nothing filled in). Changing it applies to every card module at once.
 
-A secret, such as a todou token, goes in the environment (`otogi.env`); the setting holds the reference, `${OTOGI_TODOU_TOKEN}`.
-
 Where a module answers: Add chats on its page, picking from the chats the bot has seen, or the module switches on a chat's page in Chats.
+
+## Secrets
+
+A setting that is a secret, such as a todou token, holds only a reference to it, `${OTOGI_TODOU_TOKEN}`. The secret itself is set in the panel, or stays in the environment (`otogi.env`) under that name; one set in the panel wins.
+
+To set or replace one, give its name and value in the panel, or from the server (with `Authorization: Bearer <token>` when `management.token` is set):
+
+```sh
+curl -X PUT http://127.0.0.1:8090/api/secrets/OTOGI_TODOU_TOKEN \
+  -H 'Content-Type: application/json' -d '{"value": "todou_pat_..."}'
+```
+
+The modules whose settings refer to it are restarted with the new value at once, and the answer names them. If one does not build with it, nothing changes and the answer says why. The value is not shown again anywhere: `GET /api/secrets` lists each secret's name, whether it comes from the panel or the environment, who set it and when, and the modules that refer to it. A name listed as `missing` is one some settings refer to that is set nowhere: that module does not start until it is set.
+
+To move a secret out of `otogi.env`, set one of the same name in the panel, then delete the line from the file.
+
+To remove one, delete it in the panel (`DELETE /api/secrets/<name>`). That is refused while settings still refer to it, unless the environment has a variable of that name to fall back to: change or remove those settings first.
+
+Secrets set in the panel are stored as given in `<data_dir>/modules.sqlite`, so backups contain them (see `docs/operations.md`). Every change is in the event log as `secret.changed`, with who made it and without the value.
 
 ## Follow what the bot does
 

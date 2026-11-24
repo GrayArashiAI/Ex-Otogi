@@ -18,7 +18,7 @@ func TestLiveJev(t *testing.T) {
 	if os.Getenv("OTOGI_TYPESAFE_API_KEY") == "" {
 		t.Skip("OTOGI_TYPESAFE_API_KEY is not set")
 	}
-	m, err := New(Config{Jev: &JevConfig{APIKey: "${OTOGI_TYPESAFE_API_KEY}", Timeout: otogi.Duration(30 * time.Second)}})
+	m, err := New(Config{Jev: &JevConfig{APIKey: "${OTOGI_TYPESAFE_API_KEY}", Timeout: otogi.Duration(30 * time.Second)}}, os.LookupEnv)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -53,7 +54,7 @@ func started(t *testing.T, handler http.HandlerFunc) (*Module, *host) {
 	srv := httptest.NewServer(handler)
 	t.Cleanup(srv.Close)
 	t.Setenv("TEST_TYPESAFE_KEY", "ts-key")
-	m, err := New(Config{Jev: &JevConfig{APIKey: "${TEST_TYPESAFE_KEY}", BaseURL: srv.URL, Timeout: otogi.Duration(time.Second)}})
+	m, err := New(Config{Jev: &JevConfig{APIKey: "${TEST_TYPESAFE_KEY}", BaseURL: srv.URL, Timeout: otogi.Duration(time.Second)}}, os.LookupEnv)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -243,11 +244,11 @@ func TestService(t *testing.T) {
 func TestDefaults(t *testing.T) {
 	t.Setenv("TEST_TYPESAFE_KEY", "ts-key")
 	typed := settingstest.WithDefaults(t, JevConfig{APIKey: "${TEST_TYPESAFE_KEY}"})
-	a, err := New(Config{Jev: &typed})
+	a, err := New(Config{Jev: &typed}, os.LookupEnv)
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := New(Config{Jev: &JevConfig{APIKey: "${TEST_TYPESAFE_KEY}"}})
+	b, err := New(Config{Jev: &JevConfig{APIKey: "${TEST_TYPESAFE_KEY}"}}, os.LookupEnv)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -256,9 +257,9 @@ func TestDefaults(t *testing.T) {
 	}
 }
 
-// An API key whose environment variable is not set stops the module.
+// An API key whose secret is not set stops the module.
 func TestMissingKey(t *testing.T) {
-	if _, err := New(Config{Jev: &JevConfig{APIKey: "${TEST_TYPESAFE_KEY_UNSET}"}}); !errors.Is(err, otogi.ErrInvalid) || !strings.Contains(err.Error(), "api_key") {
+	if _, err := New(Config{Jev: &JevConfig{APIKey: "${TEST_TYPESAFE_KEY_UNSET}"}}, os.LookupEnv); !errors.Is(err, otogi.ErrInvalid) || !strings.Contains(err.Error(), "api_key") {
 		t.Errorf("err = %v", err)
 	}
 }

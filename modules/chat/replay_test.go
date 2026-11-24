@@ -56,7 +56,7 @@ func TestReplayWake(t *testing.T) {
 		t.Skip("OTOGI_CHAT_REPLAY or OTOGI_TYPESAFE_API_KEY is not set")
 	}
 	lines := readReplay(t, file)
-	dm, err := decisionmodule.New(decisionmodule.Config{Jev: &decisionmodule.JevConfig{APIKey: "${OTOGI_TYPESAFE_API_KEY}", Timeout: otogi.Duration(30 * time.Second)}})
+	dm, err := decisionmodule.New(decisionmodule.Config{Jev: &decisionmodule.JevConfig{APIKey: "${OTOGI_TYPESAFE_API_KEY}", Timeout: otogi.Duration(30 * time.Second)}}, os.LookupEnv)
 	if err != nil {
 		t.Fatal(err)
 	}

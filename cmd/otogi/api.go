@@ -15,7 +15,10 @@ import (
 // moduleAPI is the module runtime as the management API sees it.
 type moduleAPI struct{ settings *moduleSettings }
 
-var _ management.Modules = moduleAPI{}
+var (
+	_ management.Modules = moduleAPI{}
+	_ management.Secrets = moduleAPI{}
+)
 
 func (a moduleAPI) Modules(ctx context.Context) ([]management.Module, error) {
 	s := a.settings
@@ -36,6 +39,10 @@ func (a moduleAPI) Modules(ctx context.Context) ([]management.Module, error) {
 		chats[[2]string{string(c.Module), c.List}]++
 	}
 	counts := s.kernel.Stats().Modules
+	env, err := s.environment(ctx)
+	if err != nil {
+		return nil, err
+	}
 	var out []management.Module
 	for _, id := range slices.Sorted(maps.Keys(s.kinds)) {
 		r, saved := current[id]
@@ -47,7 +54,7 @@ func (a moduleAPI) Modules(ctx context.Context) ([]management.Module, error) {
 			if saved {
 				settings = r.Settings
 			}
-			if instance, err := s.kinds[id].instance(settings, s.env); err != nil {
+			if instance, err := s.kinds[id].instance(settings, env); err != nil {
 				if saved {
 					m.Problem = err.Error()
 				}
@@ -130,6 +137,28 @@ func (a moduleAPI) SetAllowed(ctx context.Context, module, list, chat string, al
 
 func (a moduleAPI) SetIgnoreBots(ctx context.Context, module string, ignore bool, by string) error {
 	return a.settings.kernel.SetIgnoreBots(ctx, otogi.ModuleID(module), ignore, by)
+}
+
+func (a moduleAPI) Secrets(ctx context.Context) ([]management.Secret, error) {
+	return a.settings.secrets(ctx)
+}
+
+func (a moduleAPI) SetSecret(ctx context.Context, name, value, by string) ([]string, error) {
+	restarted, err := a.settings.setSecret(ctx, name, value, by)
+	return ids(restarted), err
+}
+
+func (a moduleAPI) DeleteSecret(ctx context.Context, name, by string) ([]string, error) {
+	restarted, err := a.settings.deleteSecret(ctx, name, by)
+	return ids(restarted), err
+}
+
+func ids(modules []otogi.ModuleID) []string {
+	out := make([]string, len(modules))
+	for i, id := range modules {
+		out[i] = string(id)
+	}
+	return out
 }
 
 func revisionOut(r modulestore.SettingsRevision) management.Revision {

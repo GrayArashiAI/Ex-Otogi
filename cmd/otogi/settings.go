@@ -39,6 +39,10 @@ func (s *moduleSettings) enabled(ctx context.Context) ([]otogi.Module, error) {
 	if err != nil {
 		return nil, err
 	}
+	env, err := s.environment(ctx)
+	if err != nil {
+		return nil, err
+	}
 	var modules []otogi.Module
 	for _, r := range revisions {
 		if !r.Enabled {
@@ -49,7 +53,7 @@ func (s *moduleSettings) enabled(ctx context.Context) ([]otogi.Module, error) {
 			s.log.Warn("enabled module is not in this build; skipped", "module", r.Module, "revision", r.Revision)
 			continue
 		}
-		m, err := kind.instance(r.Settings, s.env)
+		m, err := kind.instance(r.Settings, env)
 		if err != nil {
 			return nil, fmt.Errorf("module %s, settings revision %d: %w", r.Module, r.Revision, err)
 		}
@@ -100,7 +104,11 @@ func (s *moduleSettings) save(ctx context.Context, module otogi.ModuleID, base i
 		return modulestore.SettingsRevision{}, fmt.Errorf("settings are not JSON: %w: %w", otogi.ErrInvalid, err)
 	}
 	running := slices.ContainsFunc(s.kernel.Descriptors(), func(d otogi.ModuleDescriptor) bool { return d.ID == module })
-	m, err := kind.instance(compact.Bytes(), s.env)
+	env, err := s.environment(ctx)
+	if err != nil {
+		return modulestore.SettingsRevision{}, err
+	}
+	m, err := kind.instance(compact.Bytes(), env)
 	if err != nil {
 		return modulestore.SettingsRevision{}, err
 	}
@@ -108,19 +116,12 @@ func (s *moduleSettings) save(ctx context.Context, module otogi.ModuleID, base i
 	var remove, dependents []otogi.ModuleID
 	switch {
 	case enabled:
-		set = append(set, m)
 		dependents = s.kernel.Dependents(module)
-		for _, id := range dependents {
-			r, err := s.current(ctx, id)
-			if err != nil {
-				return modulestore.SettingsRevision{}, err
-			}
-			m, err := s.kinds[id].instance(r.Settings, s.env)
-			if err != nil {
-				return modulestore.SettingsRevision{}, fmt.Errorf("rebuild %s, which uses %s: %w", id, module, err)
-			}
-			set = append(set, m)
+		rebuilt, err := s.rebuilt(ctx, env, dependents, string(module))
+		if err != nil {
+			return modulestore.SettingsRevision{}, err
 		}
+		set = append([]otogi.Module{m}, rebuilt...)
 	case running:
 		remove = append(remove, module)
 	}
@@ -139,4 +140,22 @@ func (s *moduleSettings) save(ctx context.Context, module otogi.ModuleID, base i
 		Payload: map[string]any{"revision": r.Revision, "enabled": enabled, "by": by, "settings": r.Settings, "restarted": dependents},
 	})
 	return r, nil
+}
+
+// rebuilt builds the given modules from their current revisions, to replace
+// the running instances of those that use what changed.
+func (s *moduleSettings) rebuilt(ctx context.Context, env moduleEnv, modules []otogi.ModuleID, changed string) ([]otogi.Module, error) {
+	var out []otogi.Module
+	for _, id := range modules {
+		r, err := s.current(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		m, err := s.kinds[id].instance(r.Settings, env)
+		if err != nil {
+			return nil, fmt.Errorf("rebuild %s, which uses %s: %w", id, changed, err)
+		}
+		out = append(out, m)
+	}
+	return out, nil
 }

@@ -4,7 +4,7 @@
 
 The management plane is how an operator checks, queries, and sets up a running instance. It is a JSON-over-HTTP API served by the bot process; the control panel is its client.
 
-It is an adapter: it reads the event log and component status, and changes module settings and allowlists, through their APIs, never their tables or internals.
+It is an adapter: it reads the event log and component status, and changes module settings, secrets, and allowlists, through their APIs, never their tables or internals.
 
 ## Access
 
@@ -41,6 +41,9 @@ The API is built with [huma](https://huma.rocks): `GET /api/openapi.json` (or `.
 | `POST /api/modules/{module}/settings/revisions/{revision}/restore` | Save an earlier revision's settings as a new revision (`If-Match` as for `PUT`); whether the module runs stays as it is |
 | `GET /api/modules/{module}/allowlists/{list}` | The chats on an allowlist, with who added each and when, and what the chat directory knows of it |
 | `PUT`, `DELETE /api/modules/{module}/allowlists/{list}/chats/{chat}` | Add a chat to an allowlist, or remove it; recorded as `allowlist.changed` |
+| `GET /api/secrets` | The secrets module settings refer to as `${NAME}`, by name, never their values: each one set in the panel (`source` `panel`, with who set it and when), and every other name settings refer to, which an environment variable provides (`environment`) or nothing does (`missing`); `references` names the modules whose current settings refer to it |
+| `PUT /api/secrets/{name}` | Set or replace a secret (`{"value": "..."}`). The running modules that refer to it are rebuilt with the new value and the response names them in `restarted`; if one does not build, 422 with the reason and nothing is stored. It wins over an environment variable of the same name. A refused request does not get its values back. Recorded as `secret.changed`, without the value. |
+| `DELETE /api/secrets/{name}` | Delete a secret set in the panel. While settings refer to it and no environment variable of the name exists, 409 naming the modules; with such a variable, the modules are rebuilt to read it. Recorded as `secret.changed`. |
 | `GET /api/chats` | Every chat the bot has seen, most recently seen first: kind, title, name, first and last seen, latest message, and the allowlists it is on |
 | `GET /api/chats/{chat}` | One chat: its description and member count when the platform gives them, how many people were seen in it and the latest 100 of them with their names, and its new messages per day over the last 7 days |
 | `PATCH /api/chats/{chat}` | Name it (`{"name": "..."}`); the name wins over the platform's title, and an empty one clears it |

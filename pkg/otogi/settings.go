@@ -2,7 +2,6 @@ package otogi
 
 import (
 	"fmt"
-	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -40,8 +39,8 @@ func (d *Duration) UnmarshalText(text []byte) error {
 	return nil
 }
 
-// Secret is a setting kept in the process environment, such as a token.
-// Settings hold only a reference to it, ${NAME}; Value reads it when the
+// Secret is a setting that must stay out of settings, such as a token.
+// Settings hold only a reference to it, ${NAME}; Resolve reads it when the
 // module is built.
 type Secret string
 
@@ -51,22 +50,23 @@ var SecretReference = regexp.MustCompile(`^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$`)
 // UnmarshalText accepts only a reference, never the secret itself.
 func (s *Secret) UnmarshalText(text []byte) error {
 	if !SecretReference.Match(text) {
-		return fmt.Errorf("secret: want a reference to an environment variable, ${NAME}: %w", ErrInvalid)
+		return fmt.Errorf("secret: want a reference to a secret, ${NAME}: %w", ErrInvalid)
 	}
 	*s = Secret(text)
 	return nil
 }
 
-// Value returns the referenced environment variable; an unset one is an
-// error.
-func (s Secret) Value() (string, error) {
+// Resolve returns the secret s refers to, as lookup holds it under the
+// reference's name. The composition root supplies lookup; a name it does
+// not hold is an error wrapping ErrInvalid that names the secret.
+func (s Secret) Resolve(lookup func(name string) (string, bool)) (string, error) {
 	m := SecretReference.FindStringSubmatch(string(s))
 	if m == nil {
-		return "", fmt.Errorf("secret: want a reference to an environment variable, ${NAME}: %w", ErrInvalid)
+		return "", fmt.Errorf("secret: want a reference to a secret, ${NAME}: %w", ErrInvalid)
 	}
-	v, ok := os.LookupEnv(m[1])
+	v, ok := lookup(m[1])
 	if !ok {
-		return "", fmt.Errorf("secret: environment variable %s is not set: %w", m[1], ErrInvalid)
+		return "", fmt.Errorf("secret %s is not set: %w", m[1], ErrInvalid)
 	}
 	return v, nil
 }
