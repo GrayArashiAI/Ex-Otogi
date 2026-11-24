@@ -156,7 +156,7 @@ func (m *Module) answer(ctx context.Context, e otogi.Event, inv otogi.Invocation
 		payload["picture_error"] = picErr.Error()
 	}
 	c := newCard(t, pics, m.zone, m.text)
-	if m.translator != nil && (t.Text != "" || t.Parent != nil && t.Parent.Text != "") {
+	if m.translator != nil {
 		if err := m.translate(ctx, t, &c); err != nil {
 			payload["translation_error"] = err.Error()
 		}
@@ -304,8 +304,8 @@ func (m *Module) translate(ctx context.Context, t tweet, c *card) error {
 		m.host.Logger().Debug("twitter: post is in Chinese; no translation", "post", t.ID)
 		return nil
 	}
-	payload["language"] = tr.Language
 	if tr.Post != "" {
+		payload["language"] = tr.Language
 		text, more := excerpt(tr.Post, m.text.post)
 		c.Translation = &translatedText{By: "由 " + providerName(m.translator.cfg.Provider) + " 翻译自" + tr.Language, Plain: text, Text: spans(text), More: more}
 	}

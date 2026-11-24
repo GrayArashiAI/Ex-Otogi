@@ -361,6 +361,24 @@ func TestReplyCards(t *testing.T) {
 	}
 }
 
+// A reply of only pictures has no language for the model to name: the post
+// it replies to is translated all the same.
+func TestTranslatesWhatAReplyOfOnlyPicturesRepliesTo(t *testing.T) {
+	t.Parallel()
+	lm := &model{reply: "<parent>你好</parent>"}
+	tr := &translator{cfg: Translate{Model: "m"}, provider: lm}
+	got, needed, err := tr.translate(context.Background(), tweet{Media: []media{{Kind: "photo"}}, Parent: &tweet{Text: "hello"}})
+	if err != nil || !needed || got.Parent != "你好" {
+		t.Fatalf("translation %+v, %v, %v", got, needed, err)
+	}
+	if input := lm.requests[0].Turns[0].Content.PlainText(); input != "<parent>hello</parent>" {
+		t.Fatalf("asked to translate %q", input)
+	}
+	if _, needed, err := tr.translate(context.Background(), tweet{Media: []media{{Kind: "photo"}}}); needed || err != nil || len(lm.requests) != 1 {
+		t.Fatalf("a post with no text anywhere: %v, %v, %d requests", needed, err, len(lm.requests))
+	}
+}
+
 // The embed endpoint gives the post replied to with the reply.
 func TestFallbackCarriesThePostRepliedTo(t *testing.T) {
 	t.Parallel()

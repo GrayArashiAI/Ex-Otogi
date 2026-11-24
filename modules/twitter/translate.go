@@ -34,14 +34,14 @@ type translation struct {
 
 const translatePrompt = `You translate posts from X into Simplified Chinese.
 
-The input is a <post>, with the <quote> it quotes when it quotes one, the <parent> it replies to when it is a reply, and the <parent_quote> that the parent quotes. Reply in exactly this form and nothing else:
+The input is a <post>, with the <quote> it quotes when it quotes one, the <parent> it replies to when it is a reply, and the <parent_quote> that the parent quotes. A post of only pictures has no <post>. Reply in exactly this form and nothing else:
 <language>the post's language, named in Simplified Chinese, such as 英语 or 日语</language>
 <post>the post in natural Simplified Chinese</post>
 <quote>the quote in natural Simplified Chinese</quote>
 <parent>the parent in natural Simplified Chinese</parent>
 <parent_quote>the parent's quote in natural Simplified Chinese</parent_quote>
 
-Give <language> always, and each of the others only when the input has that part and it is not already written in Chinese, Simplified or Traditional: a part in Chinese is left out. When the post is in Chinese, <language> is 中文.
+Give <language> when the input has a <post>, and each of the others only when the input has that part and it is not already written in Chinese, Simplified or Traditional: a part in Chinese is left out. When the post is in Chinese, <language> is 中文.
 
 Keep URLs, @mentions, #hashtags, emoji, and line breaks exactly as they are. Add no notes or explanations.`
 
@@ -55,22 +55,27 @@ var tagged = map[string]*regexp.Regexp{
 
 // translate returns what of the post, its quote, the post it replies to,
 // and that post's quote is not in Chinese, in Chinese: false when all of it
-// is in Chinese already.
+// is in Chinese already, or none of them has text. The model names the
+// language of a post with text; one of only pictures has none to name.
 func (tr *translator) translate(ctx context.Context, t tweet) (translation, bool, error) {
-	input := "<post>" + t.Text + "</post>"
+	var parts []string
 	part := func(tag string, of *tweet) {
 		if of != nil && of.Text != "" {
-			input += "\n<" + tag + ">" + of.Text + "</" + tag + ">"
+			parts = append(parts, "<"+tag+">"+of.Text+"</"+tag+">")
 		}
 	}
+	part("post", &t)
 	part("quote", t.Quote)
 	part("parent", t.Parent)
 	if t.Parent != nil {
 		part("parent_quote", t.Parent.Quote)
 	}
+	if len(parts) == 0 {
+		return translation{}, false, nil
+	}
 	resp, err := tr.provider.Generate(ctx, llm.Request{
 		Model: tr.cfg.Model, System: translatePrompt, Thinking: tr.cfg.Thinking,
-		Turns: []llm.Turn{{Role: llm.RoleUser, Content: otogi.TextMessage(input)}},
+		Turns: []llm.Turn{{Role: llm.RoleUser, Content: otogi.TextMessage(strings.Join(parts, "\n"))}},
 	}, nil)
 	if err != nil {
 		return translation{}, false, fmt.Errorf("twitter: translate: %w", err)
@@ -82,9 +87,12 @@ func (tr *translator) translate(ctx context.Context, t tweet) (translation, bool
 		return ""
 	}
 	out := translation{Language: find("language"), Post: find("post"), Quote: find("quote"), Parent: find("parent"), ParentQuote: find("pquote")}
-	if out.Language == "中文" {
+	switch {
+	case t.Text == "":
+		out.Language, out.Post = "", ""
+	case out.Language == "中文":
 		out.Post = "" // a post in Chinese has no translation, whatever the model sent
-	} else if out.Language == "" || t.Text != "" && out.Post == "" {
+	case out.Language == "" || out.Post == "":
 		return translation{}, false, fmt.Errorf("twitter: translate: the model replied out of form: %q", resp.Markdown)
 	}
 	return out, out != translation{Language: out.Language}, nil
