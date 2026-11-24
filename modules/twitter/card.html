@@ -21,6 +21,25 @@
   .handle { color: #536471; font-size: 14.5px; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .logo { flex: none; width: 22px; height: 22px; color: #0f1419; }
   .replying { margin-top: 10px; color: #536471; font-size: 14.5px; }
+  /* The post replied to, as X's conversation shows it: a step smaller than
+     the post, beside its avatar, and joined to the post's avatar by a line. */
+  .parent { display: flex; gap: 10px; }
+  .rail { flex: none; display: flex; flex-direction: column; align-items: center; width: 42px; }
+  .thread { flex: 1; width: 2px; margin-top: 4px; border-radius: 1px; background: #cfd9de; }
+  .parent + .head { margin-top: 4px; }
+  .said { min-width: 0; flex: 1; padding-bottom: 16px; }
+  .said .top { display: flex; align-items: center; gap: 4px; font-size: 15px; line-height: 1.3; }
+  .said .top b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .said .top .badge { width: 16px; height: 16px; }
+  .said .top .dim { flex: 1; min-width: 0; color: #536471; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .said .top .logo { width: 18px; height: 18px; margin-left: 6px; }
+  .said .replying { margin-top: 2px; font-size: 14px; }
+  .ptext { margin-top: 3px; font-size: 15px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .ptrans { margin-top: 8px; }
+  .ptrans .by { color: #536471; font-size: 13px; }
+  .said .more { font-size: 14px; }
+  .said .media, .said .quote, .said .gone { margin-top: 10px; }
+  .said .quote .media { margin-top: 0; }
   .text { margin-top: 10px; font-size: 16.5px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
   .link { color: #1471b8; }
   .more { display: block; margin-top: 2px; color: #1471b8; font-size: 15px; }
@@ -29,7 +48,7 @@
   .translation .text { margin-top: 6px; }
   .quote .qtrans { padding: 0 12px 12px; margin-top: -4px; }
   .quote .qtrans .by { color: #536471; font-size: 13px; }
-  .quote .qtrans .qtext { padding: 2px 0 0; }
+  .quote .qtrans .qtext { margin: 2px 0 0; }
   .media { position: relative; display: grid; gap: 2px; margin-top: 12px; border: 1px solid #cfd9de; border-radius: 16px; overflow: hidden; background: #f7f9f9; }
   .media.n2 { grid-template-columns: 1fr 1fr; aspect-ratio: 16 / 9; }
   .media.n3 { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; aspect-ratio: 16 / 9; }
@@ -49,7 +68,7 @@
   .quote .top b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .quote .top .badge { width: 15px; height: 15px; }
   .quote .top .dim { color: #536471; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .quote .qtext { padding: 4px 12px 12px; font-size: 15px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
+  .quote .qtext { margin: 4px 12px 12px; font-size: 15px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
   .quote .media { margin: 0; border: 0; border-top: 1px solid #cfd9de; border-radius: 0; }
   .gone { margin-top: 12px; padding: 14px 16px; border: 1px solid #cfd9de; border-radius: 16px; background: #f7f9f9; color: #536471; font-size: 14.5px; }
   .poll { margin-top: 12px; }
@@ -72,20 +91,33 @@
 </head>
 <body>
 <div class="card">
+  {{with .Parent}}<div class="parent">
+    <div class="rail">{{if .Avatar}}<img class="avatar{{if eq .Badge "gold"}} square{{end}}" src="{{.Avatar}}" alt="">{{else}}<div class="avatar"></div>{{end}}<div class="thread"></div></div>
+    <div class="said">
+      <div class="top"><b>{{.Name}}</b>{{badge .Badge}}<span class="dim">@{{.Handle}} · {{.Date}}</span>{{template "logo"}}</div>
+      {{if .ReplyingTo}}<div class="replying">回复 <span class="link">@{{.ReplyingTo}}</span></div>{{end}}
+      {{if .Text}}<div class="ptext">{{template "spans" .Text}}</div>{{end}}
+      {{if .More}}<span class="more">显示更多</span>{{end}}
+      {{if .Translation}}<div class="ptrans"><div class="by">译文</div><div class="ptext">{{template "spans" .Translation}}</div></div>{{end}}
+      {{template "media" .Media}}
+      {{template "quote" .Quote}}
+      {{if .QuoteGone}}<div class="gone">{{.QuoteGone}}</div>{{end}}
+    </div>
+  </div>{{end}}
   <div class="head">
     {{if .Avatar}}<img class="avatar{{if eq .Badge "gold"}} square{{end}}" src="{{.Avatar}}" alt="">{{else}}<div class="avatar"></div>{{end}}
     <div class="who">
       <div class="name"><span>{{.Name}}</span>{{badge .Badge}}</div>
       <div class="handle">@{{.Handle}}</div>
     </div>
-    <svg class="logo" viewBox="0 0 24 24" fill="currentColor"><path d="M18.24 2.25h3.31l-7.23 8.26 8.5 11.24h-6.65l-5.21-6.82-5.97 6.82H1.68l7.73-8.84L1.25 2.25h6.83l4.71 6.23zm-1.16 17.52h1.83L7.08 4.13H5.12z"/></svg>
+    {{if not .Parent}}{{template "logo"}}{{end}}
   </div>
   {{if .ReplyingTo}}<div class="replying">回复 <span class="link">@{{.ReplyingTo}}</span></div>{{end}}
-  {{if .Text}}<div class="text">{{range .Text}}{{if .Link}}<span class="link">{{.Text}}</span>{{else}}{{.Text}}{{end}}{{end}}</div>{{end}}
+  {{if .Text}}<div class="text">{{template "spans" .Text}}</div>{{end}}
   {{if .More}}<span class="more">显示更多</span>{{end}}
   {{with .Translation}}<div class="translation">
     <div class="by">{{.By}}</div>
-    <div class="text">{{range .Text}}{{if .Link}}<span class="link">{{.Text}}</span>{{else}}{{.Text}}{{end}}{{end}}</div>
+    <div class="text">{{template "spans" .Text}}</div>
     {{if .More}}<span class="more">显示更多</span>{{end}}
   </div>{{end}}
   {{template "media" .Media}}
@@ -93,12 +125,7 @@
     {{range .Choices}}<div class="choice{{if .Top}} top{{end}}"><div class="bar" style="width: {{.Width}}%"></div><span>{{.Label}}</span><span>{{.Percent}}</span></div>{{end}}
     <div class="pollfoot">{{.Votes}} 票 · {{.State}}</div>
   </div>{{end}}
-  {{with .Quote}}<div class="quote">
-    <div class="top">{{if .Avatar}}<img src="{{.Avatar}}" alt="">{{end}}<b>{{.Name}}</b>{{badge .Badge}}<span class="dim">@{{.Handle}} · {{.Date}}</span></div>
-    {{if .Text}}<div class="qtext">{{range .Text}}{{if .Link}}<span class="link">{{.Text}}</span>{{else}}{{.Text}}{{end}}{{end}}</div>{{end}}
-    {{if .Translation}}<div class="qtrans"><div class="by">译文</div><div class="qtext">{{range .Translation}}{{if .Link}}<span class="link">{{.Text}}</span>{{else}}{{.Text}}{{end}}{{end}}</div></div>{{end}}
-    {{template "media" .Media}}
-  </div>{{end}}
+  {{template "quote" .Quote}}
   {{if .QuoteGone}}<div class="gone">{{.QuoteGone}}</div>{{end}}
   {{if .Note}}<div class="note"><div class="title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.5"/><circle cx="16.5" cy="9.5" r="2.5"/><path d="M3 19c.6-3.3 3-5 6-5s5.4 1.7 6 5M15 14.2c2.6-.3 4.8 1.2 5.5 4.3" stroke-linecap="round"/></svg>读者添加了背景信息</div><p>{{.Note}}</p></div>{{end}}
   <div class="when">{{.When}}{{if .Views}} · <b>{{.Views}}</b> 次查看{{end}}</div>
@@ -112,3 +139,11 @@
   {{$covered := .Covered}}{{range .Items}}<div class="item"><img src="{{.Image}}" alt="">{{if $covered}}{{cover}}{{end}}{{if .Video}}<div class="play"></div>{{if .Length}}<span class="length">{{.Length}}</span>{{end}}{{end}}{{if .GIF}}<span class="gif">GIF</span>{{end}}</div>{{end}}
   {{if .Sensitive}}<span class="warning">敏感内容</span>{{end}}
 </div>{{end}}{{end}}
+{{define "spans"}}{{range .}}{{if .Link}}<span class="link">{{.Text}}</span>{{else}}{{.Text}}{{end}}{{end}}{{end}}
+{{define "quote"}}{{with .}}<div class="quote">
+    <div class="top">{{if .Avatar}}<img src="{{.Avatar}}" alt="">{{end}}<b>{{.Name}}</b>{{badge .Badge}}<span class="dim">@{{.Handle}} · {{.Date}}</span></div>
+    {{if .Text}}<div class="qtext">{{template "spans" .Text}}</div>{{end}}
+    {{if .Translation}}<div class="qtrans"><div class="by">译文</div><div class="qtext">{{template "spans" .Translation}}</div></div>{{end}}
+    {{template "media" .Media}}
+  </div>{{end}}{{end}}
+{{define "logo"}}<svg class="logo" viewBox="0 0 24 24" fill="currentColor"><path d="M18.24 2.25h3.31l-7.23 8.26 8.5 11.24h-6.65l-5.21-6.82-5.97 6.82H1.68l7.73-8.84L1.25 2.25h6.83l4.71 6.23zm-1.16 17.52h1.83L7.08 4.13H5.12z"/></svg>{{end}}

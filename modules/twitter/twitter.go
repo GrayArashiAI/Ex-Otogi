@@ -145,16 +145,18 @@ func (m *Module) answer(ctx context.Context, e otogi.Event, inv otogi.Invocation
 		m.host.Record(ctx, otogi.Record{Kind: "twitter.card", Outcome: "error", Payload: map[string]any{"post": id, "step": "look up", "error": err.Error()}})
 		return nil
 	}
+	payload := map[string]any{"post": id, "source": source, "author": t.Author.Handle}
+	m.parent(ctx, &t, payload)
 	fetched := m.now()
+	payload["fetched"] = fetched.Sub(started).String()
 	pics, picErr := m.pictures(ctx, t)
-	payload := map[string]any{"post": id, "source": source, "author": t.Author.Handle, "fetched": fetched.Sub(started).String()}
 	if picErr != nil {
 		// The card goes out with what it has; the missing pictures are noted.
 		m.host.Logger().Warn("twitter: pictures not downloaded", "post", id, "error", picErr)
 		payload["picture_error"] = picErr.Error()
 	}
 	c := newCard(t, pics, m.zone, m.text)
-	if m.translator != nil && t.Text != "" {
+	if m.translator != nil && (t.Text != "" || t.Parent != nil && t.Parent.Text != "") {
 		if err := m.translate(ctx, t, &c); err != nil {
 			payload["translation_error"] = err.Error()
 		}
@@ -173,7 +175,7 @@ func (m *Module) answer(ctx context.Context, e otogi.Event, inv otogi.Invocation
 		return err
 	}
 	outcome := "ok"
-	if payload["render_error"] != nil || payload["refused"] != nil || payload["translation_error"] != nil {
+	if payload["render_error"] != nil || payload["refused"] != nil || payload["translation_error"] != nil || payload["parent_error"] != nil {
 		outcome = "degraded"
 	}
 	m.host.Record(ctx, otogi.Record{Kind: "twitter.card", Outcome: outcome, Duration: m.now().Sub(started), Payload: payload})
@@ -181,6 +183,30 @@ func (m *Module) answer(ctx context.Context, e otogi.Event, inv otogi.Invocation
 		m.sendVideos(ctx, e, inv, t, payload["refused"] != nil)
 	}
 	return nil
+}
+
+// parent looks up the post t replies to, for the card to show above it,
+// unless t's source gave it already. One that cannot be looked up leaves
+// the card saying only whom it replies to, and payload saying why.
+func (m *Module) parent(ctx context.Context, t *tweet, payload map[string]any) {
+	if t.ParentID == "" {
+		return
+	}
+	payload["parent"] = t.ParentID
+	if t.Parent != nil {
+		return
+	}
+	p, _, err := m.api.status(ctx, t.ParentID)
+	var gone *errGone
+	switch {
+	case errors.As(err, &gone):
+		payload["parent_gone"] = gone.reason
+	case err != nil:
+		m.host.Logger().Warn("twitter: the post replied to was not looked up", "post", t.ID, "parent", t.ParentID, "error", err)
+		payload["parent_error"] = err.Error()
+	default:
+		t.Parent = &p
+	}
 }
 
 // sendVideos sends the post's videos and GIFs after its card, each as a
@@ -260,9 +286,10 @@ func (m *Module) message(ctx context.Context, e otogi.Event, t tweet, c card, pa
 	return msg
 }
 
-// translate adds the post in Chinese to its card, under the original,
-// unless it is in Chinese already. A failed translation is recorded and
-// returned, and the card goes out without it.
+// translate adds the post in Chinese to its card, under the original, and
+// so its quote, the post it replies to, and that post's quote: each unless
+// it is in Chinese already. A failed translation is recorded and returned,
+// and the card goes out without it.
 func (m *Module) translate(ctx context.Context, t tweet, c *card) error {
 	started := m.now()
 	tr, needed, err := m.translator.translate(ctx, t)
@@ -278,11 +305,23 @@ func (m *Module) translate(ctx context.Context, t tweet, c *card) error {
 		return nil
 	}
 	payload["language"] = tr.Language
-	text, more := excerpt(tr.Post, m.text.post)
-	c.Translation = &translatedText{By: "由 " + providerName(m.translator.cfg.Provider) + " 翻译自" + tr.Language, Plain: text, Text: spans(text), More: more}
-	if c.Quote != nil && tr.Quote != "" {
-		quote, _ := excerpt(tr.Quote, m.text.quote)
-		c.Quote.Translation = spans(quote)
+	if tr.Post != "" {
+		text, more := excerpt(tr.Post, m.text.post)
+		c.Translation = &translatedText{By: "由 " + providerName(m.translator.cfg.Provider) + " 翻译自" + tr.Language, Plain: text, Text: spans(text), More: more}
+	}
+	quote := func(q *quoted, text string) {
+		if q != nil && text != "" {
+			text, _ = excerpt(text, m.text.quote)
+			q.Translation = spans(text)
+		}
+	}
+	quote(c.Quote, tr.Quote)
+	if p := c.Parent; p != nil {
+		if tr.Parent != "" {
+			text, _ := excerpt(tr.Parent, m.text.post)
+			p.Translation = spans(text)
+		}
+		quote(p.Quote, tr.ParentQuote)
 	}
 	m.host.Record(ctx, otogi.Record{Kind: "twitter.translation", Outcome: "ok", Duration: m.now().Sub(started), Payload: payload})
 	return nil
@@ -320,11 +359,19 @@ func (m *Module) pictures(ctx context.Context, t tweet) (pictures, error) {
 	for _, md := range t.Media[:min(len(t.Media), 4)] {
 		get(md.Image, size)
 	}
-	if q := t.Quote; q != nil {
+	quote := func(q *tweet) {
+		if q == nil {
+			return
+		}
 		get(q.Author.Avatar, "")
 		for _, md := range q.Media[:min(len(q.Media), 4)] {
 			get(md.Image, "small")
 		}
+	}
+	quote(t.Quote)
+	if p := t.Parent; p != nil {
+		quote(p)
+		quote(p.Quote)
 	}
 	return pics, errors.Join(errs...)
 }

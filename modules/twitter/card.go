@@ -45,6 +45,20 @@ type card struct {
 	When, Views                     string
 	Actions                         []action
 	Translation                     *translatedText // the post in Chinese, under the original, when it is not in Chinese
+	Parent                          *replied        // the post this one replies to, shown above it
+}
+
+// replied is the post a reply answers, as X's conversation shows it above
+// the reply: smaller, and joined to it by a line between their avatars.
+type replied struct {
+	Name, Handle, Badge, Date, ReplyingTo string
+	Avatar                                template.URL
+	Text                                  []span
+	More                                  bool
+	Translation                           []span // in Chinese, when it is not already
+	Media                                 grid
+	Quote                                 *quoted
+	QuoteGone                             string
 }
 
 // translatedText is a post's text in Chinese, with who translated it from
@@ -99,11 +113,16 @@ type action struct {
 	Value string
 }
 
-// cover puts the cover sticker over the card's pictures, the post's and
-// its quote's, and reports whether it had any to cover.
+// cover puts the cover sticker over the card's pictures, the post's, its
+// quote's, and those of the post it replies to, and reports whether it had
+// any to cover.
 func (c *card) cover() bool {
 	covered := false
-	for _, g := range []*grid{&c.Media, quoteMedia(c.Quote)} {
+	grids := []*grid{&c.Media, quoteMedia(c.Quote)}
+	if p := c.Parent; p != nil {
+		grids = append(grids, &p.Media, quoteMedia(p.Quote))
+	}
+	for _, g := range grids {
 		if g != nil && len(g.Items) > 0 {
 			g.Covered, covered = true, true
 		}
@@ -139,11 +158,15 @@ func newCard(t tweet, pics pictures, zone *time.Location, l textLimits) card {
 	if t.Views != nil {
 		c.Views = count(*t.Views)
 	}
-	if q := t.Quote; q != nil {
-		qtext, _ := excerpt(q.Text, l.quote)
-		c.Quote = &quoted{
-			Name: q.Author.Name, Handle: q.Author.Handle, Badge: q.Author.Badge, Avatar: pics[q.Author.Avatar],
-			Date: day(q.Time.In(zone), t.Time.In(zone)), Text: spans(qtext), Media: newGrid(q.Media, q.Sensitive, pics),
+	c.Quote = newQuoted(t.Quote, t.Time, pics, zone, l)
+	if p := t.Parent; p != nil {
+		// The post above says who this one replies to.
+		ptext, pmore := excerpt(p.Text, l.post)
+		c.ReplyingTo = ""
+		c.Parent = &replied{
+			Name: p.Author.Name, Handle: p.Author.Handle, Badge: p.Author.Badge, Avatar: pics[p.Author.Avatar],
+			Date: day(p.Time.In(zone), t.Time.In(zone)), ReplyingTo: p.ReplyingTo, Text: spans(ptext), More: pmore || p.Truncated,
+			Media: newGrid(p.Media, p.Sensitive, pics), Quote: newQuoted(p.Quote, t.Time, pics, zone, l), QuoteGone: p.QuoteGone,
 		}
 	}
 	if p := t.Poll; p != nil {
@@ -160,6 +183,19 @@ func newCard(t tweet, pics pictures, zone *time.Location, l textLimits) card {
 		}
 	}
 	return c
+}
+
+// newQuoted is the post q as another post quotes it, its date read from the
+// time of the post the card is of.
+func newQuoted(q *tweet, from time.Time, pics pictures, zone *time.Location, l textLimits) *quoted {
+	if q == nil {
+		return nil
+	}
+	text, _ := excerpt(q.Text, l.quote)
+	return &quoted{
+		Name: q.Author.Name, Handle: q.Author.Handle, Badge: q.Author.Badge, Avatar: pics[q.Author.Avatar],
+		Date: day(q.Time.In(zone), from.In(zone)), Text: spans(text), Media: newGrid(q.Media, q.Sensitive, pics),
+	}
 }
 
 // textLimits are how much text a card shows, in characters: a longer post

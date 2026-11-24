@@ -22,6 +22,8 @@ type tweet struct {
 	Truncated  bool // the source gave only the start of a long post
 	Time       time.Time
 	ReplyingTo string // the handle replied to
+	ParentID   string // the post replied to
+	Parent     *tweet // that post, when it could be looked up
 	Media      []media
 	Sensitive  bool
 	Quote      *tweet
@@ -156,6 +158,7 @@ type fxStatus struct {
 	PossiblySensitive bool   `json:"possibly_sensitive"`
 	ReplyingTo        *struct {
 		ScreenName string `json:"screen_name"`
+		Status     string `json:"status"`
 	} `json:"replying_to"`
 	Media *struct {
 		All []struct {
@@ -195,7 +198,7 @@ func (s *fxStatus) tweet() tweet {
 		}
 	}
 	if s.ReplyingTo != nil {
-		t.ReplyingTo = s.ReplyingTo.ScreenName
+		t.ReplyingTo, t.ParentID = s.ReplyingTo.ScreenName, s.ReplyingTo.Status
 	}
 	if s.Media != nil {
 		for _, m := range s.Media.All {
@@ -263,15 +266,17 @@ type synStatus struct {
 			Text string `json:"text"`
 		} `json:"text"`
 	} `json:"tombstone"`
-	IDStr             string    `json:"id_str"`
-	Text              string    `json:"text"`
-	DisplayTextRange  []int     `json:"display_text_range"`
-	CreatedAt         time.Time `json:"created_at"`
-	FavoriteCount     *int64    `json:"favorite_count"`
-	ConversationCount *int64    `json:"conversation_count"`
-	PossiblySensitive bool      `json:"possibly_sensitive"`
-	InReplyTo         string    `json:"in_reply_to_screen_name"`
-	NoteTweet         *struct{} `json:"note_tweet"`
+	IDStr             string     `json:"id_str"`
+	Text              string     `json:"text"`
+	DisplayTextRange  []int      `json:"display_text_range"`
+	CreatedAt         time.Time  `json:"created_at"`
+	FavoriteCount     *int64     `json:"favorite_count"`
+	ConversationCount *int64     `json:"conversation_count"`
+	PossiblySensitive bool       `json:"possibly_sensitive"`
+	InReplyTo         string     `json:"in_reply_to_screen_name"`
+	InReplyToID       string     `json:"in_reply_to_status_id_str"`
+	Parent            *synStatus `json:"parent"`
+	NoteTweet         *struct{}  `json:"note_tweet"`
 	User              struct {
 		Name          string `json:"name"`
 		ScreenName    string `json:"screen_name"`
@@ -314,7 +319,7 @@ func (s *synStatus) tweet() tweet {
 	}
 	t := tweet{
 		ID: s.IDStr, Text: strings.TrimSpace(text), Truncated: s.NoteTweet != nil, Time: s.CreatedAt,
-		ReplyingTo: s.InReplyTo, Sensitive: s.PossiblySensitive, Likes: s.FavoriteCount, Replies: s.ConversationCount,
+		ReplyingTo: s.InReplyTo, ParentID: s.InReplyToID, Sensitive: s.PossiblySensitive, Likes: s.FavoriteCount, Replies: s.ConversationCount,
 		Author: author{Name: s.User.Name, Handle: s.User.ScreenName, Avatar: strings.Replace(s.User.Image, "_normal.", "_200x200.", 1)},
 	}
 	switch {
@@ -339,6 +344,10 @@ func (s *synStatus) tweet() tweet {
 	if s.QuotedTweet != nil {
 		q := s.QuotedTweet.tweet()
 		t.Quote = &q
+	}
+	if s.Parent != nil {
+		p := s.Parent.tweet()
+		t.Parent = &p
 	}
 	return t
 }

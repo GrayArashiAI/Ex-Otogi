@@ -86,6 +86,8 @@ func (f *fakeX) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write(fixture(file))
 	case r.URL.Path == "/tweet-result" && r.URL.Query().Get("id") == "2112637394654822514":
 		_, _ = w.Write(fixture("syndication-quote.json"))
+	case r.URL.Path == "/tweet-result" && r.URL.Query().Get("id") == reply:
+		_, _ = w.Write(fixture("syndication-reply.json"))
 	case r.URL.Path == "/tweet-result":
 		_, _ = w.Write([]byte(`{"__typename":"TweetTombstone","tombstone":{"text":{"text":"This Post was deleted by the Post author."}}}`))
 	case strings.HasSuffix(r.URL.Path, "/huge.mp4"):
@@ -273,6 +275,102 @@ func TestCards(t *testing.T) {
 	}
 }
 
+// A real reply, and the post it replies to, which quotes a post in Chinese.
+const reply, repliedTo = "2125070511604646004", "2125070353663967644"
+
+// A reply's card shows the post it replies to above it, with that post's
+// quote, each part translated unless it is in Chinese already; a post
+// replied to that cannot be looked up leaves the card as it was, and the
+// record says why.
+func TestReplyCards(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name, answer string
+		parent       bool // FxTwitter has the post replied to
+		check        func(t *testing.T, c card, payload map[string]any)
+	}{
+		{"in english", "<language>英语</language>\n<post>我怀疑这起不了多大作用</post>\n<parent>既然有些人搞不清楚</parent>", true, func(t *testing.T, c card, payload map[string]any) {
+			p := c.Parent
+			if p == nil || p.Handle != "theo" || p.Date != "11月24日" || p.Avatar == "" || !strings.HasPrefix(p.Text[0].Text, "Since some people") || c.ReplyingTo != "" {
+				t.Fatalf("the post replied to %+v, replying to %q", p, c.ReplyingTo)
+			}
+			if p.Quote == nil || p.Quote.Handle != "DLKFZWilliam2" || len(p.Quote.Media.Items) == 0 || p.Quote.Translation != nil {
+				t.Fatalf("its quote %+v", p.Quote)
+			}
+			if c.Translation == nil || p.Translation == nil || p.Translation[0].Text != "既然有些人搞不清楚" {
+				t.Fatalf("translations %+v, %+v", c.Translation, p.Translation)
+			}
+			if payload["parent"] != repliedTo || payload["parent_gone"] != nil {
+				t.Fatalf("record %+v", payload)
+			}
+			// A refused card covers these pictures too.
+			if !c.cover() || !p.Quote.Media.Covered {
+				t.Fatalf("pictures of the post replied to left uncovered: %+v", p.Quote.Media)
+			}
+		}},
+		{"in chinese, replying to english", "<language>中文</language>\n<parent>既然有些人搞不清楚</parent>", true, func(t *testing.T, c card, _ map[string]any) {
+			if c.Translation != nil || c.Parent == nil || c.Parent.Translation == nil {
+				t.Fatalf("translations %+v, %+v", c.Translation, c.Parent)
+			}
+		}},
+		{"replying to a deleted post", "<language>英语</language>\n<post>我怀疑这起不了多大作用</post>", false, func(t *testing.T, c card, payload map[string]any) {
+			if c.Parent != nil || c.ReplyingTo != "theo" || payload["parent_gone"] != "not found or deleted" {
+				t.Fatalf("card %+v, record %+v", c, payload)
+			}
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			lm := &model{reply: c.answer}
+			m, err := New(Config{Chrome: chrome(t), Timezone: "Asia/Shanghai", Translate: &Translate{Provider: "gemini", Model: "m"}}, func(string) (llm.Provider, error) { return lm, nil })
+			if err != nil {
+				t.Fatal(err)
+			}
+			m.api, _ = newClient(t, func(id string) (int, string) {
+				switch {
+				case id == reply:
+					return 200, "fx-reply.json"
+				case c.parent:
+					return 200, "fx-reply-parent.json"
+				}
+				return 404, `{"code":404,"status":null}`
+			})
+			var drawn []card
+			m.render = func(_ context.Context, c card) ([]byte, error) { drawn = append(drawn, c); return []byte("PNG"), nil }
+			h := &host{}
+			_ = m.Start(context.Background(), h)
+			e := otogi.Event{Platform: "qq", Conversation: otogi.Conversation{ID: "group:G1"}, SourceID: "m1", Action: otogi.ActionMessageCreated, Message: otogi.TextMessage("https://x.com/theo/status/" + reply)}
+			if err := m.Handle(context.Background(), e, &invocation{}); err != nil {
+				t.Fatal(err)
+			}
+			if input := lm.requests[0].Turns[0].Content.PlainText(); c.parent != (strings.Contains(input, "<parent>Since some people") && strings.Contains(input, "<parent_quote>给没吃上瓜")) {
+				t.Fatalf("asked to translate %q", input)
+			}
+			for _, r := range h.records {
+				if r.Kind == "twitter.card" {
+					if r.Outcome != "ok" {
+						t.Fatalf("record %+v", r)
+					}
+					c.check(t, drawn[0], r.Payload.(map[string]any))
+				}
+			}
+			if len(drawn) != 1 {
+				t.Fatalf("%d cards drawn", len(drawn))
+			}
+		})
+	}
+}
+
+// The embed endpoint gives the post replied to with the reply.
+func TestFallbackCarriesThePostRepliedTo(t *testing.T) {
+	t.Parallel()
+	c, _ := newClient(t, func(string) (int, string) { return 503, "<html>down</html>" })
+	tw, _, err := c.status(context.Background(), reply)
+	if err != nil || tw.ParentID != repliedTo || tw.Parent == nil || tw.Parent.Author.Handle != "theo" || tw.Parent.Quote == nil {
+		t.Fatalf("post %+v: %v", tw, err)
+	}
+}
+
 func noProviders(name string) (llm.Provider, error) {
 	if name == "gemini" {
 		return &model{}, nil
@@ -392,7 +490,9 @@ func TestRenderWithChrome(t *testing.T) {
 	views := int64(1234)
 	tw := tweet{Author: author{Name: "名字 🔥", Handle: "someone", Badge: "blue"}, Text: "Cat’s @x #y https://example.com", Time: time.Now(), Views: &views,
 		Media: []media{{Kind: "video", Seconds: 41}, {Kind: "photo"}, {Kind: "gif"}}, Sensitive: true, QuoteGone: "这个帖子不可用。",
-		Poll: &poll{Choices: []choice{{"A", 60}, {"B", 40}}, Votes: 10, Ended: true}, Note: "context", ReplyingTo: "other"}
+		Poll: &poll{Choices: []choice{{"A", 60}, {"B", 40}}, Votes: 10, Ended: true}, Note: "context", ReplyingTo: "other",
+		Parent: &tweet{Author: author{Name: "Other", Handle: "other", Badge: "gold"}, Text: "What they answer", Time: time.Now(), ReplyingTo: "third",
+			Media: []media{{Kind: "photo"}}, Quote: &tweet{Author: author{Name: "Quoted", Handle: "quoted"}, Text: "quoted", Time: time.Now()}}}
 	png, err := render(ctx, cardimage.Renderer{Chrome: path}, newTemplate(cardimage.DefaultPictures()), newCard(tw, pictures{}, time.Local, textLimits{post: 560, quote: 280}))
 	if err != nil {
 		t.Fatal(err)
