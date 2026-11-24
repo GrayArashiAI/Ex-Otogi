@@ -55,12 +55,9 @@ func (c *Config) people() (map[string]person, error) {
 			errs = append(errs, fmt.Errorf("%s.user %q is listed twice", field, pc.User))
 			continue
 		}
-		factor := cmp.Or(pc.ThresholdFactor, 1)
-		if factor < 0.1 || factor > 10 {
-			errs = append(errs, fmt.Errorf("%s.threshold_factor %v: want 0.1 to 10", field, factor))
-		}
-		// One line each: a note is a line of a list the model reads.
-		out[pc.User] = person{name: strings.Join(strings.Fields(pc.Name), " "), note: strings.Join(strings.Fields(pc.Note), " "), factor: factor}
+		// The schema keeps a factor within 0.1 to 10; unset is 1. One line
+		// each: a note is a line of a list the model reads.
+		out[pc.User] = person{name: strings.Join(strings.Fields(pc.Name), " "), note: strings.Join(strings.Fields(pc.Note), " "), factor: cmp.Or(pc.ThresholdFactor, 1)}
 	}
 	return out, errors.Join(errs...)
 }

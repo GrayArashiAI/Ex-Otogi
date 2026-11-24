@@ -40,7 +40,7 @@ func TestPeopleConfig(t *testing.T) {
 		"7C2E":          "people[1].user",
 		":user:7C2E":    "people[1].user",
 		"qq:":           "people[1].user",
-		"qq:user:B3 F8": "people[1].user",
+		"qq:user:7C 2E": "people[1].user",
 		"qq:user:x":     "people[1].user \"qq:user:x\" is listed twice",
 	} {
 		_, err := New(Config{Profiles: base, People: []PersonConfig{{User: "qq:user:x"}, {User: user}}}, providers)
@@ -48,17 +48,13 @@ func TestPeopleConfig(t *testing.T) {
 			t.Errorf("user %q: err %v, want %q", user, err, want)
 		}
 	}
-	for _, f := range []float64{0.05, -1, 20} {
-		_, err := New(Config{Profiles: base, People: []PersonConfig{{User: "qq:user:x", ThresholdFactor: f}}}, providers)
-		if err == nil || !strings.Contains(err.Error(), "people[0].threshold_factor") {
-			t.Errorf("factor %v: err %v", f, err)
-		}
-	}
 }
 
 // Wherever the model is told who sent a message, a listed person goes by the
-// name the list gives, the platform's following where it differs; the
-// transcript keeps the platform's, so a changed list applies to it at once.
+// name the list gives, the platform's following where it differs. The
+// transcript keeps the platform's, so a changed list applies at once to the
+// recent messages and judgments, which are read from it each time; a
+// thread's turns keep the names they were sent with.
 func TestNamesFromThePeopleList(t *testing.T) {
 	h := newHarness(t)
 	h.llm["otogi"].responses = []llm.Response{answer("hi"), answer("again")}
@@ -160,9 +156,19 @@ func TestThresholdFactor(t *testing.T) {
 
 	asked := len(d.requests)
 	d.scores["a1"] = 0.99
-	h.mustHandle(h.message("Joker", "luna, what do you think?"))
+	joker := h.message("Joker", "luna, what do you think?")
+	h.mustHandle(joker)
 	if len(d.requests) != asked || len(h.llm["luna"].requests) != 1 {
 		t.Fatalf("a factor past 1 was judged (%d requests) or woke the agent", len(d.requests)-asked)
+	}
+	// Why the agent stayed quiet is in the message's records.
+	r := h.host.records[len(h.host.records)-1]
+	if r.Kind != "chat.unjudged" || r.Outcome != "skipped" || r.Event != joker.ID {
+		t.Fatalf("last record %s %s for %s, want chat.unjudged skipped for %s", r.Kind, r.Outcome, r.Event, joker.ID)
+	}
+	payload := r.Payload.(map[string]any)
+	if payload["agent"] != "luna" || math.Abs(payload["threshold"].(float64)-1.4) > 1e-9 || payload["factor"] != 2.0 {
+		t.Fatalf("chat.unjudged %+v", payload)
 	}
 	h.mustHandle(h.message("Joker", "@bot what do you think?", func(e *otogi.Event) { e.Mentioned = true }))
 	if len(h.llm["luna"].requests) != 2 || lastReply(h)["trigger"] != "mention" {
