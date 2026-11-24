@@ -197,7 +197,7 @@ func TestOneWaitPerMessage(t *testing.T) {
 	e := h.message("Alice", "", withParts("otogi, look", photo("a"), photo("b"), photo("c")))
 	const wait = 100 * time.Millisecond
 	start := time.Now()
-	msg := h.m.userContent(context.Background(), e, invocation{h: h}, h.m.byName["otogi"], true, start.Add(wait))
+	msg, _ := h.m.userContent(context.Background(), e, invocation{h: h}, h.m.byName["otogi"], true, start.Add(wait))
 	took := time.Since(start)
 	if took < wait || took > 2*wait {
 		t.Fatalf("three pieces of media waited %v, want about %v in all", took, wait)

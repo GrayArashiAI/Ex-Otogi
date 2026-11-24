@@ -25,6 +25,7 @@ type Module struct {
 	cfg         Config
 	profiles    []*profile
 	byName      map[string]*profile
+	people      map[string]person // by platform:actor ID
 	toolModules []otogi.ModuleID
 	tools       map[otogi.ModuleID][]llm.Tool // each tool module's functions; set in Start
 	host        otogi.Host
@@ -39,10 +40,11 @@ type Module struct {
 func New(cfg Config, providers func(string) (llm.Provider, error)) (*Module, error) {
 	profiles, err := cfg.profiles(providers)
 	toolModules, toolsErr := cfg.toolModules()
-	if err := errors.Join(err, toolsErr); err != nil {
+	people, peopleErr := cfg.people()
+	if err := errors.Join(err, toolsErr, peopleErr); err != nil {
 		return nil, err
 	}
-	m := &Module{cfg: cfg, profiles: profiles, byName: map[string]*profile{}, toolModules: toolModules, now: time.Now}
+	m := &Module{cfg: cfg, profiles: profiles, byName: map[string]*profile{}, people: people, toolModules: toolModules, now: time.Now}
 	for _, p := range profiles {
 		m.byName[p.Name] = p
 	}

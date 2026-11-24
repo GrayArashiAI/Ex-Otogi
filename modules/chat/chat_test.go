@@ -629,7 +629,7 @@ func TestSchemaDefaultsAreTheDefaults(t *testing.T) {
 	unset := Config{Profiles: []ProfileConfig{
 		{Name: "luna", Keywords: []string{"luna"}, Provider: "p", Model: "m"},
 		{Name: "mizuki", Keywords: []string{"mizuki"}, Provider: "p", Model: "m", Judge: &JudgeConfig{Wake: &WakeConfig{}}},
-	}}
+	}, People: []PersonConfig{{User: "qq:user:x"}}}
 	typed := settingstest.WithDefaults(t, unset)
 	a, err := unset.profiles(providers)
 	if err != nil {
@@ -642,5 +642,16 @@ func TestSchemaDefaultsAreTheDefaults(t *testing.T) {
 	if unset.Retention != typed.Retention || unset.Timeout != typed.Timeout || *unset.ToolReserve != *typed.ToolReserve || unset.MaxMediaMB != typed.MaxMediaMB ||
 		a[0].MaxTurns != b[0].MaxTurns || a[0].MaxToolRounds != b[0].MaxToolRounds || a[0].context != b[0].context || a[1].wake != b[1].wake {
 		t.Fatalf("schema defaults give %+v %+v wake %v, unset fields %+v %+v wake %v", typed, b[0], b[1].wake, unset, a[0], a[1].wake)
+	}
+	pa, err := unset.people()
+	if err != nil {
+		t.Fatal(err)
+	}
+	pb, err := typed.people()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if typed.People[0].ThresholdFactor != 1 || pa["qq:user:x"] != pb["qq:user:x"] {
+		t.Fatalf("schema default factor %v gives %+v, unset gives %+v", typed.People[0].ThresholdFactor, pb["qq:user:x"], pa["qq:user:x"])
 	}
 }
