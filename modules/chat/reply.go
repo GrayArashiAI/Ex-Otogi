@@ -115,12 +115,13 @@ func (m *Module) thread(ctx context.Context, parent int64, maxTurns int) ([]stor
 
 // userContent is the message as the model gets it: in groups after its
 // sender's name, with media inline, or described for an agent with
-// media.as_text, and, when quote is set, after the message it replies to (a
-// reply continuing a thread quotes the agent's own turn, which the thread
-// has).
+// media.as_text (the quoted message's by its kept descriptions, without
+// waiting), and, when quote is set, after the message it replies to (a reply
+// continuing a thread quotes the agent's own turn, which the thread has).
 func (m *Module) userContent(ctx context.Context, e otogi.Event, inv otogi.Invocation, p *profile, quote bool, until time.Time) otogi.Message {
+	asText := p.Media != nil && p.Media.AsText
 	shown := func(media otogi.Media) otogi.Message {
-		if p.Media != nil && p.Media.AsText {
+		if asText {
 			return m.describedPart(ctx, e.Destination(), media, until)
 		}
 		return m.mediaPart(ctx, inv, e.Destination(), media)
@@ -130,7 +131,11 @@ func (m *Module) userContent(ctx context.Context, e otogi.Event, inv otogi.Invoc
 		if quoted, found, err := m.store.message(ctx, e.Destination(), string(target.SourceEvent)); err == nil && found && (quoted.Text != "" || len(quoted.Media) > 0) {
 			msg = llm.Join(msg, otogi.TextMessage("Replying to "+quoted.ActorName+":\n"+quoted.Text))
 			for _, media := range quoted.Media {
-				msg = llm.Join(msg, shown(media))
+				if asText {
+					msg = llm.Join(msg, m.keptPart(ctx, e.Destination(), media))
+				} else {
+					msg = llm.Join(msg, m.mediaPart(ctx, inv, e.Destination(), media))
+				}
 			}
 		}
 	}

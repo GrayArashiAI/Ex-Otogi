@@ -39,6 +39,8 @@ func newWaits(now func() time.Time) *waits {
 }
 
 // finish hands r to everyone waiting on k and keeps it for keepResults.
+// It also drops expired results: when nobody waits, as for agents that only
+// look descriptions up, wait never runs to drop them.
 func (w *waits) finish(k string, r result) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -46,19 +48,25 @@ func (w *waits) finish(k string, r result) {
 		ch <- r // buffered: a waiter that left is not blocked on
 	}
 	delete(w.waiting, k)
-	w.done[k] = finished{result: r, at: w.now()}
+	now := w.now()
+	w.expire(now)
+	w.done[k] = finished{result: r, at: now}
+}
+
+// expire drops the results kept longer than keepResults. w.mu is held.
+func (w *waits) expire(now time.Time) {
+	for key, f := range w.done {
+		if now.Sub(f.at) > keepResults {
+			delete(w.done, key)
+		}
+	}
 }
 
 // wait returns the result for k, kept or to come, or ctx's error once ctx
 // ends first.
 func (w *waits) wait(ctx context.Context, k string) (result, error) {
 	w.mu.Lock()
-	now := w.now()
-	for key, f := range w.done {
-		if now.Sub(f.at) > keepResults {
-			delete(w.done, key)
-		}
-	}
+	w.expire(w.now())
 	if f, ok := w.done[k]; ok {
 		w.mu.Unlock()
 		return f.result, nil

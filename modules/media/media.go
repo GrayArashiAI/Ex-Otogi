@@ -173,7 +173,11 @@ func (m *Module) handleOne(ctx context.Context, e otogi.Event, inv otogi.Invocat
 	}
 	p, err := m.prepare(md, data)
 	if err != nil {
-		m.skip(ctx, chat, md, int64(len(data)), "not described")
+		reason := "not described"
+		if errors.Is(err, errTooLarge) {
+			reason = "too large"
+		}
+		m.skip(ctx, chat, md, int64(len(data)), reason)
 		res.err = contract.ErrNotDescribed
 		return nil
 	}
