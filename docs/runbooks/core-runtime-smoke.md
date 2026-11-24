@@ -21,13 +21,21 @@ echo: hello
 
 ```sh
 cp otogi.example.yaml otogi.yaml        # then edit
-export OTOGI_TELEGRAM_APP_ID=... OTOGI_TELEGRAM_APP_HASH=...
-/tmp/otogi validate                     # check the config
-/tmp/otogi login main                   # once per Telegram account
+/tmp/otogi validate                     # check the config file
 /tmp/otogi run                          # until SIGINT/SIGTERM
 ```
 
-Run it under a supervisor that restarts it on non-zero exit. Logs go to stdout (`log.format: json` or `text`).
+A new install starts with no platform accounts and the management API up. Add them in the control panel (Settings, Accounts), or from the server, then restart:
+
+```sh
+curl -X PUT 127.0.0.1:8090/api/secrets/OTOGI_TELEGRAM_APP_HASH -H 'Content-Type: application/json' -d '{"value": "..."}'
+curl -X PUT 127.0.0.1:8090/api/system/accounts/settings -H 'If-Match: "0"' -H 'Content-Type: application/json' \
+  -d '{"telegram": [{"account": "main", "app_id": 12345, "app_hash": "${OTOGI_TELEGRAM_APP_HASH}"}]}'
+/tmp/otogi login main                   # once per Telegram account, before the restart
+curl -X POST 127.0.0.1:8090/api/restart # exits with code 75; the supervisor starts it again
+```
+
+Run it under a supervisor that restarts it on non-zero exit. Logs go to stdout, as JSON or text (Settings, Process: `log_format`).
 
 ## Inspect a running bot
 
@@ -53,7 +61,7 @@ make quality   # lint, test-race, test-fuzz-smoke, smoke
 
 ## Deploy to the test host
 
-The test host runs the `next` branch as `ex-otogi-next.service` from `/srv/ex-otogi-next` (`otogi`, `otogi.yaml`, `0600` `otogi.env` with the Telegram app credentials, and `data/`). The management API is on the host's `127.0.0.1:8383`.
+The test host runs the `next` branch as `ex-otogi-next.service` from `/srv/ex-otogi-next` (`otogi`, `otogi.yaml`, `0600` `otogi.env` with the secrets not yet set in the panel, and `data/`). The management API is on the host's `127.0.0.1:8383`.
 
 ```sh
 make deploy            # build linux/amd64, upload, validate the host's config with the new binary,

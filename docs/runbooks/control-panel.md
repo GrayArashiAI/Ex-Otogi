@@ -67,12 +67,23 @@ BOOTH cards and X cards draw with Content safety's settings: turn Content safety
 
 Where a module answers: Add chats on its page, picking from the chats the bot has seen, or the module switches on a chat's page in Chats.
 
-## General settings and language models
+## Settings outside modules
 
-The settings outside modules that apply while the bot runs are in two sections, saved, reviewed, and restored like a module's (Settings in the panel; `/api/system/general` and `/api/system/llm` from the server):
+The settings outside modules are in four sections, saved, reviewed, and restored like a module's (Settings in the panel; `/api/system/general`, `/api/system/llm`, `/api/system/accounts`, and `/api/system/process` from the server). Two apply while the bot runs:
 
 - General: the operators, the command prefixes, how long the event log is kept, and the log level. Each applies the moment it is saved; no module restarts.
 - Language models: the Gemini provider and the OpenAI-compatible services such as DeepSeek, each with its address and its API key as a secret. Saving rebuilds the providers and restarts the modules that use one, which the answer's record (`system.reconfigured`) names; their next request goes to the new address with the new key. If a provider or one of those modules does not build with the new settings (a module names a provider that is gone, a key is set nowhere), nothing changes and the answer says why.
+
+Two are read when the process starts, so saving one stores it and a restart applies it:
+
+- Accounts: the Telegram accounts and the QQ bots, each credential as a secret.
+- Process: the kernel's workers, `max_in_flight`, and `handler_timeout`, the log format, and the shutdown timeout.
+
+`GET /api/system` tells a pending restart: for these two, `running` is the revision the process started with, and `revision` the saved one. `POST /api/restart` stops the bot as `POST /api/shutdown` does, with exit code 75, and the supervisor starts it again; wait for `/readyz`. If it does not come back, it has to be started on the server: look at the service's log for why.
+
+To add a Telegram account, in this order: save the account, log it in on the server with `otogi login <account>`, then restart. Restarted before the login, the account's driver fails to start and the bot stays down (see below).
+
+`GET /api/system/startup` shows what stays in `otogi.yaml` (the data directory, the management API's address, the panel's URL and its sign-in), with the file's path; those are changed in the file on the server.
 
 From the server, with the `ETag` of the settings being replaced:
 
@@ -83,7 +94,25 @@ curl -X PUT http://127.0.0.1:8090/api/system/llm/settings -H 'If-Match: "1"' \
   -d '{"gemini": {"api_key": "${OTOGI_GEMINI_API_KEY}"}, "openai": {"deepseek": {"base_url": "https://api.deepseek.com", "api_key": "${OTOGI_DEEPSEEK_API_KEY}"}}}'
 ```
 
-These settings used to be keys of `otogi.yaml`. After an upgrade the first start saves the file's keys as each section's first revision, by `otogi.yaml`; later starts ignore them and say so in one warning. Remove them from the file then (see `docs/operations.md`).
+All four sections used to be keys of `otogi.yaml`. After an upgrade the first start saves the file's keys as each section's first revision, by `otogi.yaml`; later starts ignore them and say so in one warning. Remove them from the file then (see `docs/operations.md`).
+
+## The bot does not start after a settings change
+
+Saving checks what can be checked without the platform. A wrong `app_hash` or `app_secret`, or a Telegram account not logged in, shows only when the driver starts: it fails, the process exits with an error, the supervisor starts it again, and it fails again. The panel is down with it. A module's settings that built when saved can fail the same way at a start, when a secret they refer to is gone from the environment.
+
+The service's log names what failed, such as `system:accounts, settings revision 4` or the driver's error. With the bot stopped, put back the settings there were before the last change:
+
+```sh
+systemctl stop otogi                           # or however it is supervised
+otogi -config otogi.yaml settings revert system:accounts
+systemctl start otogi
+```
+
+The ID is a section (`system:accounts`, `system:process`, `system:general`, `system:llm`) or a module's ID (`chat`). The command stores the revision before the current one again, as the latest, which is what restoring it in the panel does: the history is kept, the new revision is saved by `otogi settings revert` and recorded as `system.reconfigured` or `module.reconfigured`, and the command prints the revision it was at and the one it stored. Run again, it goes one revision further back each time. When there is no earlier revision (the change was the first ever saved), it stores empty settings, the state before anything was saved: no accounts for `system:accounts`, and for a module, off. The bot then starts, the panel opens, and the change can be made again there.
+
+Run it only while the bot is stopped: the running process would keep what it started with, and the command does not check.
+
+For a new Telegram account the cause is usually the order: `otogi login <account>` works while the bot is down, so logging in and starting again fixes it without reverting.
 
 ## Secrets
 

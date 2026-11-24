@@ -60,7 +60,11 @@ func (a systemAPI) Sections(ctx context.Context) ([]management.Section, error) {
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, management.Section{ID: strings.TrimPrefix(string(id), sectionPrefix), Revision: r.Revision})
+		section := management.Section{ID: strings.TrimPrefix(string(id), sectionPrefix), Revision: r.Revision, Applies: "now", Running: r.Revision}
+		if sections[id].onRestart {
+			section.Applies, section.Running = "restart", a.settings.started[id]
+		}
+		out = append(out, section)
 	}
 	return out, nil
 }

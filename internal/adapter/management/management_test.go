@@ -195,3 +195,29 @@ func TestServerRequiresTokenOffLoopback(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// The startup settings are what the config file sets, with each secret
+// reported only as set or not.
+func TestStartupSettingsHoldNoSecret(t *testing.T) {
+	startup := func(cfg ServerConfig) string {
+		t.Helper()
+		mux, _ := newAPI(cfg, nil, false)
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/system/startup", nil))
+		if w.Code != http.StatusOK {
+			t.Fatalf("GET /api/system/startup = %d %s", w.Code, w.Body)
+		}
+		return strings.TrimSpace(w.Body.String())
+	}
+	got := startup(ServerConfig{
+		ConfigFile: "/etc/otogi/otogi.yaml", DataDir: "/var/lib/otogi", Addr: "0.0.0.0:8090", Token: "value-token", PublicURL: "https://otogi.example.com",
+		OIDC: OIDC{Issuer: "https://opus.name", ClientID: "otogi", ClientSecret: "value-client-secret", Allow: []string{"tundra"}},
+	})
+	want := `{"config_file":"/etc/otogi/otogi.yaml","data_dir":"/var/lib/otogi","management":{"addr":"0.0.0.0:8090","token_set":true,"public_url":"https://otogi.example.com","oidc":{"issuer":"https://opus.name","client_id":"otogi","client_secret_set":true,"allow":["tundra"]}}}`
+	if got != want {
+		t.Fatalf("startup settings:\n%s\nwant\n%s", got, want)
+	}
+	if got := startup(ServerConfig{Addr: "127.0.0.1:8090"}); !strings.Contains(got, `"token_set":false`) || !strings.Contains(got, `"client_secret_set":false`) || !strings.Contains(got, `"allow":[]`) {
+		t.Fatalf("startup settings with nothing set: %s", got)
+	}
+}

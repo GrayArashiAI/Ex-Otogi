@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime/debug"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/TundraWork/Ex-Otogi/internal/adapter/management"
@@ -30,54 +32,72 @@ type driver interface {
 	Ready() bool
 }
 
-// run opens the event log, starts the management API, the kernel, and the
-// drivers, waits for ctx to end (a signal or POST /api/shutdown) or a driver
-// to stop, then shuts down within the configured timeout. It returns the
-// first failure, or nil after a requested stop.
-func run(ctx context.Context, cfg Config, log *slog.Logger, level *slog.LevelVar) (failure error) {
+// run opens the module store and the event log, starts the management API,
+// the kernel, and the drivers of the accounts set in the panel, waits for ctx
+// to end (a signal, POST /api/shutdown, or POST /api/restart) or a driver to
+// stop, then shuts down within the shutdown timeout. It returns the first
+// failure, or nil after a requested stop; restart says the stop was asked
+// for with POST /api/restart, for the process to be started again. newLog
+// makes the process log, in the format the process settings name.
+func run(ctx context.Context, cfg Config, newLog func(format string) *slog.Logger, level *slog.LevelVar) (restart bool, failure error) {
 	ctx, requestShutdown := context.WithCancel(ctx)
 	defer requestShutdown()
 	started := time.Now()
 
-	events, err := management.OpenEventLog(ctx, filepath.Join(cfg.DataDir, "eventlog.sqlite"), log)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if err := events.Close(); err != nil && failure == nil {
-			failure = err
-		}
-	}()
-	process := func(state string, err error) {
-		payload := map[string]string{"state": state}
-		outcome := "ok"
-		if err != nil {
-			payload["error"], outcome = err.Error(), "error"
-		}
-		events.Record(context.Background(), otogi.Record{At: time.Now(), Kind: "process.state", Component: "process", Outcome: outcome, Payload: payload})
-	}
 	storage, err := modulestore.Open(ctx, cfg.DataDir)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer func() {
 		if err := storage.Close(); err != nil && failure == nil {
 			failure = err
 		}
 	}()
+	settings := &moduleSettings{store: storage, kinds: moduleKinds}
+	limits, err := settings.startProcess(ctx, cfg)
+	if err != nil {
+		return false, err
+	}
+	log := newLog(limits.LogFormat)
+	events, err := management.OpenEventLog(ctx, filepath.Join(cfg.DataDir, "eventlog.sqlite"), log)
+	if err != nil {
+		return false, err
+	}
+	defer func() {
+		if err := events.Close(); err != nil && failure == nil {
+			failure = err
+		}
+	}()
+	var restartBy atomic.Pointer[string] // who asked for a restart, once one did
+	process := func(state string, err error) {
+		payload := map[string]string{"state": state}
+		outcome := "ok"
+		if err != nil {
+			payload["error"], outcome = err.Error(), "error"
+		}
+		if by := restartBy.Load(); by != nil {
+			payload["restart_requested_by"] = *by
+		}
+		events.Record(context.Background(), otogi.Record{At: time.Now(), Kind: "process.state", Component: "process", Outcome: outcome, Payload: payload})
+	}
 	// Modules get views of the runtime built below; status and commands are
 	// only called once the process runs.
 	var status func(context.Context) utility.Status
 	var k *kernel.Kernel
 	sys := newSystem(level, events, log)
-	settings := &moduleSettings{store: storage, kinds: moduleKinds, recorder: events, log: log, system: sys, env: moduleEnv{
+	settings.recorder, settings.log, settings.system = events, log, sys
+	settings.env = moduleEnv{
 		operators: sys.operatorList,
 		llm:       sys.provider,
 		status:    func(ctx context.Context) utility.Status { return status(ctx) },
 		commands:  func() []utility.CommandInfo { return commandsOf(k.Descriptors()) },
-	}}
+	}
 	if err := settings.loadSections(ctx, cfg); err != nil {
-		return err
+		return false, err
+	}
+	telegramAccounts, qqAccounts, err := settings.startAccounts(ctx, cfg)
+	if err != nil {
+		return false, err
 	}
 	// The pruner starts once the retention is loaded.
 	var background sync.WaitGroup
@@ -89,21 +109,23 @@ func run(ctx context.Context, cfg Config, log *slog.Logger, level *slog.LevelVar
 	}()
 	modules, err := settings.enabled(ctx)
 	if err != nil {
-		return err
+		return false, err
 	}
 	routes := router{}
-	kernelConfig := cfg.Kernel.kernel()
-	kernelConfig.Recorder, kernelConfig.Storage = events, storage
+	kernelConfig := kernel.Config{
+		Workers: limits.Workers, MaxInFlight: limits.MaxInFlight, HandlerTimeout: time.Duration(limits.HandlerTimeout),
+		Recorder: events, Storage: storage,
+	}
 	middleware := []otogi.Middleware{namesMiddleware{events: events, log: log}, kernel.CommandParser(&sys.prefixes)}
 	k, err = kernel.New(kernelConfig, modules, middleware, routes, log)
 	if err != nil {
-		return err
+		return false, err
 	}
 	settings.kernel = k
 	var drivers []driver
 	var statuses []func(context.Context) management.DriverStatus
 	var telegramDrivers []*telegram.Driver
-	for _, a := range cfg.Telegram {
+	for _, a := range telegramAccounts {
 		d := telegram.New(telegram.Config{
 			AppID: a.AppID, AppHash: a.AppHash, AccountKey: a.Account,
 			SessionPath: a.Session, DatabasePath: a.Database, UploadThreads: a.UploadThreads,
@@ -119,7 +141,7 @@ func run(ctx context.Context, cfg Config, log *slog.Logger, level *slog.LevelVar
 		telegramDrivers = append(telegramDrivers, d)
 	}
 	var qqDrivers []*qq.Driver
-	for _, a := range cfg.QQ {
+	for _, a := range qqAccounts {
 		d := qq.New(qq.Config{
 			AccountKey: a.Account, AppID: a.AppID, AppSecret: a.AppSecret, DatabasePath: a.Database,
 			Kernel: k, Logger: log, Recorder: events,
@@ -161,7 +183,7 @@ func run(ctx context.Context, cfg Config, log *slog.Logger, level *slog.LevelVar
 		var key []byte
 		if cfg.Management.PublicURL != "" {
 			if key, err = management.LoadCookieKey(filepath.Join(cfg.DataDir, "panel.key")); err != nil {
-				return err
+				return false, err
 			}
 		}
 		o := cfg.Management.OIDC
@@ -169,6 +191,12 @@ func run(ctx context.Context, cfg Config, log *slog.Logger, level *slog.LevelVar
 			PublicURL: cfg.Management.PublicURL, CookieKey: key, Panel: web.Panel(),
 			OIDC: management.OIDC{Issuer: o.Issuer, ClientID: o.ClientID, ClientSecret: o.ClientSecret, Allow: o.Allow},
 			Addr: addr, Token: cfg.Management.Token, Events: events, Logger: log,
+			ConfigFile: cfg.path, DataDir: cfg.DataDir,
+			Restart: func(by string) {
+				restartBy.Store(&by)
+				log.Info("otogi: restart requested", "by", by)
+				requestShutdown()
+			},
 			Shutdown: requestShutdown, Modules: newModuleAPI(settings), System: newSystemAPI(settings), Secrets: newModuleAPI(settings), Media: routes.FetchMedia, Version: version(),
 			Ready: func() bool { return allReady(drivers) },
 			Running: func() []management.Running {
@@ -185,7 +213,10 @@ func run(ctx context.Context, cfg Config, log *slog.Logger, level *slog.LevelVar
 				stats := k.Stats()
 				s := management.Status{
 					Version: version(), StartedAt: started, Ready: allReady(drivers), Drivers: []management.DriverStatus{},
-					Kernel:   management.KernelStatus{State: stats.State, InFlight: stats.InFlight, MaxInFlight: stats.MaxInFlight, Workers: stats.Workers},
+					Kernel: management.KernelStatus{
+						State: stats.State, InFlight: stats.InFlight, MaxInFlight: stats.MaxInFlight, Workers: stats.Workers,
+						HandlerTimeoutMS: stats.HandlerTimeout.Milliseconds(),
+					},
 					EventLog: management.EventLogStatus{Health: events.Health(ctx), RetentionMS: sys.retention().Milliseconds()},
 				}
 				for _, status := range statuses {
@@ -197,7 +228,7 @@ func run(ctx context.Context, cfg Config, log *slog.Logger, level *slog.LevelVar
 			},
 		})
 		if err != nil {
-			return err
+			return false, err
 		}
 		defer func() {
 			stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -209,7 +240,7 @@ func run(ctx context.Context, cfg Config, log *slog.Logger, level *slog.LevelVar
 	}
 
 	if err := k.Start(ctx); err != nil {
-		return err
+		return false, err
 	}
 	var running []driver
 	for _, d := range drivers {
@@ -228,11 +259,11 @@ func run(ctx context.Context, cfg Config, log *slog.Logger, level *slog.LevelVar
 		failure = nil // a stop was requested during startup
 	}
 	process("stopping", failure)
-	if err := shutdown(cfg, k, running, log); err != nil && failure == nil {
+	if err := shutdown(cmp.Or(time.Duration(limits.ShutdownTimeout), 30*time.Second), k, running, log); err != nil && failure == nil {
 		failure = err
 	}
 	process("stopped", failure)
-	return failure
+	return failure == nil && restartBy.Load() != nil, failure
 }
 
 func allReady(drivers []driver) bool {
@@ -282,10 +313,10 @@ func waitForStop(ctx context.Context, drivers []driver) error {
 }
 
 // shutdown drains drivers (no new dispatch), lets the kernel finish in-flight
-// events, then stops drivers and the kernel, all within ShutdownTimeout.
-func shutdown(cfg Config, k *kernel.Kernel, drivers []driver, log *slog.Logger) error {
+// events, then stops drivers and the kernel, all within timeout.
+func shutdown(timeout time.Duration, k *kernel.Kernel, drivers []driver, log *slog.Logger) error {
 	log.Info("otogi: shutting down")
-	ctx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	var errs []error
 	for _, d := range drivers {

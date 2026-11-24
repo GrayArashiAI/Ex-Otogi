@@ -2,16 +2,7 @@
 # ${VAR} in any value is read from the environment; an unset variable is an error.
 # Unknown keys are errors, so typos surface at startup. Check with: otogi validate
 
-data_dir: data            # Telegram state lives in <data_dir>/telegram/<account>/
-shutdown_timeout: 30s
-
-log:
-  format: json            # json | text
-
-kernel:
-  workers: 32             # goroutines running module deliveries
-  max_in_flight: 1024     # events admitted but not finished; intake waits beyond this
-  handler_timeout: 10m    # per delivery, unless a module sets its own
+data_dir: data            # everything the bot keeps: its databases, the settings, Telegram sessions
 
 management:
   addr: 127.0.0.1:8090    # HTTP API for status and the event log; "" disables it
@@ -23,31 +14,23 @@ management:
   #   client_secret: ${OTOGI_OIDC_CLIENT_SECRET}
   #   allow: [tundra]                       # provider usernames that may sign in
 
-telegram:
-  - account: main         # becomes the event account ID; log in with: otogi login main
-    app_id: ${OTOGI_TELEGRAM_APP_ID}
-    app_hash: ${OTOGI_TELEGRAM_APP_HASH}
-    # session: data/telegram/main/session.json
-    # database: data/telegram/main/state.sqlite
-    # upload_threads: 8   # parts of a file uploaded at once; more is faster far from Telegram's servers
-
-# QQ bots on the official QQ Bot API (create one at q.qq.com; set its events
-# to WebSocket in the console). Each is optional.
-# qq:
-#   - account: otogi      # becomes the event account ID
-#     app_id: ${OTOGI_QQ_APP_ID}
-#     app_secret: ${OTOGI_QQ_APP_SECRET}
-#     # database: data/qq/otogi/state.sqlite
-
 # Not set up here, but in the control panel (or through the management API),
-# where a change applies at once and is kept as a revision; see
-# docs/operations.md:
+# where a change is kept as a revision; see docs/operations.md:
 #   - Settings, General (/api/system/general): the operators, the command
-#     prefixes, how long the event log is kept, and the log level. These were
-#     the keys operators, commands.prefixes, eventlog.retention, and log.level.
+#     prefixes, how long the event log is kept, and the log level, which apply
+#     at once. These were the keys operators, commands.prefixes,
+#     eventlog.retention, and log.level.
 #   - Settings, Language models (/api/system/llm): the Gemini provider and
-#     the OpenAI-compatible services, with their API keys as secrets. This was
-#     the key llm.
+#     the OpenAI-compatible services, with their API keys as secrets, which
+#     apply at once. This was the key llm.
+#   - Settings, Accounts (/api/system/accounts): the Telegram accounts and the
+#     QQ bots, with app_hash and app_secret as secrets. These were the keys
+#     telegram and qq. Saved there, they apply at the next start; a new
+#     Telegram account is logged in with "otogi login <account>" before it.
+#   - Settings, Process (/api/system/process): workers, max_in_flight,
+#     handler_timeout, log_format, and shutdown_timeout, which apply at the
+#     next start. These were the keys kernel.*, log.format, and
+#     shutdown_timeout.
 #   - Modules: which run, their settings, and where they answer.
 # A file that still has the moved keys starts: the first start after the
 # upgrade saves them as the first revision of their section, and later starts

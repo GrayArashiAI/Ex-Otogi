@@ -1,6 +1,6 @@
 # Telegram MTProto Driver
 
-The Telegram driver logs in as a **user account** through gotd (MTProto). `otogi run` starts one driver per account listed under `telegram:` in `otogi.yaml`. Run commands from the repository root.
+The Telegram driver logs in as a **user account** through gotd (MTProto). `otogi run` starts one driver per Telegram account set in the control panel (Settings, Accounts; `/api/system/accounts`), which it reads when it starts. Run commands from the repository root.
 
 ## Storage
 
@@ -19,13 +19,13 @@ The schema is managed by goose migrations embedded in the binary and applied at 
 
 ## Login
 
-Log in once per account, interactively:
+Add the account in the panel first (its name, `app_id`, and `app_hash` as a secret), then log it in once on the server, interactively, and only then restart the bot, which starts the account's driver:
 
 ```sh
 otogi login main
 ```
 
-It prompts for the phone number, the login code Telegram sends, and the 2FA password if one is set (not echoed), then saves the session and exits. It touches no database. `otogi run` never prompts: if a session is not logged in, startup fails with a message to run `otogi login`. Signing up new accounts is not supported; create the account with an official client first.
+It prompts for the phone number, the login code Telegram sends, and the 2FA password if one is set (not echoed), then saves the session and exits. It touches no database. `otogi login` reads the account from the settings saved in the panel, so it works while the bot runs without the account. `otogi run` never prompts: if a session is not logged in, startup fails with a message to run `otogi login`, and the bot stays down until the account is logged in or the change is taken back (see [The bot does not start after a settings change](control-panel.md#the-bot-does-not-start-after-a-settings-change)). Signing up new accounts is not supported; create the account with an official client first.
 
 ## How updates flow
 

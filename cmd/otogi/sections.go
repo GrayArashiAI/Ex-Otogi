@@ -23,13 +23,17 @@ import (
 // validated, kept as revisions, and restored by the code that does so for
 // modules (moduleSettings.save), under an ID starting with "system:", which
 // no module's ID can be. What differs is applying them: a section's settings
-// go to the system, where the process reads them each time it uses them.
+// go to the system, where the process reads them each time it uses them, or,
+// for those the process reads once (see accounts.go), wait for its next
+// start.
 
 const (
 	sectionPrefix = "system:"
 
-	generalSection otogi.ModuleID = sectionPrefix + "general"
-	llmSection     otogi.ModuleID = sectionPrefix + "llm"
+	generalSection  otogi.ModuleID = sectionPrefix + "general"
+	llmSection      otogi.ModuleID = sectionPrefix + "llm"
+	accountsSection otogi.ModuleID = sectionPrefix + "accounts"
+	processSection  otogi.ModuleID = sectionPrefix + "process"
 
 	// fileActor is who saved a revision imported from otogi.yaml.
 	fileActor = "otogi.yaml"
@@ -48,11 +52,21 @@ type section struct {
 	// rebuilds picks the running modules to rebuild once the settings are
 	// applied; nil when modules read the settings each time they use them.
 	rebuilds func(s *moduleSettings, module otogi.ModuleID) bool
+	// onRestart marks settings the process reads when it starts: apply only
+	// validates them, and a saved revision waits for the next start.
+	onRestart bool
 }
 
 var sections = map[otogi.ModuleID]section{
-	generalSection: sectionOf(generalFromFile, (*system).applyGeneral, nil),
-	llmSection:     sectionOf(llmFromFile, (*system).applyLLM, (*moduleSettings).builtWithProvider),
+	generalSection:  sectionOf(generalFromFile, (*system).applyGeneral, nil),
+	llmSection:      sectionOf(llmFromFile, (*system).applyLLM, (*moduleSettings).builtWithProvider),
+	accountsSection: onRestart(sectionOf(accountsFromFile, checkAccounts, nil)),
+	processSection:  onRestart(sectionOf(processFromFile, checkProcess, nil)),
+}
+
+func onRestart(sec section) section {
+	sec.onRestart = true
+	return sec
 }
 
 func sectionOf[C any](
@@ -145,52 +159,80 @@ func llmFromFile(cfg Config) ([]string, any, map[string]string) {
 	}
 	literal := map[string]string{}
 	return []string{"llm"}, cfg.LLM.settings(func(provider, key string) otogi.Secret {
-		if ref := written.apiKey(provider); otogi.SecretReference.MatchString(ref) {
-			return otogi.Secret(ref)
-		}
 		name := "OTOGI_LLM_" + strings.ToUpper(strings.ReplaceAll(provider, "-", "_")) + "_API_KEY"
-		literal[name] = key
-		return otogi.Secret("${" + name + "}")
+		return fileSecret(written.apiKey(provider), name, key, literal)
 	}), literal
+}
+
+// fileSecret is a secret of the file as settings refer to it: the ${NAME}
+// the file writes, or, for one it spells out, a reference to name, under
+// which literal takes its value.
+func fileSecret(written, name, value string, literal map[string]string) otogi.Secret {
+	if otogi.SecretReference.MatchString(written) {
+		return otogi.Secret(written)
+	}
+	literal[name] = value
+	return otogi.Secret("${" + name + "}")
+}
+
+// startRevision is the revision of a section a start applies.
+type startRevision struct {
+	modulestore.SettingsRevision
+	keys     []string          // the keys otogi.yaml has for the section
+	imported bool              // made from those keys, and not stored yet
+	literal  map[string]string // the secrets an imported one moves out of the file
+}
+
+// starting returns the revision a start applies for a section: its current
+// one, or, when it has none and otogi.yaml has keys for it, its first, made
+// from them.
+func (s *moduleSettings) starting(ctx context.Context, cfg Config, id otogi.ModuleID) (startRevision, error) {
+	cur, err := s.current(ctx, id)
+	if err != nil {
+		return startRevision{}, err
+	}
+	keys, settings, literal := sections[id].file(cfg)
+	if cur.Revision != 0 || len(keys) == 0 {
+		return startRevision{SettingsRevision: cur, keys: keys}, nil
+	}
+	data, err := json.Marshal(settings)
+	if err != nil {
+		return startRevision{}, fmt.Errorf("%s from the config file: %w", id, err)
+	}
+	cur = modulestore.SettingsRevision{Module: id, Revision: 1, Settings: data, By: fileActor, At: time.Now()}
+	return startRevision{SettingsRevision: cur, keys: keys, imported: true, literal: literal}, nil
 }
 
 // loadSections applies every section's current revision, before the modules
 // are built. A section with no revision takes its first from the keys
 // otogi.yaml has for it, saved by "otogi.yaml"; without those it runs on its
 // defaults. Once a section has a revision the file's keys for it no longer
-// apply, which one warning says.
+// apply, which one warning says. The revisions applied are kept as those the
+// process started with.
 func (s *moduleSettings) loadSections(ctx context.Context, cfg Config) error {
 	stored, err := s.storedSecrets(ctx)
 	if err != nil {
 		return err
 	}
+	s.started = map[otogi.ModuleID]int64{}
 	var ignored []string
 	for _, id := range slices.Sorted(maps.Keys(sections)) {
-		sec := sections[id]
-		cur, err := s.current(ctx, id)
+		start, err := s.starting(ctx, cfg, id)
 		if err != nil {
 			return err
 		}
-		keys, settings, literal := sec.file(cfg)
-		imported := cur.Revision == 0 && len(keys) > 0
-		if imported {
-			data, err := json.Marshal(settings)
-			if err != nil {
-				return fmt.Errorf("%s from the config file: %w", id, err)
-			}
-			cur = modulestore.SettingsRevision{Module: id, Revision: 1, Settings: data, By: fileActor, At: time.Now()}
-			maps.Copy(stored, literal)
-		} else {
-			ignored = append(ignored, keys...)
-		}
-		if _, err := sec.apply(s.system, cur.Settings, s.environmentWith(stored).secret); err != nil {
+		cur := start.SettingsRevision
+		maps.Copy(stored, start.literal)
+		if _, err := sections[id].apply(s.system, cur.Settings, s.environmentWith(stored).secret); err != nil {
 			return fmt.Errorf("%s, settings revision %d: %w", id, cur.Revision, err)
 		}
-		if !imported {
+		s.started[id] = cur.Revision
+		if !start.imported {
+			ignored = append(ignored, start.keys...)
 			continue
 		}
-		for _, name := range slices.Sorted(maps.Keys(literal)) {
-			if err := s.store.SetSecret(ctx, modulestore.Secret{Name: name, Value: literal[name], By: fileActor, At: cur.At}); err != nil {
+		for _, name := range slices.Sorted(maps.Keys(start.literal)) {
+			if err := s.store.SetSecret(ctx, modulestore.Secret{Name: name, Value: start.literal[name], By: fileActor, At: cur.At}); err != nil {
 				return err
 			}
 			s.secretChanged(ctx, cur.At, name, "set", fileActor, []otogi.ModuleID{})

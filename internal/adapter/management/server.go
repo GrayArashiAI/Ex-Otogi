@@ -36,6 +36,12 @@ type ServerConfig struct {
 	Ready func() bool
 	// Shutdown starts a graceful shutdown (POST /api/shutdown).
 	Shutdown func()
+	// Restart starts the same shutdown, for the process to end as one to be
+	// started again (POST /api/restart); by is who asked.
+	Restart func(by string)
+	// ConfigFile is the config file's path and DataDir the data directory,
+	// which GET /api/system/startup reports with what else the file sets.
+	ConfigFile, DataDir string
 	// Modules serves the module, allowlist, and chat routes; without it
 	// they are absent.
 	Modules Modules
@@ -147,6 +153,29 @@ func newHandler(cfg ServerConfig) (http.Handler, error) {
 	return mux, nil
 }
 
+// Startup is the settings that stay in the config file.
+type Startup struct {
+	ConfigFile string            `json:"config_file" doc:"The config file's path."`
+	DataDir    string            `json:"data_dir"`
+	Management StartupManagement `json:"management"`
+}
+
+// StartupManagement is the file's management key.
+type StartupManagement struct {
+	Addr      string      `json:"addr" doc:"The address the management API listens on."`
+	TokenSet  bool        `json:"token_set" doc:"Whether a bearer token is set; the token itself is not reported."`
+	PublicURL string      `json:"public_url" doc:"Where the control panel is served; empty when sign-in is off."`
+	OIDC      StartupOIDC `json:"oidc"`
+}
+
+// StartupOIDC is the file's management.oidc key.
+type StartupOIDC struct {
+	Issuer          string   `json:"issuer"`
+	ClientID        string   `json:"client_id"`
+	ClientSecretSet bool     `json:"client_secret_set" doc:"Whether the client secret is set; the secret itself is not reported."`
+	Allow           []string `json:"allow" nullable:"false" doc:"The provider usernames that may use the panel."`
+}
+
 // trace is every record of one event, and its deliveries running now.
 type trace struct {
 	Records []Entry   `json:"records" nullable:"false"`
@@ -243,6 +272,23 @@ func newAPI(cfg ServerConfig, signIn *signIn, every bool) (*http.ServeMux, huma.
 		func(context.Context, *struct{}) (*struct{}, error) {
 			cfg.Shutdown()
 			return nil, nil
+		})
+	huma.Register(api, huma.Operation{OperationID: "restart", Method: http.MethodPost, Path: "/api/restart", Summary: "Shut the process down gracefully, to be started again",
+		Description: "Stops as POST /api/shutdown does, and the process exits with code 75, which a supervisor that restarts it on a non-zero exit answers by starting it. The settings that apply on restart take effect then. The process.state records of the stop name who asked.", DefaultStatus: http.StatusAccepted, Tags: []string{"Status"}},
+		func(ctx context.Context, _ *struct{}) (*struct{}, error) {
+			cfg.Restart(caller(ctx))
+			return nil, nil
+		})
+	huma.Register(api, huma.Operation{OperationID: "get-startup-settings", Method: http.MethodGet, Path: "/api/system/startup", Summary: "The settings read from the config file when the process starts",
+		Description: "What stays in the config file, as the running process read it, to be changed there and applied by a restart. Secrets are reported as set or not.", Tags: []string{"System"}},
+		func(context.Context, *struct{}) (*struct{ Body Startup }, error) {
+			return &struct{ Body Startup }{Startup{
+				ConfigFile: cfg.ConfigFile, DataDir: cfg.DataDir,
+				Management: StartupManagement{
+					Addr: cfg.Addr, TokenSet: cfg.Token != "", PublicURL: cfg.PublicURL,
+					OIDC: StartupOIDC{Issuer: cfg.OIDC.Issuer, ClientID: cfg.OIDC.ClientID, ClientSecretSet: cfg.OIDC.ClientSecret != "", Allow: append([]string{}, cfg.OIDC.Allow...)},
+				},
+			}}, nil
 		})
 	if cfg.Modules != nil || every {
 		registerModules(api, cfg.Modules)

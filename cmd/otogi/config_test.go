@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/TundraWork/Ex-Otogi/pkg/otogi"
 )
@@ -34,11 +33,8 @@ telegram:
 		t.Fatal(err)
 	}
 	a := cfg.Telegram[0]
-	if a.AppHash != "secret" || a.Session != "/srv/otogi/telegram/main/session.json" || a.Database != "/srv/otogi/telegram/main/state.sqlite" || a.UploadThreads != 8 {
-		t.Fatalf("account = %+v", a)
-	}
-	if cfg.ShutdownTimeout != 30*time.Second || cfg.Log.Level != "info" || cfg.Log.Format != "json" {
-		t.Fatalf("defaults = %+v", cfg)
+	if a.AppHash != "secret" || cfg.Log.Level != "info" || *cfg.Management.Addr != "127.0.0.1:8090" || !filepath.IsAbs(cfg.path) {
+		t.Fatalf("config = %+v", cfg)
 	}
 }
 

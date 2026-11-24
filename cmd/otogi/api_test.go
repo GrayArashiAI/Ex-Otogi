@@ -53,7 +53,7 @@ func apiHarness(t *testing.T, log *slog.Logger) (*kernel.Kernel, func(method, pa
 	t.Cleanup(func() { _ = k.Stop(ctx) })
 	settings.kernel = k
 	server, err := management.StartServer(management.ServerConfig{
-		Addr: "127.0.0.1:0", Token: "secret", Events: events, Logger: log, Ready: func() bool { return true }, Shutdown: func() {},
+		Addr: "127.0.0.1:0", Token: "secret", Events: events, Logger: log, Ready: func() bool { return true }, Shutdown: func() {}, Restart: func(string) {}, ConfigFile: "/etc/otogi/otogi.yaml",
 		Status: func(context.Context) management.Status { return management.Status{} }, Modules: newModuleAPI(settings), System: newSystemAPI(settings), Secrets: newModuleAPI(settings),
 		Media: func(context.Context, otogi.Destination, otogi.MediaSource) ([]byte, error) {
 			return []byte("JPEG"), nil
@@ -267,7 +267,8 @@ func TestSystemAPI(t *testing.T) {
 	}
 
 	_, body := do("GET", "/api/system", "", "", 200)
-	contains("sections", body, `{"id":"general","revision":0}`, `{"id":"llm","revision":0}`)
+	contains("sections", body, `{"id":"general","revision":0,"applies":"now","running":0}`, `{"id":"llm","revision":0,"applies":"now","running":0}`,
+		`{"id":"accounts","revision":0,"applies":"restart","running":0}`, `{"id":"process","revision":0,"applies":"restart","running":0}`)
 	header, body := do("GET", "/api/system/general/settings", "", "", 200)
 	contains("general settings", body, `"module":"system:general"`, `"revision":0`, `"settings":{}`, `"schema":{`, `"log_level"`, `"x-order":["operators","command_prefixes","eventlog_retention","log_level"]`)
 	if header.Get("ETag") != `"0"` {
@@ -301,10 +302,30 @@ func TestSystemAPI(t *testing.T) {
 	}
 	do("POST", "/api/system/general/settings/revisions/9/restore", `"3"`, "", 404)
 	_, body = do("GET", "/api/system", "", "", 200)
-	contains("sections", body, `{"id":"general","revision":3}`)
+	contains("sections", body, `{"id":"general","revision":3,"applies":"now","running":3}`)
+
+	// The sections that apply on restart: saved, and pending until then.
+	_, body = do("GET", "/api/system/accounts/settings", "", "", 200)
+	contains("accounts settings", body, `"module":"system:accounts"`, `"format":"secret"`, `"x-order":["telegram","qq"]`)
+	_, body = do("PUT", "/api/system/accounts/settings", `"0"`, `{"qq": [{"account": "bot", "app_id": "1", "app_secret": "value-pasted"}]}`, 422)
+	contains("a pasted app secret", body, `"location":"qq[0].app_secret"`)
+	if strings.Contains(body, "value-") {
+		t.Fatalf("a refused secret is in the answer: %s", body)
+	}
+	do("PUT", "/api/system/process/settings", `"0"`, `{"workers": -1}`, 422)
+	do("PUT", "/api/system/process/settings", `"0"`, `{"handler_timeout": "90s"}`, 200)
+	_, body = do("GET", "/api/system", "", "", 200)
+	contains("sections with a restart pending", body, `{"id":"process","revision":1,"applies":"restart","running":0}`)
+
+	// What stays in the config file, without the token this API is used with.
+	_, body = do("GET", "/api/system/startup", "", "", 200)
+	contains("startup settings", body, `"config_file":"/etc/otogi/otogi.yaml"`, `"token_set":true`)
+	if strings.Contains(body, `"secret"`) {
+		t.Fatalf("the token is in the startup settings: %s", body)
+	}
 
 	// Sections are not modules, and modules are not sections.
-	for _, path := range []string{"/api/system/accounts/settings", "/api/system/echo/settings", "/api/modules/system:general/settings", "/api/system/echo/settings/revisions", "/api/modules/system:general/settings/revisions"} {
+	for _, path := range []string{"/api/system/startup/settings", "/api/system/echo/settings", "/api/modules/system:general/settings", "/api/system/echo/settings/revisions", "/api/modules/system:general/settings/revisions"} {
 		do("GET", path, "", "", 404)
 	}
 	do("PUT", "/api/modules/system:general/settings", `"3"`, `{}`, 404)

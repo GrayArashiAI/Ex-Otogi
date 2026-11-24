@@ -489,11 +489,14 @@ func errorText(err error) string {
 
 // Stats is a snapshot of the kernel for status reporting.
 type Stats struct {
-	State       string                          `json:"state"`
-	InFlight    int                             `json:"in_flight"`
-	MaxInFlight int                             `json:"max_in_flight"`
-	Workers     int                             `json:"workers"`
-	Modules     map[otogi.ModuleID]ModuleCounts `json:"modules"` // deliveries since start
+	State       string `json:"state"`
+	InFlight    int    `json:"in_flight"`
+	MaxInFlight int    `json:"max_in_flight"`
+	Workers     int    `json:"workers"`
+	// HandlerTimeout bounds a delivery of a module that sets none; negative
+	// is no bound.
+	HandlerTimeout time.Duration                   `json:"handler_timeout"`
+	Modules        map[otogi.ModuleID]ModuleCounts `json:"modules"` // deliveries since start
 }
 
 // Stats returns the kernel's current state and load.
@@ -508,7 +511,7 @@ func (k *Kernel) Stats() Stats {
 	}
 	return Stats{
 		State:    [...]string{stateNew: "new", stateReady: "ready", stateDraining: "draining", stateStopped: "stopped"}[state],
-		InFlight: len(k.slots), MaxInFlight: k.cfg.MaxInFlight, Workers: k.cfg.Workers, Modules: modules,
+		InFlight: len(k.slots), MaxInFlight: k.cfg.MaxInFlight, Workers: k.cfg.Workers, HandlerTimeout: k.cfg.HandlerTimeout, Modules: modules,
 	}
 }
 

@@ -291,6 +291,8 @@ type System interface {
 type Section struct {
 	ID       string `json:"id" doc:"The section, as its routes name it. Its revisions and records carry system:<id>."`
 	Revision int64  `json:"revision" doc:"Its current revision; 0 when it was never saved and runs on the defaults."`
+	Applies  string `json:"applies" enum:"now,restart" doc:"When a saved revision takes effect: now, as it is saved, or restart, when the process next starts."`
+	Running  int64  `json:"running" doc:"The revision the process runs with. For a section that applies on restart it is the one the process started with: while revision is newer, a restart is pending."`
 }
 
 // SectionPath names a section in a route.
@@ -311,7 +313,7 @@ func registerSystem(api huma.API, system System) {
 	huma.Register(api, huma.Operation{OperationID: "get-section-settings", Method: http.MethodGet, Path: "/api/system/{section}/settings", Summary: "A section's current settings and their schema", Tags: []string{"System"}},
 		func(ctx context.Context, in *SectionPath) (*settingsOutput, error) { return h.get(ctx, in.Section) })
 	huma.Register(api, huma.Operation{OperationID: "put-section-settings", Method: http.MethodPut, Path: "/api/system/{section}/settings", Summary: "Save and apply a section's new settings",
-		Description: "Validates the settings against their schema, puts them into effect, rebuilding the running modules that use what changed, and stores the revision. Nothing is stored, and nothing changes, if any step fails. Recorded as system.reconfigured.", Tags: []string{"System"}},
+		Description: "Validates the settings against their schema, puts them into effect, rebuilding the running modules that use what changed, and stores the revision. Nothing is stored, and nothing changes, if any step fails. A section that applies on restart (see GET /api/system) is validated and stored only: the process runs with it once restarted. Recorded as system.reconfigured.", Tags: []string{"System"}},
 		func(ctx context.Context, in *struct {
 			SectionPath
 			IfMatch
@@ -708,6 +710,8 @@ type KernelStatus struct {
 	InFlight    int    `json:"in_flight" doc:"Events admitted and not yet finished."`
 	MaxInFlight int    `json:"max_in_flight"`
 	Workers     int    `json:"workers"`
+	// HandlerTimeoutMS is negative when deliveries are not bounded.
+	HandlerTimeoutMS int64 `json:"handler_timeout_ms" doc:"How long one delivery may take, for a module that does not set its own."`
 }
 
 // EventLogStatus is the event log's health and retention.

@@ -13,14 +13,11 @@ import (
 	"time"
 
 	"go.yaml.in/yaml/v3"
-
-	"github.com/TundraWork/Ex-Otogi/internal/kernel"
 )
 
 // Config is the otogi.yaml file. See docs/operations.md. The keys of the
-// settings that moved to the panel (log.level, eventlog, commands,
-// operators, llm) are still read, for a section's first revision: see
-// loadSections.
+// settings that moved to the panel (all but data_dir and management) are
+// still read, for a section's first revision: see loadSections.
 type Config struct {
 	DataDir         string            `yaml:"data_dir"`
 	ShutdownTimeout time.Duration     `yaml:"shutdown_timeout"`
@@ -34,13 +31,25 @@ type Config struct {
 	QQ              []QQAccount       `yaml:"qq"`
 	LLM             LLMConfig         `yaml:"llm"`
 
+	path  string // the file's, absolute
 	moved movedKeys
 }
 
 // movedKeys is which of the keys that moved to the panel the file has.
 type movedKeys struct {
 	general []string   // of operators, commands.prefixes, eventlog.retention, and log.level
+	process []string   // of kernel.*, log.format, and shutdown_timeout
 	llm     *LLMConfig // llm as the file writes it, ${NAME} not expanded; nil without it
+	// accounts is the accounts' secrets as the file writes them, ${NAME} not
+	// expanded.
+	accounts struct {
+		Telegram []struct {
+			AppHash string `yaml:"app_hash"`
+		} `yaml:"telegram"`
+		QQ []struct {
+			AppSecret string `yaml:"app_secret"`
+		} `yaml:"qq"`
+	}
 }
 
 // movedIn finds the moved keys in the file, before ${NAME} is expanded.
@@ -54,36 +63,54 @@ func movedIn(root *yaml.Node) (movedKeys, error) {
 			Retention yaml.Node `yaml:"retention"`
 		} `yaml:"eventlog"`
 		Log struct {
-			Level yaml.Node `yaml:"level"`
+			Level  yaml.Node `yaml:"level"`
+			Format yaml.Node `yaml:"format"`
 		} `yaml:"log"`
-		LLM *LLMConfig `yaml:"llm"`
+		Kernel struct {
+			Workers        yaml.Node `yaml:"workers"`
+			MaxInFlight    yaml.Node `yaml:"max_in_flight"`
+			HandlerTimeout yaml.Node `yaml:"handler_timeout"`
+		} `yaml:"kernel"`
+		ShutdownTimeout yaml.Node  `yaml:"shutdown_timeout"`
+		LLM             *LLMConfig `yaml:"llm"`
 	}
 	if err := root.Decode(&file); err != nil {
 		return movedKeys{}, fmt.Errorf("decode: %w", err)
 	}
 	moved := movedKeys{llm: file.LLM}
-	for _, key := range []struct {
+	if err := root.Decode(&moved.accounts); err != nil {
+		return movedKeys{}, fmt.Errorf("decode: %w", err)
+	}
+	type key struct {
 		name string
 		node yaml.Node
-	}{
+	}
+	for _, k := range []key{
 		{"operators", file.Operators}, {"commands.prefixes", file.Commands.Prefixes},
 		{"eventlog.retention", file.EventLog.Retention}, {"log.level", file.Log.Level},
 	} {
-		if !key.node.IsZero() {
-			moved.general = append(moved.general, key.name)
+		if !k.node.IsZero() {
+			moved.general = append(moved.general, k.name)
+		}
+	}
+	for _, k := range []key{
+		{"kernel.workers", file.Kernel.Workers}, {"kernel.max_in_flight", file.Kernel.MaxInFlight}, {"kernel.handler_timeout", file.Kernel.HandlerTimeout},
+		{"log.format", file.Log.Format}, {"shutdown_timeout", file.ShutdownTimeout},
+	} {
+		if !k.node.IsZero() {
+			moved.process = append(moved.process, k.name)
 		}
 	}
 	return moved, nil
 }
 
-// LogConfig selects the process log's format, and its verbosity until the
-// general settings are loaded: level moved to the panel.
+// LogConfig is the file's log key, which moved to the panel.
 type LogConfig struct {
 	Level  string `yaml:"level"`  // debug | info | warn | error
 	Format string `yaml:"format"` // json | text
 }
 
-// KernelConfig mirrors kernel.Config; zero values take the kernel defaults.
+// KernelConfig is the file's kernel key, which moved to the panel.
 type KernelConfig struct {
 	Workers        int           `yaml:"workers"`
 	MaxInFlight    int           `yaml:"max_in_flight"`
@@ -128,7 +155,9 @@ type EventLogConfig struct {
 	Retention time.Duration `yaml:"retention"`
 }
 
-// TelegramAccount configures one Telegram user account.
+// TelegramAccount configures one Telegram user account: in the file, where
+// the accounts were before they moved to the panel, and as its driver takes
+// it (accountsSettings.resolve).
 type TelegramAccount struct {
 	Account  string `yaml:"account"`
 	AppID    int    `yaml:"app_id"`
@@ -139,16 +168,13 @@ type TelegramAccount struct {
 	UploadThreads int `yaml:"upload_threads"`
 }
 
-// QQAccount configures one QQ bot (QQ Open Platform, q.qq.com).
+// QQAccount configures one QQ bot (QQ Open Platform, q.qq.com), as
+// TelegramAccount does an account.
 type QQAccount struct {
 	Account   string `yaml:"account"`
 	AppID     string `yaml:"app_id"`
 	AppSecret string `yaml:"app_secret"`
 	Database  string `yaml:"database"`
-}
-
-func (k KernelConfig) kernel() kernel.Config {
-	return kernel.Config{Workers: k.Workers, MaxInFlight: k.MaxInFlight, HandlerTimeout: k.HandlerTimeout}
 }
 
 // loadConfig reads, expands, strictly decodes, defaults, and validates the
@@ -170,6 +196,9 @@ func loadConfig(path string) (Config, error) {
 		return Config{}, fmt.Errorf("%s: %w", path, err)
 	}
 	cfg := Config{moved: moved}
+	if cfg.path, err = filepath.Abs(path); err != nil {
+		return Config{}, fmt.Errorf("config file path: %w", err)
+	}
 	if err := decodeStrict(&root, &cfg); err != nil {
 		return Config{}, fmt.Errorf("%s: %w", path, err)
 	}
@@ -184,14 +213,8 @@ func (c *Config) applyDefaults() {
 	if c.DataDir == "" {
 		c.DataDir = "data"
 	}
-	if c.ShutdownTimeout == 0 {
-		c.ShutdownTimeout = 30 * time.Second
-	}
 	if c.Log.Level == "" {
 		c.Log.Level = "info"
-	}
-	if c.Log.Format == "" {
-		c.Log.Format = "json"
 	}
 	if c.Management.Addr == nil {
 		addr := "127.0.0.1:8090"
@@ -203,23 +226,6 @@ func (c *Config) applyDefaults() {
 	if c.EventLog.Retention == 0 {
 		c.EventLog.Retention = 30 * 24 * time.Hour
 	}
-	for i := range c.Telegram {
-		a := &c.Telegram[i]
-		if a.UploadThreads == 0 {
-			a.UploadThreads = 8
-		}
-		if a.Session == "" {
-			a.Session = filepath.Join(c.DataDir, "telegram", a.Account, "session.json")
-		}
-		if a.Database == "" {
-			a.Database = filepath.Join(c.DataDir, "telegram", a.Account, "state.sqlite")
-		}
-	}
-	for i := range c.QQ {
-		if a := &c.QQ[i]; a.Database == "" {
-			a.Database = filepath.Join(c.DataDir, "qq", a.Account, "state.sqlite")
-		}
-	}
 }
 
 func (c Config) validate() error {
@@ -230,7 +236,7 @@ func (c Config) validate() error {
 	if _, err := logLevel(c.Log.Level); err != nil {
 		errs = append(errs, fmt.Errorf("log.level %w", err))
 	}
-	if c.Log.Format != "json" && c.Log.Format != "text" {
+	if c.Log.Format != "" && c.Log.Format != "json" && c.Log.Format != "text" {
 		errs = append(errs, fmt.Errorf("log.format %q: want json or text", c.Log.Format))
 	}
 	if u := c.Management.PublicURL; u != "" {
@@ -254,37 +260,7 @@ func (c Config) validate() error {
 	if c.Kernel.Workers < 0 || c.Kernel.MaxInFlight < 0 {
 		errs = append(errs, errors.New("kernel.workers and kernel.max_in_flight must not be negative"))
 	}
-	seen := map[string]bool{}
-	for i, a := range c.Telegram {
-		field := fmt.Sprintf("telegram[%d]", i)
-		switch {
-		case a.Account == "":
-			errs = append(errs, fmt.Errorf("%s.account is required", field))
-		case seen[a.Account]:
-			errs = append(errs, fmt.Errorf("%s.account %q is used twice", field, a.Account))
-		}
-		seen[a.Account] = true
-		if a.AppID <= 0 || a.AppHash == "" {
-			errs = append(errs, fmt.Errorf("%s: app_id and app_hash are required", field))
-		}
-		if a.UploadThreads < 1 {
-			errs = append(errs, fmt.Errorf("%s.upload_threads %d: want at least 1", field, a.UploadThreads))
-		}
-	}
-	seen = map[string]bool{}
-	for i, a := range c.QQ {
-		field := fmt.Sprintf("qq[%d]", i)
-		switch {
-		case a.Account == "":
-			errs = append(errs, fmt.Errorf("%s.account is required", field))
-		case seen[a.Account]:
-			errs = append(errs, fmt.Errorf("%s.account %q is used twice", field, a.Account))
-		}
-		seen[a.Account] = true
-		if a.AppID == "" || a.AppSecret == "" {
-			errs = append(errs, fmt.Errorf("%s: app_id and app_secret are required", field))
-		}
-	}
+	errs = append(errs, c.accounts().validate()...)
 	errs = append(errs, c.LLM.validate()...)
 	for _, op := range c.Operators {
 		if platform, actor, ok := strings.Cut(op, ":"); !ok || platform == "" || actor == "" {

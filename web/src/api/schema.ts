@@ -321,6 +321,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/restart": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Shut the process down gracefully, to be started again
+         * @description Stops as POST /api/shutdown does, and the process exits with code 75, which a supervisor that restarts it on a non-zero exit answers by starting it. The settings that apply on restart take effect then. The process.state records of the stop name who asked.
+         */
+        post: operations["restart"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/secrets": {
         parameters: {
             query?: never;
@@ -416,6 +436,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/system/startup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The settings read from the config file when the process starts
+         * @description What stays in the config file, as the running process read it, to be changed there and applied by a restart. Secrets are reported as set or not.
+         */
+        get: operations["get-startup-settings"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/system/{section}/settings": {
         parameters: {
             query?: never;
@@ -427,7 +467,7 @@ export interface paths {
         get: operations["get-section-settings"];
         /**
          * Save and apply a section's new settings
-         * @description Validates the settings against their schema, puts them into effect, rebuilding the running modules that use what changed, and stores the revision. Nothing is stored, and nothing changes, if any step fails. Recorded as system.reconfigured.
+         * @description Validates the settings against their schema, puts them into effect, rebuilding the running modules that use what changed, and stores the revision. Nothing is stored, and nothing changes, if any step fails. A section that applies on restart (see GET /api/system) is validated and stored only: the process runs with it once restarted. Recorded as system.reconfigured.
          */
         put: operations["put-section-settings"];
         post?: never;
@@ -738,6 +778,11 @@ export interface components {
         KernelStatus: {
             /**
              * Format: int64
+             * @description How long one delivery may take, for a module that does not set its own.
+             */
+            handler_timeout_ms: number;
+            /**
+             * Format: int64
              * @description Events admitted and not yet finished.
              */
             in_flight: number;
@@ -939,6 +984,11 @@ export interface components {
             value: string;
         };
         Section: {
+            /**
+             * @description When a saved revision takes effect: now, as it is saved, or restart, when the process next starts.
+             * @enum {string}
+             */
+            applies: "now" | "restart";
             /** @description The section, as its routes name it. Its revisions and records carry system:<id>. */
             id: string;
             /**
@@ -946,6 +996,11 @@ export interface components {
              * @description Its current revision; 0 when it was never saved and runs on the defaults.
              */
             revision: number;
+            /**
+             * Format: int64
+             * @description The revision the process runs with. For a section that applies on restart it is the one the process started with: while revision is newer, a restart is pending.
+             */
+            running: number;
         };
         SeenChat: {
             account: string;
@@ -1000,6 +1055,29 @@ export interface components {
         SignOutOutputBody: {
             /** @description Where to go to sign out at the identity provider too. */
             next: string;
+        };
+        Startup: {
+            /** @description The config file's path. */
+            config_file: string;
+            data_dir: string;
+            management: components["schemas"]["StartupManagement"];
+        };
+        StartupManagement: {
+            /** @description The address the management API listens on. */
+            addr: string;
+            oidc: components["schemas"]["StartupOIDC"];
+            /** @description Where the control panel is served; empty when sign-in is off. */
+            public_url: string;
+            /** @description Whether a bearer token is set; the token itself is not reported. */
+            token_set: boolean;
+        };
+        StartupOIDC: {
+            /** @description The provider usernames that may use the panel. */
+            allow: string[];
+            client_id: string;
+            /** @description Whether the client secret is set; the secret itself is not reported. */
+            client_secret_set: boolean;
+            issuer: string;
         };
         Status: {
             drivers: components["schemas"]["DriverStatus"][];
@@ -1799,6 +1877,33 @@ export interface operations {
             };
         };
     };
+    restart: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     "list-secrets": {
         parameters: {
             query?: never;
@@ -1968,6 +2073,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Section"][] | null;
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-startup-settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Startup"];
                 };
             };
             /** @description Error */

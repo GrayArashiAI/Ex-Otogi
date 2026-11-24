@@ -29,6 +29,9 @@ type moduleSettings struct {
 	kernel   *kernel.Kernel // set once built from enabled
 	recorder otogi.Recorder
 	log      *slog.Logger
+	// started is the revision of each section the process started with,
+	// which loadSections sets.
+	started map[otogi.ModuleID]int64
 
 	mu sync.Mutex // one change at a time
 	// usesProvider holds the modules that asked for a language model
