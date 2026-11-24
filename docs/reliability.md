@@ -9,6 +9,7 @@ The bot loses no inbound events, recovers on its own from ordinary failures (net
 | Failure | Response |
 | --- | --- |
 | Network or platform outage | The driver reconnects with backoff (gotd handles MTProto reconnects), then catches up on missed updates. |
+| A timer whose run keeps failing (a reminder to a chat the bot may no longer write to, a payload its module cannot read) | The kernel tries it 7 times, waiting a minute and then twice as long each time, and gives it up 63 minutes after it was due: the timer is deleted and `timer.failed` records what it held. Nobody in the chat is told. |
 | Platform rate limit (Telegram `FLOOD_WAIT`) | Wait the indicated time within the operation's context, then retry once the wait ends. |
 | Language model rate limit, outage, or a reply stream that drops (HTTP 408, 429, 5xx, no answer, or a broken stream) | The provider retries up to 3 attempts in all, waiting what the server asks or backing off from 1s. A retry after output began starts the reply over, and the streamed message shows the new attempt. A daily quota and a block are not retried. Each attempt is in the call's record. |
 | Process crash or kill | Unfinished durable inbox rows are dispatched again on restart. Sends are not repeated: they are recorded by idempotency key, and Telegram rejects a reused `random_id`. |

@@ -43,7 +43,7 @@ When every delivery of an event has finished, the kernel calls the driver's `don
 
 Besides events, module work comes from jobs (`Host.Schedule`, cron or `@every` specs, in memory) and persistent timers (`Host.SetTimer`, stored in `modules.sqlite`). A kernel-owned clock checks both once a second while the kernel is ready. Each run is a delivery in its own lane per (module, job name or timer key), with the same timeout, panic containment, and event log records as events; its `Invocation.Origin` names the job or timer, and effects are keyed by the run ID (job name and scheduled time, or timer key and due time).
 
-A job run is skipped while the previous run of the same job is still pending, so slow jobs never pile up; runs missed while the process was down are not replayed. A timer is deleted after its run succeeds and retried a minute later if it fails, keeping its run ID; a timer that came due while the process was down fires on start. Timers of modules that are not enabled stay stored until the module is enabled again.
+A job run is skipped while the previous run of the same job is still pending, so slow jobs never pile up; runs missed while the process was down are not replayed. A timer is deleted after its run succeeds. A run that fails is tried again after a minute, then after waits that double each time (2, 4, 8, 16, 32 minutes), keeping its run ID; when the seventh attempt fails, 63 minutes after the timer was due, the timer is deleted and a `timer.failed` record keeps its key, due time, last error, and payload. Setting a timer again under the same key starts its attempts over; a timer that came due while the process was down fires on start. Timers of modules that are not enabled stay stored until the module is enabled again.
 
 ## Queues
 

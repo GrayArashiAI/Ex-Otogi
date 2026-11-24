@@ -33,7 +33,7 @@ type Config struct {
 	CLITimeout   otogi.Duration         `json:"cli_timeout,omitempty" default:"60s" doc:"The longest one CLI call may take."`
 	Events       []string               `json:"events,omitempty" minItems:"1" enum:"comment,opened,closed,reopened,status_changed,title_changed,label_added,label_removed,assigned,unassigned,referenced,cross_referenced,attachment_added,attachment_deleted,question_answered,spec_pushed,spec_withdrawn,spec_review,spec_comments_resolved,deleted,restored,moved_out,moved_in,block_added,block_removed,block_cleared,block_reblocked" default:"[\"comment\",\"opened\",\"closed\",\"reopened\",\"status_changed\",\"assigned\",\"spec_pushed\",\"spec_review\",\"question_answered\",\"block_added\",\"block_removed\",\"block_cleared\"]" doc:"The activity types digests include."`
 	MaxBodyChars int                    `json:"max_body_chars,omitempty" minimum:"100" maximum:"3000" default:"800" doc:"Where each quoted body is cut, in characters. A digest message holds 4000 characters, so 800 keeps about four entries in one."`
-	MaxAttempts  int                    `json:"max_attempts,omitempty" minimum:"1" default:"60" doc:"How many times a digest message is tried, a minute apart, before it is marked failed."`
+	MaxAttempts  int                    `json:"max_attempts,omitempty" minimum:"1" default:"7" doc:"How many times a digest message is tried before it is marked failed. The wait doubles from a minute, and after 7 failed tries in a row the chat's delivery rests until the chat has news again, so a value above 7 takes more than one round to reach."`
 }
 
 // AgentConfig is one todou account.
@@ -140,7 +140,7 @@ func New(cfg Config, operators []string) (*Module, error) {
 		cfg.MaxBodyChars = 800
 	}
 	if cfg.MaxAttempts == 0 {
-		cfg.MaxAttempts = 60
+		cfg.MaxAttempts = 7
 	}
 	m := &Module{cfg: cfg, operators: operators, agents: map[string]*agent{}, render: renderer{links: map[string]string{}, maxBody: cfg.MaxBodyChars}, now: time.Now}
 	for name, a := range cfg.Agents {
@@ -441,9 +441,14 @@ func hasKey[V any](m map[string]V, key string) bool {
 }
 
 // deliver sends a chat's undelivered digest messages in order. A failure
-// stops there and fails the timer run, which the kernel retries a minute
-// later, so the chat's messages stay in order; a message that has failed
-// MaxAttempts times is marked failed and recorded, and delivery moves on.
+// stops there and fails the timer run, which the kernel retries after a
+// wait that doubles from a minute, so the chat's messages stay in order; a
+// message that has failed MaxAttempts times is marked failed and recorded,
+// and delivery moves on. The kernel gives a timer run up after 7 attempts,
+// which is why MaxAttempts defaults to 7: a message that cannot be sent is
+// marked failed in the last run, and that run still sends the ones behind
+// it. With a larger value the kernel gives up first; the messages stay
+// queued, and the chat's next news sets the timer again.
 // Each message's effect is keyed by its row, so a message resent after a
 // crash is not delivered twice.
 func (m *Module) deliver(ctx context.Context, inv otogi.Invocation, to otogi.Destination) error {

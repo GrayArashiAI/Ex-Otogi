@@ -23,11 +23,13 @@ type ModuleStorage interface {
 	SetTimer(ctx context.Context, module otogi.ModuleID, key string, at time.Time, payload []byte) error
 	// CancelTimer removes a timer.
 	CancelTimer(ctx context.Context, module otogi.ModuleID, key string) error
-	// DueTimers calls fn for every timer of modules whose next attempt is due.
-	DueTimers(ctx context.Context, now time.Time, modules []otogi.ModuleID, fn func(otogi.ModuleID, otogi.Timer)) error
+	// DueTimers calls fn for every timer of modules whose next attempt is
+	// due, with which attempt of the run that is, counting from 1.
+	DueTimers(ctx context.Context, now time.Time, modules []otogi.ModuleID, fn func(module otogi.ModuleID, t otogi.Timer, attempt int)) error
 	// FinishTimer deletes a timer run unless the timer was replaced meanwhile.
 	FinishTimer(ctx context.Context, module otogi.ModuleID, key string, at time.Time) error
-	// RetryTimer postpones the next attempt of a timer run.
+	// RetryTimer counts a failed attempt of a timer run and postpones the
+	// next one.
 	RetryTimer(ctx context.Context, module otogi.ModuleID, key string, at, next time.Time) error
 	// Allowlists calls fn for every chat on every module's allowlists.
 	Allowlists(ctx context.Context, fn func(module otogi.ModuleID, list, chat string, at time.Time, by string)) error

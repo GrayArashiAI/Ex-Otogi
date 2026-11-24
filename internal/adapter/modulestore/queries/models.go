@@ -40,4 +40,5 @@ type Timer struct {
 	At        int64
 	AttemptAt int64
 	Payload   []byte
+	Attempts  int64
 }

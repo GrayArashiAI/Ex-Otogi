@@ -2,7 +2,9 @@ package kernel
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"slices"
 	"strings"
@@ -197,7 +199,7 @@ func TestPersistentTimers(t *testing.T) {
 			}
 			dueLater := func(after time.Duration) int {
 				n := 0
-				_ = storage.DueTimers(ctx, time.Now().Add(after), []otogi.ModuleID{"reminders"}, func(otogi.ModuleID, otogi.Timer) { n++ })
+				_ = storage.DueTimers(ctx, time.Now().Add(after), []otogi.ModuleID{"reminders"}, func(otogi.ModuleID, otogi.Timer, int) { n++ })
 				return n
 			}
 			eventually(t, "timer run to finish", func() bool {
@@ -207,6 +209,61 @@ func TestPersistentTimers(t *testing.T) {
 				return dueLater(24*time.Hour) == 0 // deleted
 			})
 		})
+	}
+}
+
+// failingTimers fails every timer run.
+type failingTimers struct{ starterModule }
+
+func (failingTimers) HandleTimer(context.Context, otogi.Timer, otogi.Invocation) error {
+	return errors.New("no permission")
+}
+
+func TestTimerIsGivenUpAfterItsLastAttempt(t *testing.T) {
+	ctx := context.Background()
+	storage, err := modulestore.Open(ctx, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = storage.Close() }()
+	at := time.Now().Add(-time.Hour).Truncate(time.Millisecond).UTC()
+	payload := []byte(`{"text":"喝水"}`)
+	if err := storage.SetTimer(ctx, "reminders", "tea", at, payload); err != nil {
+		t.Fatal(err)
+	}
+	for range timerAttempts - 1 { // every attempt but the last has failed
+		if err := storage.RetryTimer(ctx, "reminders", "tea", at, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rec := &recorder{}
+	m := failingTimers{starterModule{moduleFunc: describe("reminders", nil, nil), start: func(otogi.Host) error { return nil }}}
+	start(t, Config{Storage: storage, Recorder: rec}, []otogi.Module{m}, nil, nil)
+
+	var gaveUp otogi.Record
+	eventually(t, "the timer to be given up", func() bool {
+		var found bool
+		gaveUp, found = rec.kinds("")["timer.failed module:reminders"]
+		return found
+	})
+	got, _ := gaveUp.Payload.(map[string]any)
+	raw, _ := got["payload"].(json.RawMessage)
+	if gaveUp.Outcome != "error" || got["step"] != "gave up" || got["timer"] != "tea" || got["attempts"] != timerAttempts ||
+		got["at"] != at || !strings.Contains(fmt.Sprint(got["error"]), "no permission") || string(raw) != string(payload) {
+		t.Fatalf("timer.failed = %+v", gaveUp)
+	}
+	n := 0
+	_ = storage.DueTimers(ctx, time.Now().Add(24*time.Hour), []otogi.ModuleID{"reminders"}, func(otogi.ModuleID, otogi.Timer, int) { n++ })
+	if n != 0 {
+		t.Fatal("a timer that was given up is still stored")
+	}
+}
+
+func TestTimerWaitDoublesWithEachFailure(t *testing.T) {
+	for attempt, want := range map[int]time.Duration{1: time.Minute, 2: 2 * time.Minute, 3: 4 * time.Minute, 6: 32 * time.Minute} {
+		if got := timerWait(attempt); got != want {
+			t.Errorf("wait after failed attempt %d = %v, want %v", attempt, got, want)
+		}
 	}
 }
 

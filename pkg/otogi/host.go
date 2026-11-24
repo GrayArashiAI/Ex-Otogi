@@ -68,7 +68,10 @@ type Timer struct {
 }
 
 // TimerHandler is implemented by modules that set timers. A failed run is
-// retried a minute later; effects stay deduplicated across retries.
+// tried again after a minute, then after waits that double each time; when
+// the seventh attempt fails, about an hour after the timer was due, the
+// timer is deleted and a timer.failed record keeps what it held. Effects
+// stay deduplicated across the attempts.
 type TimerHandler interface {
 	// HandleTimer runs when t is due.
 	HandleTimer(ctx context.Context, t Timer, inv Invocation) error

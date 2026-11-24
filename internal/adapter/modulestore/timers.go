@@ -10,13 +10,14 @@ import (
 	"github.com/TundraWork/Ex-Otogi/pkg/otogi"
 )
 
-// SetTimer persists a timer, replacing one with the same key.
+// SetTimer persists a timer, replacing one with the same key; its attempts
+// start over.
 func (s *Storage) SetTimer(ctx context.Context, module otogi.ModuleID, key string, at time.Time, payload []byte) error {
 	if payload == nil {
 		payload = []byte{}
 	}
 	_, err := s.db.ExecContext(ctx, `INSERT INTO timers (module, key, at, attempt_at, payload) VALUES (?, ?, ?, ?, ?)
-		ON CONFLICT (module, key) DO UPDATE SET at = excluded.at, attempt_at = excluded.attempt_at, payload = excluded.payload`,
+		ON CONFLICT (module, key) DO UPDATE SET at = excluded.at, attempt_at = excluded.attempt_at, payload = excluded.payload, attempts = 0`,
 		module, key, at.UnixMilli(), at.UnixMilli(), payload)
 	if err != nil {
 		return fmt.Errorf("module store: set timer %q: %w", key, err)
@@ -33,8 +34,9 @@ func (s *Storage) CancelTimer(ctx context.Context, module otogi.ModuleID, key st
 }
 
 // DueTimers calls fn for every timer of modules whose next attempt is at or
-// before now. Timers of other modules (for example, disabled ones) stay put.
-func (s *Storage) DueTimers(ctx context.Context, now time.Time, modules []otogi.ModuleID, fn func(otogi.ModuleID, otogi.Timer)) error {
+// before now, with which attempt that is, counting from 1. Timers of other
+// modules (for example, disabled ones) stay put.
+func (s *Storage) DueTimers(ctx context.Context, now time.Time, modules []otogi.ModuleID, fn func(otogi.ModuleID, otogi.Timer, int)) error {
 	if len(modules) == 0 {
 		return nil
 	}
@@ -42,20 +44,21 @@ func (s *Storage) DueTimers(ctx context.Context, now time.Time, modules []otogi.
 	for _, m := range modules {
 		args = append(args, m)
 	}
-	query := "SELECT module, key, at, payload FROM timers WHERE attempt_at <= ? AND module IN (?" + strings.Repeat(", ?", len(modules)-1) + ") ORDER BY attempt_at"
+	query := "SELECT module, key, at, payload, attempts FROM timers WHERE attempt_at <= ? AND module IN (?" + strings.Repeat(", ?", len(modules)-1) + ") ORDER BY attempt_at"
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return fmt.Errorf("module store: due timers: %w", err)
 	}
 	type due struct {
-		module otogi.ModuleID
-		timer  otogi.Timer
+		module   otogi.ModuleID
+		timer    otogi.Timer
+		attempts int
 	}
 	var timers []due
 	for rows.Next() {
 		var d due
 		var at int64
-		if err := rows.Scan(&d.module, &d.timer.Key, &at, &d.timer.Payload); err != nil {
+		if err := rows.Scan(&d.module, &d.timer.Key, &at, &d.timer.Payload, &d.attempts); err != nil {
 			_ = rows.Close()
 			return fmt.Errorf("module store: due timers: %w", err)
 		}
@@ -66,7 +69,7 @@ func (s *Storage) DueTimers(ctx context.Context, now time.Time, modules []otogi.
 		return fmt.Errorf("module store: due timers: %w", err)
 	}
 	for _, d := range timers {
-		fn(d.module, d.timer)
+		fn(d.module, d.timer, d.attempts+1)
 	}
 	return nil
 }
@@ -80,9 +83,10 @@ func (s *Storage) FinishTimer(ctx context.Context, module otogi.ModuleID, key st
 	return nil
 }
 
-// RetryTimer postpones the next attempt of a failed run, keeping its due time.
+// RetryTimer counts a failed attempt of a run and postpones the next one,
+// keeping its due time.
 func (s *Storage) RetryTimer(ctx context.Context, module otogi.ModuleID, key string, at, next time.Time) error {
-	_, err := s.db.ExecContext(ctx, "UPDATE timers SET attempt_at = ? WHERE module = ? AND key = ? AND at = ?", next.UnixMilli(), module, key, at.UnixMilli())
+	_, err := s.db.ExecContext(ctx, "UPDATE timers SET attempt_at = ?, attempts = attempts + 1 WHERE module = ? AND key = ? AND at = ?", next.UnixMilli(), module, key, at.UnixMilli())
 	if err != nil {
 		return fmt.Errorf("module store: retry timer %q: %w", key, err)
 	}

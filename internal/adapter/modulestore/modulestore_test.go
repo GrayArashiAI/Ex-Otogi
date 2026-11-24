@@ -2,6 +2,7 @@ package modulestore
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"testing"
 	"time"
@@ -68,8 +69,8 @@ func TestTimers(t *testing.T) {
 	base := time.Unix(1000, 0)
 	due := func(now time.Time) []string {
 		var keys []string
-		if err := s.DueTimers(ctx, now, []otogi.ModuleID{"m"}, func(m otogi.ModuleID, tm otogi.Timer) {
-			keys = append(keys, string(m)+"/"+tm.Key+"/"+string(tm.Payload))
+		if err := s.DueTimers(ctx, now, []otogi.ModuleID{"m"}, func(m otogi.ModuleID, tm otogi.Timer, attempt int) {
+			keys = append(keys, fmt.Sprintf("%s/%s/%s#%d", m, tm.Key, tm.Payload, attempt))
 		}); err != nil {
 			t.Fatal(err)
 		}
@@ -78,18 +79,22 @@ func TestTimers(t *testing.T) {
 	_ = s.SetTimer(ctx, "m", "a", base, []byte("1"))
 	_ = s.SetTimer(ctx, "m", "b", base.Add(time.Hour), nil)
 	_ = s.SetTimer(ctx, "disabled", "x", base, nil) // a module not in the list
-	if got := due(base); !slices.Equal(got, []string{"m/a/1"}) {
+	if got := due(base); !slices.Equal(got, []string{"m/a/1#1"}) {
 		t.Fatalf("due = %v", got)
 	}
-	// A failed run is retried later but keeps its due time.
+	// A failed run is retried later but keeps its due time, and its next run
+	// is the second attempt.
 	_ = s.RetryTimer(ctx, "m", "a", base, base.Add(time.Minute))
 	if got := due(base.Add(30 * time.Second)); len(got) != 0 {
 		t.Fatalf("due before retry = %v", got)
 	}
+	if got := due(base.Add(time.Minute)); !slices.Equal(got, []string{"m/a/1#2"}) {
+		t.Fatalf("due at retry = %v", got)
+	}
 	// Replacing a timer while it runs: finishing the old run keeps the new one.
 	_ = s.SetTimer(ctx, "m", "a", base.Add(2*time.Minute), []byte("2"))
 	_ = s.FinishTimer(ctx, "m", "a", base)
-	if got := due(base.Add(2 * time.Minute)); !slices.Equal(got, []string{"m/a/2"}) {
+	if got := due(base.Add(2 * time.Minute)); !slices.Equal(got, []string{"m/a/2#1"}) { // set again: attempts start over
 		t.Fatalf("after replace = %v", got)
 	}
 	_ = s.FinishTimer(ctx, "m", "a", base.Add(2*time.Minute))

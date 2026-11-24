@@ -2,6 +2,7 @@ package kernel
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync/atomic"
 	"time"
@@ -11,8 +12,17 @@ import (
 	"github.com/TundraWork/Ex-Otogi/pkg/otogi"
 )
 
-// timerRetry is how long a failed timer run waits before its next attempt.
-const timerRetry = time.Minute
+// timerAttempts is how many times a timer run is tried before it is given
+// up. With the waits of timerWait the last attempt comes 63 minutes after
+// the timer was due: long enough to outlast a platform's short outage, and
+// a failure that retrying cannot change stops within about an hour.
+const timerAttempts = 7
+
+// timerWait is how long a timer run waits after its failed attempt (counting
+// from 1) before the next: a minute, doubling each time.
+func timerWait(attempt int) time.Duration {
+	return time.Minute << (attempt - 1)
+}
 
 func set(names []string) map[string]bool {
 	m := make(map[string]bool, len(names))
@@ -126,7 +136,7 @@ func (k *Kernel) tick(now time.Time) {
 	if len(handlers) == 0 {
 		return
 	}
-	err := k.cfg.Storage.DueTimers(k.runCtx, now, handlers, func(module otogi.ModuleID, t otogi.Timer) { k.runTimer(module, t) })
+	err := k.cfg.Storage.DueTimers(k.runCtx, now, handlers, func(module otogi.ModuleID, t otogi.Timer, attempt int) { k.runTimer(module, t, attempt) })
 	if err != nil && k.runCtx.Err() == nil {
 		k.log.Error("timers: load due timers", "error", err)
 		k.record(otogi.Event{}, "timer.failed", "kernel", "error", 0, map[string]any{"step": "load due timers", "error": err.Error()})
@@ -153,7 +163,7 @@ func (k *Kernel) runJob(j *job, at time.Time) {
 	}
 }
 
-func (k *Kernel) runTimer(module otogi.ModuleID, t otogi.Timer) {
+func (k *Kernel) runTimer(module otogi.ModuleID, t otogi.Timer, attempt int) {
 	running := string(module) + "\x00" + t.Key
 	k.mu.Lock()
 	entry := k.routes.byID[module]
@@ -175,7 +185,7 @@ func (k *Kernel) runTimer(module otogi.ModuleID, t otogi.Timer) {
 		origin:   otogi.Origin{Timer: &timer, ScheduledAt: t.At},
 		originID: fmt.Sprintf("timer:%s:%s:%d", module, t.Key, t.At.UnixMilli()),
 		call:     func(ctx context.Context, inv *invocation) error { return handler.HandleTimer(ctx, timer, inv) },
-		done:     func(o otogi.ModuleOutcome) { k.finishTimer(module, timer, running, o) },
+		done:     func(o otogi.ModuleOutcome) { k.finishTimer(module, timer, attempt, running, o) },
 	}
 	if !k.enqueueWork(d) {
 		k.mu.Lock()
@@ -185,9 +195,10 @@ func (k *Kernel) runTimer(module otogi.ModuleID, t otogi.Timer) {
 }
 
 // finishTimer deletes a timer after a successful run and postpones a failed
-// one. A run abandoned because the kernel stopped is left due, so it fires
-// on the next start.
-func (k *Kernel) finishTimer(module otogi.ModuleID, t otogi.Timer, running string, o otogi.ModuleOutcome) {
+// one, until its last attempt fails: then the timer is deleted and recorded
+// with all it held, since nothing will run it again. A run abandoned because
+// the kernel stopped is left due and uncounted, so it fires on the next start.
+func (k *Kernel) finishTimer(module otogi.ModuleID, t otogi.Timer, attempt int, running string, o otogi.ModuleOutcome) {
 	defer func() {
 		k.mu.Lock()
 		delete(k.timers, running)
@@ -199,10 +210,23 @@ func (k *Kernel) finishTimer(module otogi.ModuleID, t otogi.Timer, running strin
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	var err error
-	if o.Err == nil {
+	switch {
+	case o.Err == nil:
 		err = k.cfg.Storage.FinishTimer(ctx, module, t.Key, t.At)
-	} else {
-		err = k.cfg.Storage.RetryTimer(ctx, module, t.Key, t.At, time.Now().Add(timerRetry))
+	case attempt < timerAttempts:
+		err = k.cfg.Storage.RetryTimer(ctx, module, t.Key, t.At, time.Now().Add(timerWait(attempt)))
+	default:
+		err = k.cfg.Storage.FinishTimer(ctx, module, t.Key, t.At)
+		// Modules keep JSON in their timers; written as it is, an operator
+		// reads it in the event log. Other bytes go in as bytes.
+		var payload any = t.Payload
+		if json.Valid(t.Payload) {
+			payload = json.RawMessage(t.Payload)
+		}
+		k.log.Error("timers: gave up", "module", module, "timer", t.Key, "attempts", attempt, "error", o.Err)
+		k.record(otogi.Event{}, "timer.failed", "module:"+string(module), "error", 0, map[string]any{
+			"step": "gave up", "timer": t.Key, "at": t.At, "attempts": attempt, "error": o.Err.Error(), "payload": payload,
+		})
 	}
 	if err != nil {
 		k.log.Error("timers: update after run", "module", module, "timer", t.Key, "error", err)
