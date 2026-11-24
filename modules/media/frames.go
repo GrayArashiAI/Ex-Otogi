@@ -28,8 +28,15 @@ var errTooLarge = errors.New("decodes to more than the limit")
 // each, and two RGBA canvases (the one frames are drawn on, and the one
 // kept for frames disposed to the previous). It fails on data that is not
 // a whole GIF.
+//
+// It must walk the blocks as image/gif does (readExtension and
+// readImageDescriptor in its reader.go): where the two would read a block
+// differently, a GIF can look small here and still decode in full. So a
+// block image/gif reads in a way it doesn't spell out as sub-blocks is
+// accepted only in the shape that reads the same both ways, and anything
+// else is refused. FuzzGIFDecoded holds the two to this.
 func gifDecoded(data []byte) (int64, error) {
-	if len(data) < 13 || !bytes.HasPrefix(data, []byte("GIF8")) {
+	if len(data) < 13 || (string(data[:6]) != "GIF87a" && string(data[:6]) != "GIF89a") {
 		return 0, errors.New("not a gif")
 	}
 	width, height := int64(binary.LittleEndian.Uint16(data[6:])), int64(binary.LittleEndian.Uint16(data[8:]))
@@ -37,7 +44,9 @@ func gifDecoded(data []byte) (int64, error) {
 	if data[10]&0x80 != 0 { // a global color table
 		i += 3 << ((data[10] & 7) + 1)
 	}
-	// subBlocks skips data sub-blocks up to their terminator.
+	truncated := errors.New("truncated gif")
+	// subBlocks skips data sub-blocks up to their terminator, as image/gif's
+	// readBlock and blockReader do: neither reads past the first empty one.
 	subBlocks := func() error {
 		for i < len(data) {
 			n := int(data[i])
@@ -47,19 +56,35 @@ func gifDecoded(data []byte) (int64, error) {
 			}
 			i += n
 		}
-		return errors.New("truncated gif")
+		return truncated
 	}
 	var frames int64
 	for i < len(data) {
 		switch data[i] {
-		case 0x21: // an extension: introducer, label, sub-blocks
-			i += 2
-			if err := subBlocks(); err != nil {
-				return 0, err
+		case 0x21: // an extension: introducer, label, then by label
+			if i+2 >= len(data) {
+				return 0, truncated
+			}
+			label, size := data[i+1], data[i+2]
+			switch {
+			case label == 0xF9: // graphic control: image/gif reads six bytes, a size of 4 to a terminator
+				if size != 4 || i+7 >= len(data) || data[i+7] != 0 {
+					return 0, errors.New("gif: bad graphic control extension")
+				}
+				i += 8
+			case label == 0x01 && size == 12, // plain text: image/gif skips 13 bytes, which is one sub-block only when the first is 12
+				label == 0xFE,              // comment: sub-blocks
+				label == 0xFF && size != 0: // application: image/gif skips size bytes, then reads sub-blocks; a size of 0 is not a terminator to it
+				i += 2
+				if err := subBlocks(); err != nil {
+					return 0, err
+				}
+			default:
+				return 0, fmt.Errorf("gif: extension 0x%02x of size %d", label, size)
 			}
 		case 0x2C: // an image: descriptor, color table, code size, sub-blocks
 			if i+10 > len(data) {
-				return 0, errors.New("truncated gif")
+				return 0, truncated
 			}
 			w, h := int64(binary.LittleEndian.Uint16(data[i+5:])), int64(binary.LittleEndian.Uint16(data[i+7:]))
 			frames += w * h
@@ -79,7 +104,7 @@ func gifDecoded(data []byte) (int64, error) {
 			return 0, fmt.Errorf("gif: unknown block 0x%02x", data[i])
 		}
 	}
-	return frames + 8*width*height, nil
+	return 0, truncated // image/gif fails without a trailer
 }
 
 // animationFrames is how many frames of an animation the model sees. On
