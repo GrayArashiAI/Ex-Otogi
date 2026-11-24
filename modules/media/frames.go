@@ -2,6 +2,8 @@ package media
 
 import (
 	"bytes"
+	"encoding/binary"
+	"errors"
 	"fmt"
 	"image"
 	"image/draw"
@@ -9,6 +11,76 @@ import (
 	"image/png"
 	"time"
 )
+
+// maxDecoded is the most memory decoding one GIF may take, in bytes, as
+// gifDecoded counts it. A file's size says little: frames of one color
+// compress about a thousandfold, so a 185 KB GIF of fifty 2000x2000 frames
+// decodes to 192 MiB, and Handle is unordered. Of eku's 61 GIFs, the
+// largest decoded to 67 MiB (70 frames of 950x950) and the next to 30 MiB,
+// so 80 MiB takes them all, and three at once stay under 250 MB.
+const maxDecoded = 80 << 20
+
+// errTooLarge reports a GIF that decodes to more than maxDecoded.
+var errTooLarge = errors.New("decodes to more than the limit")
+
+// gifDecoded is how much memory decoding data takes, in bytes, read from
+// its blocks without decompressing them: each frame's pixels, one byte
+// each, and two RGBA canvases (the one frames are drawn on, and the one
+// kept for frames disposed to the previous). It fails on data that is not
+// a whole GIF.
+func gifDecoded(data []byte) (int64, error) {
+	if len(data) < 13 || !bytes.HasPrefix(data, []byte("GIF8")) {
+		return 0, errors.New("not a gif")
+	}
+	width, height := int64(binary.LittleEndian.Uint16(data[6:])), int64(binary.LittleEndian.Uint16(data[8:]))
+	i := 13
+	if data[10]&0x80 != 0 { // a global color table
+		i += 3 << ((data[10] & 7) + 1)
+	}
+	// subBlocks skips data sub-blocks up to their terminator.
+	subBlocks := func() error {
+		for i < len(data) {
+			n := int(data[i])
+			i++
+			if n == 0 {
+				return nil
+			}
+			i += n
+		}
+		return errors.New("truncated gif")
+	}
+	var frames int64
+	for i < len(data) {
+		switch data[i] {
+		case 0x21: // an extension: introducer, label, sub-blocks
+			i += 2
+			if err := subBlocks(); err != nil {
+				return 0, err
+			}
+		case 0x2C: // an image: descriptor, color table, code size, sub-blocks
+			if i+10 > len(data) {
+				return 0, errors.New("truncated gif")
+			}
+			w, h := int64(binary.LittleEndian.Uint16(data[i+5:])), int64(binary.LittleEndian.Uint16(data[i+7:]))
+			frames += w * h
+			if width*height == 0 {
+				width, height = w, h // the decoder takes the first frame's size
+			}
+			if data[i+9]&0x80 != 0 { // a local color table
+				i += 3 << ((data[i+9] & 7) + 1)
+			}
+			i += 11
+			if err := subBlocks(); err != nil {
+				return 0, err
+			}
+		case 0x3B: // the trailer
+			return frames + 8*width*height, nil
+		default:
+			return 0, fmt.Errorf("gif: unknown block 0x%02x", data[i])
+		}
+	}
+	return frames + 8*width*height, nil
+}
 
 // animationFrames is how many frames of an animation the model sees. On
 // eku's chats, 28 stickers with known meanings, as Gemini 3.5 Flash-Lite
@@ -24,8 +96,16 @@ const minAnimationFrames = 3
 // honoring each frame's disposal, and returns n of them spread evenly from
 // the first to the last as PNG, how many frames it has, and how long it
 // plays. A delay of 0 or 1 (hundredths of a second) plays as 100 ms, as in
-// Chrome and Firefox.
+// Chrome and Firefox. A GIF that would take more than maxDecoded is not
+// decoded: the error wraps errTooLarge.
 func gifFrames(data []byte, n int) (frames [][]byte, count int, total time.Duration, err error) {
+	size, err := gifDecoded(data)
+	if err != nil {
+		return nil, 0, 0, fmt.Errorf("decode gif: %w", err)
+	}
+	if size > maxDecoded {
+		return nil, 0, 0, fmt.Errorf("decode gif: %d MiB: %w", size>>20, errTooLarge)
+	}
 	g, err := gif.DecodeAll(bytes.NewReader(data))
 	if err != nil {
 		return nil, 0, 0, fmt.Errorf("decode gif: %w", err)

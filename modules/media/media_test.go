@@ -502,6 +502,77 @@ var (
 	yellow = color.RGBA{255, 255, 0, 255}
 )
 
+// bigGIF is a GIF of frames frames of size x size on a canvas as large,
+// written by hand: only the blocks are real, each frame's pixel data is a
+// placeholder, so it is small whatever size says.
+func bigGIF(size, frames int) []byte {
+	le := func(n int) []byte { return []byte{byte(n), byte(n >> 8)} }
+	b := append([]byte("GIF89a"), le(size)...)
+	b = append(b, le(size)...)
+	b = append(b, 0x80, 0, 0, 0, 0, 0, 255, 255, 255) // two colors
+	for range frames {
+		b = append(b, 0x21, 0xF9, 4, 0, 10, 0, 0, 0) // a graphic control extension
+		b = append(b, 0x2C, 0, 0, 0, 0)
+		b = append(b, le(size)...)
+		b = append(b, le(size)...)
+		b = append(b, 0, 2, 2, 0x4C, 0x01, 0)
+	}
+	return append(b, 0x3B)
+}
+
+func TestGIFDecodedSize(t *testing.T) {
+	// Four frames on a 4x4 canvas: one whole, three of one pixel each.
+	small := gifOf(t, []gifFrame{{full: true, c: red}, {at: image.Pt(0, 0), c: blue}, {at: image.Pt(1, 1), c: green}, {at: image.Pt(2, 2), c: yellow}})
+	if got, err := gifDecoded(small); err != nil || got != 16+3+8*16 {
+		t.Fatalf("gifDecoded = %d, %v; want %d", got, err, 16+3+8*16)
+	}
+	// As in the review: fifty 2000x2000 frames.
+	if got, err := gifDecoded(bigGIF(2000, 50)); err != nil || got != 50*2000*2000+8*2000*2000 {
+		t.Fatalf("gifDecoded = %d, %v", got, err)
+	}
+	for _, bad := range [][]byte{[]byte("GIF89a"), bigGIF(20, 2)[:40], []byte("\x89PNG")} {
+		if _, err := gifDecoded(bad); err == nil {
+			t.Errorf("gifDecoded(%q) succeeded", bad)
+		}
+	}
+}
+
+// A small file of large frames is not decoded: decoding it would take far
+// more memory than its size says.
+func TestLargeDecodedGIFIsSkipped(t *testing.T) {
+	h := newHarness(t, 1)
+	bomb := bigGIF(2000, 50)
+	if len(bomb) > 2000 {
+		t.Fatalf("the test GIF is %d bytes; it should be small", len(bomb))
+	}
+	a := h.image("https://qq/bomb", bomb)
+	a.Role, a.MediaType = otogi.MediaAnimation, "image/gif"
+	if err := h.handle(a); err != nil {
+		t.Fatal(err)
+	}
+	if rec := h.host.last("media.skipped"); rec["reason"] != "too large" || h.steps[0].calls() != 0 {
+		t.Fatalf("media.skipped = %v, calls = %d", rec, h.steps[0].calls())
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if _, err := h.m.Describe(ctx, from, a); !errors.Is(err, contract.ErrNotDescribed) {
+		t.Fatalf("Describe = %v, want ErrNotDescribed", err)
+	}
+}
+
+// Results nobody waits for still expire: an agent that only looks
+// descriptions up never calls wait.
+func TestFinishedResultsExpire(t *testing.T) {
+	now := time.Date(2026, 11, 24, 12, 0, 0, 0, time.UTC)
+	w := newWaits(func() time.Time { return now })
+	w.finish("a", result{})
+	now = now.Add(keepResults + time.Second)
+	w.finish("b", result{})
+	if _, kept := w.done["a"]; kept || len(w.done) != 1 {
+		t.Fatalf("kept %d results; the expired one is still there: %v", len(w.done), kept)
+	}
+}
+
 func TestGIFFramesHonorDisposal(t *testing.T) {
 	data := gifOf(t, []gifFrame{
 		{full: true, c: red, delay: 0, disposal: gif.DisposalNone},

@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -77,14 +78,38 @@ func (m *Module) awaitDescription(ctx context.Context, from otogi.Destination, m
 func (m *Module) describedPart(ctx context.Context, from otogi.Destination, md otogi.Media, until time.Time) otogi.Message {
 	d, err := m.awaitDescription(ctx, from, md, until)
 	if err != nil {
-		word := mediaWord(md)
-		m.host.Logger().WarnContext(ctx, "chat: media not described", "media", word, "error", err)
-		m.host.Record(ctx, otogi.Record{Kind: "chat.media_skipped", Outcome: "skipped", Payload: map[string]any{
-			"reason": "not described", "from": from, "source": md.Source.Kind, "url": md.Source.URL, "locator": md.Source.Locator,
-			"bytes": md.ByteSize, "error": err.Error()}})
-		return otogi.TextMessage("[" + word + "]")
+		return m.undescribed(ctx, from, md, err)
 	}
 	return otogi.TextMessage(descriptionText(md, d, 0))
+}
+
+// keptPart is an older message's media given to the model as its kept
+// description, without waiting: the media module describes media as it
+// arrives and does not come back to it, so a wait would only run out. Without
+// a description, it is named by its kind, and why is recorded.
+func (m *Module) keptPart(ctx context.Context, from otogi.Destination, md otogi.Media) otogi.Message {
+	d, ok, err := m.describer.Lookup(ctx, from, md)
+	switch {
+	case err != nil:
+		return m.undescribed(ctx, from, md, err)
+	case !ok:
+		return m.undescribed(ctx, from, md, errNotKept)
+	}
+	return otogi.TextMessage(descriptionText(md, d, 0))
+}
+
+// errNotKept reports quoted media the media module has no description of.
+var errNotKept = errors.New("no description kept")
+
+// undescribed names media by its kind, recording why it went without a
+// description as chat.media_skipped.
+func (m *Module) undescribed(ctx context.Context, from otogi.Destination, md otogi.Media, err error) otogi.Message {
+	word := mediaWord(md)
+	m.host.Logger().WarnContext(ctx, "chat: media not described", "media", word, "error", err)
+	m.host.Record(ctx, otogi.Record{Kind: "chat.media_skipped", Outcome: "skipped", Payload: map[string]any{
+		"reason": "not described", "from": from, "source": md.Source.Kind, "url": md.Source.URL, "locator": md.Source.Locator,
+		"bytes": md.ByteSize, "error": err.Error()}})
+	return otogi.TextMessage("[" + word + "]")
 }
 
 // descriptionText writes a description in brackets: [sticker: a cat eating

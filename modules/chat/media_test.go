@@ -151,6 +151,43 @@ func TestAsText(t *testing.T) {
 	}
 }
 
+// The quoted message's media is only looked up: the media module never comes
+// back to an older message's media, so waiting for it would only run out.
+func TestAsTextQuoteDoesNotWait(t *testing.T) {
+	d := newDescriber()
+	d.block = true
+	h := newHarnessWith(t, map[string]any{mediasvc.Service: d}, mediaProfile(true))
+	h.mustHandle(h.message("Bob", "", withParts("", photo("dog"))))
+	h.mustHandle(h.message("Bob", "", withParts("", photo("cat"))))
+	d.asked = nil
+
+	start := time.Now()
+	h.mustHandle(h.message("Alice", "otogi, what is this?", replyingTo("m1")))
+	h.mustHandle(h.message("Alice", "otogi, and this?", replyingTo("m2")))
+	if took := time.Since(start); took > describeWait/2 {
+		t.Fatalf("replies quoting older media took %v", took)
+	}
+	if len(d.asked) != 0 {
+		t.Fatalf("waited on quoted media %v", d.asked)
+	}
+	first, second := h.llm["otogi"].requests[0], h.llm["otogi"].requests[1]
+	if mediaParts(first) != 0 || !strings.Contains(lastUserText(first), "Replying to Bob:\n\n\n[photo]") {
+		t.Fatalf("an undescribed quoted picture: %d media parts:\n%q", mediaParts(first), lastUserText(first))
+	}
+	if !strings.Contains(lastUserText(second), "[sticker: a cat eating watermelon, content]") {
+		t.Fatalf("a described quoted picture:\n%s", lastUserText(second))
+	}
+	var skipped map[string]any
+	for _, r := range h.host.records {
+		if r.Kind == "chat.media_skipped" {
+			skipped = r.Payload.(map[string]any)
+		}
+	}
+	if skipped["reason"] != "not described" || skipped["error"] != errNotKept.Error() {
+		t.Fatalf("chat.media_skipped = %v", skipped)
+	}
+}
+
 // The media of one message wait for their descriptions until one deadline
 // together, not each in turn.
 func TestOneWaitPerMessage(t *testing.T) {
