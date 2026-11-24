@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"maps"
 	"math"
 	"slices"
 	"sync"
@@ -40,9 +41,12 @@ type moduleSettings struct {
 }
 
 // enabled builds the modules whose current revision enables them, for the
-// kernel to start with. A stored revision was built and started when it was
-// saved, so a failure here is the environment's, such as an unset secret,
-// and stops the process.
+// kernel to start with. A stored revision built when it was saved, so one
+// that does not build now fails for the environment, such as an unset
+// secret, or for a new version of the module. Such a module is left out, and
+// so is each module requiring a service no module left provides; each left
+// out is logged and recorded as module.not_started, and starts when its
+// settings are saved again.
 func (s *moduleSettings) enabled(ctx context.Context) ([]otogi.Module, error) {
 	revisions, err := s.store.CurrentSettings(ctx)
 	if err != nil {
@@ -53,6 +57,14 @@ func (s *moduleSettings) enabled(ctx context.Context) ([]otogi.Module, error) {
 		return nil, err
 	}
 	var modules []otogi.Module
+	revision := map[otogi.ModuleID]int64{}
+	notStarted := func(module otogi.ModuleID, reason string) {
+		s.log.Error("module not started", "module", module, "revision", revision[module], "reason", reason)
+		s.recorder.Record(ctx, otogi.Record{
+			At: time.Now(), Kind: "module.not_started", Component: "module:" + string(module), Outcome: "error",
+			Payload: map[string]any{"revision": revision[module], "reason": reason},
+		})
+	}
 	for _, r := range revisions {
 		if !r.Enabled {
 			continue
@@ -61,13 +73,64 @@ func (s *moduleSettings) enabled(ctx context.Context) ([]otogi.Module, error) {
 			s.log.Warn("enabled module is not in this build; skipped", "module", r.Module, "revision", r.Revision)
 			continue
 		}
+		revision[r.Module] = r.Revision
 		m, err := s.instance(r.Module, r.Settings, env)
 		if err != nil {
-			return nil, fmt.Errorf("module %s, settings revision %d: %w", r.Module, r.Revision, err)
+			notStarted(r.Module, err.Error())
+			continue
 		}
 		modules = append(modules, m)
 	}
-	return modules, nil
+	unmet := unmetRequirements(descriptors(modules))
+	for _, id := range slices.Sorted(maps.Keys(unmet)) {
+		notStarted(id, unmet[id])
+	}
+	return slices.DeleteFunc(modules, func(m otogi.Module) bool { _, ok := unmet[m.Descriptor().ID]; return ok }), nil
+}
+
+// unmetRequirements returns the modules of described that require a service
+// none of the others left provides, each with the reason, until the rest
+// have what they require.
+func unmetRequirements(described []otogi.ModuleDescriptor) map[otogi.ModuleID]string {
+	unmet := map[otogi.ModuleID]string{}
+	for changed := true; changed; {
+		changed = false
+		provided := map[string]bool{}
+		for _, d := range described {
+			if _, out := unmet[d.ID]; !out {
+				for _, name := range d.Provides {
+					provided[name] = true
+				}
+			}
+		}
+		for _, d := range described {
+			if _, out := unmet[d.ID]; !out {
+				if reason := missingService(d, provided); reason != "" {
+					unmet[d.ID], changed = reason, true
+				}
+			}
+		}
+	}
+	return unmet
+}
+
+// missingService says which service a module requires that is not provided,
+// or returns "" when all are.
+func missingService(d otogi.ModuleDescriptor, provided map[string]bool) string {
+	for _, name := range d.Requires {
+		if !provided[name] {
+			return fmt.Sprintf("requires service %q, which no running module provides", name)
+		}
+	}
+	return ""
+}
+
+func descriptors(modules []otogi.Module) []otogi.ModuleDescriptor {
+	out := make([]otogi.ModuleDescriptor, len(modules))
+	for i, m := range modules {
+		out[i] = m.Descriptor()
+	}
+	return out
 }
 
 // instance builds a module from settings (see moduleKind.instance). Each
@@ -184,6 +247,13 @@ func (s *moduleSettings) applyModule(ctx context.Context, module otogi.ModuleID,
 			return nil, err
 		}
 		set = append([]otogi.Module{m}, rebuilt...)
+		waiting, err := s.waiting(ctx, env, set)
+		if err != nil {
+			return nil, err
+		}
+		for _, w := range waiting {
+			set, dependents = append(set, w), append(dependents, w.Descriptor().ID)
+		}
 	case running:
 		remove = append(remove, module)
 	}
@@ -193,6 +263,39 @@ func (s *moduleSettings) applyModule(ctx context.Context, module otogi.ModuleID,
 		}
 	}
 	return dependents, nil
+}
+
+// waiting builds the modules that are on and not running, other than those
+// in set, and returns those that have the services they require once set
+// joins the running modules: modules left out at startup (see enabled)
+// start with the module whose save gives them what they lacked. One that
+// does not build stays out.
+func (s *moduleSettings) waiting(ctx context.Context, env moduleEnv, set []otogi.Module) ([]otogi.Module, error) {
+	revisions, err := s.store.CurrentSettings(ctx)
+	if err != nil {
+		return nil, err
+	}
+	described := descriptors(set)
+	taken := map[otogi.ModuleID]bool{}
+	for _, d := range described {
+		taken[d.ID] = true
+	}
+	for _, d := range s.kernel.Descriptors() {
+		if !taken[d.ID] {
+			described, taken[d.ID] = append(described, d), true
+		}
+	}
+	var candidates []otogi.Module
+	for _, r := range revisions {
+		if _, ok := s.kinds[r.Module]; !ok || !r.Enabled || taken[r.Module] {
+			continue
+		}
+		if m, err := s.instance(r.Module, r.Settings, env); err == nil {
+			candidates = append(candidates, m)
+		}
+	}
+	unmet := unmetRequirements(append(described, descriptors(candidates)...))
+	return slices.DeleteFunc(candidates, func(m otogi.Module) bool { _, ok := unmet[m.Descriptor().ID]; return ok }), nil
 }
 
 // reconfigured logs and records a saved and applied revision.

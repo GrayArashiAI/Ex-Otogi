@@ -858,7 +858,7 @@ export interface components {
             id: string;
             /** @description Whether it ignores messages from bot accounts; on unless turned off. */
             ignore_bots: boolean;
-            /** @description Why its current settings do not build, when they do not; its allowlists are then unknown. */
+            /** @description Why its current settings do not build, when they do not, and its allowlists are then unknown; or, when it is on and not running, the service it requires that no running module provides. */
             problem?: string;
             /**
              * Format: int64

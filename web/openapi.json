@@ -933,7 +933,7 @@
             "type": "boolean"
           },
           "problem": {
-            "description": "Why its current settings do not build, when they do not; its allowlists are then unknown.",
+            "description": "Why its current settings do not build, when they do not, and its allowlists are then unknown; or, when it is on and not running, the service it requires that no running module provides.",
             "type": "string"
           },
           "revision": {

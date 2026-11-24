@@ -80,8 +80,12 @@ func (a moduleAPI) Modules(ctx context.Context) ([]management.Module, error) {
 		current[r.Module] = r
 	}
 	running := map[otogi.ModuleID]otogi.ModuleDescriptor{}
+	provided := map[string]bool{}
 	for _, d := range s.kernel.Descriptors() {
 		running[d.ID] = d
+		for _, name := range d.Provides {
+			provided[name] = true
+		}
 	}
 	chats := map[[2]string]int{}
 	for _, c := range s.kernel.Allowlists() {
@@ -109,6 +113,9 @@ func (a moduleAPI) Modules(ctx context.Context) ([]management.Module, error) {
 				}
 			} else {
 				d = instance.Descriptor()
+				if r.Enabled {
+					m.Problem = missingService(d, provided)
+				}
 			}
 		}
 		for _, l := range d.Allowlists {

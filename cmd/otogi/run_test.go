@@ -2,11 +2,15 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -14,6 +18,8 @@ import (
 
 	"go.uber.org/goleak"
 
+	"github.com/TundraWork/Ex-Otogi/internal/adapter/management"
+	"github.com/TundraWork/Ex-Otogi/internal/adapter/modulestore"
 	"github.com/TundraWork/Ex-Otogi/pkg/otogi"
 )
 
@@ -281,6 +287,92 @@ func TestExitCodes(t *testing.T) {
 		if got := <-code; got != want {
 			t.Fatalf("exit code after POST %s = %d, want %d", path, got, want)
 		}
+	}
+}
+
+// A module whose current revision does not build at startup is not started,
+// and neither is a module requiring a service only it provides; the rest of
+// the process runs, each is recorded, and the panel says why. Saving
+// settings that build starts both.
+func TestStartRunsTheModulesThatBuild(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	chrome := filepath.Join(t.TempDir(), "chrome-headless-shell")
+	if err := os.WriteFile(chrome, []byte("#!/bin/sh\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	storage, err := modulestore.Open(ctx, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range []modulestore.SettingsRevision{
+		{Module: "notes", Revision: 1, Enabled: true, Settings: json.RawMessage(`{}`)},
+		{Module: "safety", Revision: 1, Enabled: true, Settings: json.RawMessage(`{}`)},
+		{Module: "safety", Revision: 2, Enabled: true, Settings: json.RawMessage(`{"blur":99}`)}, // as if a new version refused it
+		{Module: "booth", Revision: 1, Enabled: true, Settings: json.RawMessage(`{"chrome":"` + chrome + `"}`)},
+	} {
+		if err := storage.AddSettings(ctx, r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := storage.Close(); err != nil {
+		t.Fatal(err)
+	}
+	p := startRun(t, fileConfig(t, "data_dir: "+dir+"\nmanagement: {addr: \"127.0.0.1:0\"}\n"))
+	defer func() {
+		p.do(t, "POST", "/api/shutdown", "", "", 202)
+		<-p.done
+	}()
+	p.do(t, "GET", "/readyz", "", "", 200)
+
+	modules := func() map[string]management.Module {
+		t.Helper()
+		var list []management.Module
+		if err := json.Unmarshal([]byte(p.do(t, "GET", "/api/modules", "", "", 200)), &list); err != nil {
+			t.Fatal(err)
+		}
+		out := map[string]management.Module{}
+		for _, m := range list {
+			out[m.ID] = m
+		}
+		return out
+	}
+	got := modules()
+	if !got["notes"].Running || got["safety"].Running || got["booth"].Running {
+		t.Fatalf("running: notes %t, safety %t, booth %t", got["notes"].Running, got["safety"].Running, got["booth"].Running)
+	}
+	if !strings.Contains(got["safety"].Problem, "blur") {
+		t.Errorf("safety's problem: %q", got["safety"].Problem)
+	}
+	if !strings.Contains(got["booth"].Problem, `requires service "cardimage.pictures", which no running module provides`) {
+		t.Errorf("booth's problem: %q", got["booth"].Problem)
+	}
+	var records struct {
+		Records []struct {
+			Component string
+			Outcome   string
+			Payload   struct {
+				Revision int64
+				Reason   string
+			}
+		}
+	}
+	if err := json.Unmarshal([]byte(p.do(t, "GET", "/api/events?kind=module.not_started", "", "", 200)), &records); err != nil {
+		t.Fatal(err)
+	}
+	notStarted := map[string]string{}
+	for _, r := range records.Records {
+		notStarted[r.Component] = fmt.Sprintf("%s %d %s", r.Outcome, r.Payload.Revision, r.Payload.Reason)
+	}
+	if len(notStarted) != 2 || !strings.HasPrefix(notStarted["module:safety"], "error 2 ") || !strings.Contains(notStarted["module:safety"], "blur") ||
+		!strings.HasPrefix(notStarted["module:booth"], "error 1 ") || !strings.Contains(notStarted["module:booth"], `"cardimage.pictures"`) {
+		t.Fatalf("module.not_started records: %v", notStarted)
+	}
+
+	p.do(t, "PUT", "/api/modules/safety/settings", `"2"`, `{"blur": 4}`, 200)
+	got = modules()
+	if !got["safety"].Running || !got["booth"].Running || got["safety"].Problem != "" || got["booth"].Problem != "" {
+		t.Fatalf("after saving settings that build: safety %+v, booth %+v", got["safety"], got["booth"])
 	}
 }
 

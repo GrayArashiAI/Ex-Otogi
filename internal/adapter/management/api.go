@@ -65,7 +65,7 @@ type Module struct {
 	Enabled    bool         `json:"enabled" doc:"Whether its current revision turns it on."`
 	Running    bool         `json:"running"`
 	Revision   int64        `json:"revision" doc:"Its current settings revision; 0 when never saved."`
-	Problem    string       `json:"problem,omitempty" doc:"Why its current settings do not build, when they do not; its allowlists are then unknown."`
+	Problem    string       `json:"problem,omitempty" doc:"Why its current settings do not build, when they do not, and its allowlists are then unknown; or, when it is on and not running, the service it requires that no running module provides."`
 	Allowlists []Allowlist  `json:"allowlists" nullable:"false"`
 	Commands   []Command    `json:"commands" nullable:"false"`
 	Counts     ModuleCounts `json:"counts" doc:"Its deliveries since the process started."`
