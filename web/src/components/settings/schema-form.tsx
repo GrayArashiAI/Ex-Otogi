@@ -19,6 +19,7 @@ import {
   properties,
   resolve,
 } from "./schema";
+import { SecretNote, SecretPicker } from "./secret-picker";
 
 // biome-ignore lint/suspicious/noExplicitAny: settings are any module's, shaped by the schema at runtime
 export type SettingsForm = ReactFormExtendedApi<any, any, any, any, any, any, any, any, any, any, any, any>;
@@ -93,17 +94,19 @@ export function useReveal(id: string) {
 }
 
 /** labelling names and describes a control by its row's title, description and error. */
-function labelling(id: string, row: { doc?: string; error?: string; required?: boolean }) {
+function labelling(id: string, row: { doc?: string; note?: unknown; error?: string; required?: boolean }) {
   return {
     id,
     "aria-labelledby": `${id}-label`,
-    "aria-describedby": [row.doc && `${id}-doc`, row.error && `${id}-error`].filter(Boolean).join(" ") || undefined,
+    "aria-describedby":
+      [row.doc && `${id}-doc`, row.note && `${id}-note`, row.error && `${id}-error`].filter(Boolean).join(" ") ||
+      undefined,
     "aria-invalid": row.error ? true : undefined,
     "aria-required": row.required || undefined,
   } as const;
 }
 
-type Labelling = ReturnType<typeof labelling>;
+export type Labelling = ReturnType<typeof labelling>;
 
 /** SchemaFields renders an object's fields, in the order of the type. */
 export function SchemaFields({ schema, path }: { schema: JSONSchema; path: string }) {
@@ -188,6 +191,8 @@ function SchemaField({ schema, name, title, required }: FieldProps) {
           id={id}
           title={title}
           {...row}
+          // A secret's row says who set the one chosen, and when.
+          note={s.format === "secret" && <SecretNote value={field.state.value} />}
           labels={!s.items?.enum}
           block={kind === "array" || s.format === "markdown"}
           inline={kind === "boolean"}
@@ -197,7 +202,7 @@ function SchemaField({ schema, name, title, required }: FieldProps) {
             value={field.state.value}
             onChange={field.handleChange}
             onBlur={field.handleBlur}
-            labelling={labelling(id, row)}
+            labelling={labelling(id, { ...row, note: s.format === "secret" })}
           />
         </Row>
       )}
@@ -210,6 +215,7 @@ function Row({
   title,
   required,
   doc,
+  note,
   error,
   block,
   inline,
@@ -221,6 +227,8 @@ function Row({
   title: string;
   required?: boolean;
   doc?: string;
+  /** note says more under the description, about the value as it is now. */
+  note?: ReactNode;
   error?: string;
   block?: boolean;
   inline?: boolean;
@@ -261,6 +269,11 @@ function Row({
         {doc && (
           <p id={`${id}-doc`} className="mt-0.5 text-muted-foreground text-xs leading-relaxed">
             {doc}
+          </p>
+        )}
+        {note && (
+          <p id={`${id}-note`} className="mt-0.5 text-muted-foreground text-xs leading-relaxed empty:hidden">
+            {note}
           </p>
         )}
       </div>
@@ -370,21 +383,17 @@ function Control({
       </div>
     );
   }
-  const mono = schema.format === "secret" || schema.format === "duration";
+  if (schema.format === "secret") {
+    return <SecretPicker value={text} onChange={onChange} onBlur={onBlur} labelling={a} />;
+  }
+  const mono = schema.format === "duration";
   return (
     <Input
       {...a}
       className={cn(mono && "font-mono text-[13px]")}
       value={text}
       placeholder={
-        schema.format === "secret"
-          ? // biome-ignore lint/suspicious/noTemplateCurlyInString: the placeholder shows a ${NAME} reference
-            "${ENVIRONMENT_VARIABLE}"
-          : schema.default !== undefined
-            ? `Default ${schema.default}`
-            : schema.format === "duration"
-              ? "Like 5m"
-              : ""
+        schema.default !== undefined ? `Default ${schema.default}` : schema.format === "duration" ? "Like 5m" : ""
       }
       spellCheck={!mono}
       onChange={(e) => onChange(e.target.value)}

@@ -16,11 +16,14 @@ import { Route as AppSplatRouteImport } from './routes/_app/$'
 import { Route as AppChatsRouteImport } from './routes/_app/chats'
 import { Route as AppEventsRouteImport } from './routes/_app/events'
 import { Route as AppModulesRouteImport } from './routes/_app/modules'
+import { Route as AppSettingsRouteImport } from './routes/_app/settings'
 import { Route as AppStatusRouteImport } from './routes/_app/status'
 import { Route as AppChatsIndexRouteImport } from './routes/_app/chats/index'
 import { Route as AppChatsChatRouteImport } from './routes/_app/chats/$chat'
 import { Route as AppModulesIndexRouteImport } from './routes/_app/modules/index'
 import { Route as AppModulesModuleRouteImport } from './routes/_app/modules/$module'
+import { Route as AppSettingsIndexRouteImport } from './routes/_app/settings/index'
+import { Route as AppSettingsSecretsRouteImport } from './routes/_app/settings/secrets'
 
 const AppRoute = AppRouteImport.update({
   id: '/_app',
@@ -56,6 +59,11 @@ const AppModulesRoute = AppModulesRouteImport.update({
   path: '/modules',
   getParentRoute: () => AppRoute,
 } as any)
+const AppSettingsRoute = AppSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppStatusRoute = AppStatusRouteImport.update({
   id: '/status',
   path: '/status',
@@ -81,6 +89,16 @@ const AppModulesModuleRoute = AppModulesModuleRouteImport.update({
   path: '/$module',
   getParentRoute: () => AppModulesRoute,
 } as any)
+const AppSettingsIndexRoute = AppSettingsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppSettingsRoute,
+} as any)
+const AppSettingsSecretsRoute = AppSettingsSecretsRouteImport.update({
+  id: '/secrets',
+  path: '/secrets',
+  getParentRoute: () => AppSettingsRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
@@ -89,11 +107,14 @@ export interface FileRoutesByFullPath {
   '/chats': typeof AppChatsRouteWithChildren
   '/events': typeof AppEventsRoute
   '/modules': typeof AppModulesRouteWithChildren
+  '/settings': typeof AppSettingsRouteWithChildren
   '/status': typeof AppStatusRoute
   '/chats/$chat': typeof AppChatsChatRoute
   '/modules/$module': typeof AppModulesModuleRoute
+  '/settings/secrets': typeof AppSettingsSecretsRoute
   '/chats/': typeof AppChatsIndexRoute
   '/modules/': typeof AppModulesIndexRoute
+  '/settings/': typeof AppSettingsIndexRoute
 }
 export interface FileRoutesByTo {
   '/sign-in': typeof SignInRoute
@@ -103,8 +124,10 @@ export interface FileRoutesByTo {
   '/': typeof AppIndexRoute
   '/chats/$chat': typeof AppChatsChatRoute
   '/modules/$module': typeof AppModulesModuleRoute
+  '/settings/secrets': typeof AppSettingsSecretsRoute
   '/chats': typeof AppChatsIndexRoute
   '/modules': typeof AppModulesIndexRoute
+  '/settings': typeof AppSettingsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -114,12 +137,15 @@ export interface FileRoutesById {
   '/_app/chats': typeof AppChatsRouteWithChildren
   '/_app/events': typeof AppEventsRoute
   '/_app/modules': typeof AppModulesRouteWithChildren
+  '/_app/settings': typeof AppSettingsRouteWithChildren
   '/_app/status': typeof AppStatusRoute
   '/_app/': typeof AppIndexRoute
   '/_app/chats/$chat': typeof AppChatsChatRoute
   '/_app/modules/$module': typeof AppModulesModuleRoute
+  '/_app/settings/secrets': typeof AppSettingsSecretsRoute
   '/_app/chats/': typeof AppChatsIndexRoute
   '/_app/modules/': typeof AppModulesIndexRoute
+  '/_app/settings/': typeof AppSettingsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -130,11 +156,14 @@ export interface FileRouteTypes {
     | '/chats'
     | '/events'
     | '/modules'
+    | '/settings'
     | '/status'
     | '/chats/$chat'
     | '/modules/$module'
+    | '/settings/secrets'
     | '/chats/'
     | '/modules/'
+    | '/settings/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/sign-in'
@@ -144,8 +173,10 @@ export interface FileRouteTypes {
     | '/'
     | '/chats/$chat'
     | '/modules/$module'
+    | '/settings/secrets'
     | '/chats'
     | '/modules'
+    | '/settings'
   id:
     | '__root__'
     | '/_app'
@@ -154,12 +185,15 @@ export interface FileRouteTypes {
     | '/_app/chats'
     | '/_app/events'
     | '/_app/modules'
+    | '/_app/settings'
     | '/_app/status'
     | '/_app/'
     | '/_app/chats/$chat'
     | '/_app/modules/$module'
+    | '/_app/settings/secrets'
     | '/_app/chats/'
     | '/_app/modules/'
+    | '/_app/settings/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -218,6 +252,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppModulesRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/settings': {
+      id: '/_app/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof AppSettingsRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/status': {
       id: '/_app/status'
       path: '/status'
@@ -253,6 +294,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppModulesModuleRouteImport
       parentRoute: typeof AppModulesRoute
     }
+    '/_app/settings/': {
+      id: '/_app/settings/'
+      path: '/'
+      fullPath: '/settings/'
+      preLoaderRoute: typeof AppSettingsIndexRouteImport
+      parentRoute: typeof AppSettingsRoute
+    }
+    '/_app/settings/secrets': {
+      id: '/_app/settings/secrets'
+      path: '/secrets'
+      fullPath: '/settings/secrets'
+      preLoaderRoute: typeof AppSettingsSecretsRouteImport
+      parentRoute: typeof AppSettingsRoute
+    }
   }
 }
 
@@ -284,11 +339,26 @@ const AppModulesRouteWithChildren = AppModulesRoute._addFileChildren(
   AppModulesRouteChildren,
 )
 
+interface AppSettingsRouteChildren {
+  AppSettingsSecretsRoute: typeof AppSettingsSecretsRoute
+  AppSettingsIndexRoute: typeof AppSettingsIndexRoute
+}
+
+const AppSettingsRouteChildren: AppSettingsRouteChildren = {
+  AppSettingsSecretsRoute: AppSettingsSecretsRoute,
+  AppSettingsIndexRoute: AppSettingsIndexRoute,
+}
+
+const AppSettingsRouteWithChildren = AppSettingsRoute._addFileChildren(
+  AppSettingsRouteChildren,
+)
+
 interface AppRouteChildren {
   AppSplatRoute: typeof AppSplatRoute
   AppChatsRoute: typeof AppChatsRouteWithChildren
   AppEventsRoute: typeof AppEventsRoute
   AppModulesRoute: typeof AppModulesRouteWithChildren
+  AppSettingsRoute: typeof AppSettingsRouteWithChildren
   AppStatusRoute: typeof AppStatusRoute
   AppIndexRoute: typeof AppIndexRoute
 }
@@ -298,6 +368,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppChatsRoute: AppChatsRouteWithChildren,
   AppEventsRoute: AppEventsRoute,
   AppModulesRoute: AppModulesRouteWithChildren,
+  AppSettingsRoute: AppSettingsRouteWithChildren,
   AppStatusRoute: AppStatusRoute,
   AppIndexRoute: AppIndexRoute,
 }

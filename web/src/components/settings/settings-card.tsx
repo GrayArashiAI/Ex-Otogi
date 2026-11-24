@@ -2,10 +2,11 @@ import { getBy, useForm, useStore } from "@tanstack/react-form";
 import { useInfiniteQuery, useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { useBlocker } from "@tanstack/react-router";
 import { format, formatDistanceToNowStrict } from "date-fns";
-import { CircleAlert, History, RotateCcw, TriangleAlert } from "lucide-react";
+import { History, RotateCcw } from "lucide-react";
 import { type ReactNode, useEffect, useEffectEvent, useId, useMemo, useState } from "react";
 import { ApiError, api, data, type Schemas } from "@/api/client";
 import { Card, CardHeader } from "@/components/card";
+import { Notice } from "@/components/notice";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -49,6 +50,8 @@ export function SettingsCard({ module }: { module: string }) {
     queryClient.setQueryData(settingsQuery(module).queryKey, next);
     void queryClient.invalidateQueries({ queryKey: ["modules"] });
     void queryClient.invalidateQueries({ queryKey: ["events"] });
+    // The secrets list says which modules' settings refer to each.
+    void queryClient.invalidateQueries({ queryKey: ["secrets"] });
     return next;
   };
   if (properties(root).length > 0) {
@@ -343,42 +346,6 @@ function SettingsEditor({
         </DialogPopup>
       </Dialog>
     </Card>
-  );
-}
-
-/** Notice is a problem said in place: red for a failure, amber for a caution. */
-function Notice({
-  tone = "error",
-  title,
-  className,
-  children,
-  ...props
-}: {
-  tone?: "error" | "warning";
-  title: string;
-  children?: ReactNode;
-} & Omit<React.ComponentProps<"div">, "title">) {
-  const Icon = tone === "error" ? CircleAlert : TriangleAlert;
-  return (
-    <div
-      className={cn(
-        "flex gap-2.5 rounded-xl border px-3.5 py-3 text-sm",
-        tone === "error" ? "border-destructive/24 bg-destructive/4" : "border-warning/32 bg-warning/6",
-        className,
-      )}
-      {...props}
-    >
-      <Icon
-        className={cn(
-          "mt-0.5 size-4 flex-none",
-          tone === "error" ? "text-destructive-foreground" : "text-warning-foreground",
-        )}
-      />
-      <div className="min-w-0 break-words text-muted-foreground">
-        <div className="font-medium text-foreground">{title}</div>
-        {children}
-      </div>
-    </div>
   );
 }
 

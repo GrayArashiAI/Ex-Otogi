@@ -71,7 +71,7 @@ Where a module answers: Add chats on its page, picking from the chats the bot ha
 
 A setting that is a secret, such as a todou token, holds only a reference to it, `${OTOGI_TODOU_TOKEN}`. The secret itself is set in the panel, or stays in the environment (`otogi.env`) under that name; one set in the panel wins.
 
-To set or replace one, give its name and value in the panel, or from the server (with `Authorization: Bearer <token>` when `management.token` is set):
+To set or replace one, give its name and value in the panel (Settings, then Secrets; or New secret… where a setting asks for one), or from the server (with `Authorization: Bearer <token>` when `management.token` is set):
 
 ```sh
 curl -X PUT http://127.0.0.1:8090/api/secrets/OTOGI_TODOU_TOKEN \

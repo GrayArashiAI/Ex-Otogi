@@ -1,12 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { Activity, Blocks, MessagesSquare, ScrollText, Search as SearchIcon } from "lucide-react";
+import { Activity, Blocks, MessagesSquare, ScrollText, Search as SearchIcon, Settings } from "lucide-react";
 import { Fragment, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { LoadError } from "@/components/load-error";
 import { Tile } from "@/components/tile";
 import { Dialog, DialogPopup, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { chatKind, chatName } from "@/lib/chats";
 import { listMeta, moduleMeta, platformMeta } from "@/lib/meta";
+import { settingsPages } from "@/lib/settings";
 import { cn } from "@/lib/utils";
 import { chatsQuery } from "@/queries/chats";
 import { modulesQuery } from "@/queries/modules";
@@ -28,7 +29,7 @@ export function Search() {
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger
         aria-label="Search"
-        className="hit-target relative flex size-8 items-center justify-center gap-2 rounded-lg border bg-background text-muted-foreground text-sm shadow-xs/5 outline-none transition-colors hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring md:h-auto md:w-60 md:justify-start md:px-2.5 md:py-1.5"
+        className="hit-target relative flex size-8 items-center justify-center gap-2 rounded-lg border bg-background text-muted-foreground text-sm shadow-xs/5 outline-none transition-colors hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring md:h-auto md:w-52 md:justify-start lg:w-60 md:px-2.5 md:py-1.5"
       >
         <SearchIcon className="size-4" />
         <span className="max-md:hidden">Search</span>
@@ -59,6 +60,8 @@ const pages = [
   { to: "/modules", title: "Modules", icon: Blocks },
   { to: "/chats", title: "Chats", icon: MessagesSquare },
   { to: "/events", title: "Event log", icon: ScrollText },
+  { to: "/settings", title: "Settings", icon: Settings },
+  ...settingsPages,
 ] as const;
 
 type Result = {

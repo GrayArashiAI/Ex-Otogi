@@ -21,6 +21,7 @@ const nav = [
   { to: "/modules", label: "Modules" },
   { to: "/chats", label: "Chats" },
   { to: "/events", label: "Event log" },
+  { to: "/settings", label: "Settings" },
 ] as const;
 
 function Shell() {
@@ -44,7 +45,7 @@ function Shell() {
             <Link
               key={item.to}
               to={item.to}
-              className="rounded-lg px-2.5 py-1.5 text-muted-foreground text-sm outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring data-[status=active]:bg-accent data-[status=active]:font-medium data-[status=active]:text-foreground"
+              className="whitespace-nowrap rounded-lg px-2.5 py-1.5 text-muted-foreground text-sm outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring data-[status=active]:bg-accent data-[status=active]:font-medium data-[status=active]:text-foreground"
             >
               {item.label}
             </Link>
