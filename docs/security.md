@@ -19,6 +19,8 @@ Calls to an `llm.openai` service send the conversation, images included, to that
 
 Requests to the decision service send what the asking module puts in their state, such as the recent chat with its senders' names, to TypeSafe (or to the configured `base_url`). TypeSafe's terms and data handling apply, and are the operator's to check; see its [terms](https://typesafe.ai/legal/terms) and [privacy policy](https://typesafe.ai/legal/privacy-policy). The event log keeps each request's state in full, like the chat it came from.
 
+The media module sends the images, animations (as frames), and videos of every chat on its `describe` list to the providers of its steps, whether or not an agent ever answers there, under the terms above: on Gemini's free tier, Google may use them to improve its products. Its database keeps the descriptions, with the text on pictures and what videos say, until the media goes unseen for 30 days, and its `media.described` records keep them in the event log.
+
 ## Management plane access
 
 - The management HTTP server binds to `127.0.0.1` by default.
