@@ -1,6 +1,7 @@
 package kernel
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"fmt"
@@ -140,7 +141,8 @@ func validContent(msg otogi.Message) error {
 // recordable is e as its record keeps it: inline media appear as their size
 // and SHA-256, as language model calls record them. The bytes are in the
 // platform message the effect made, and a video sent inline would put tens
-// of megabytes in the log.
+// of megabytes in the log. A medium that already names its SHA-256 keeps
+// that one, not two of the same.
 func recordable(e otogi.Effect) otogi.Effect {
 	var parts []otogi.Part
 	for i, p := range e.Message.Parts {
@@ -153,7 +155,11 @@ func recordable(e otogi.Effect) otogi.Effect {
 		m := *p.Media
 		sum := sha256.Sum256(m.Source.Inline)
 		m.ByteSize = int64(len(m.Source.Inline))
-		m.Hashes = append(slices.Clone(m.Hashes), otogi.MediaHash{Algorithm: "sha256", Value: sum[:]})
+		if !slices.ContainsFunc(m.Hashes, func(h otogi.MediaHash) bool {
+			return h.Algorithm == "sha256" && bytes.Equal(h.Value, sum[:])
+		}) {
+			m.Hashes = append(slices.Clone(m.Hashes), otogi.MediaHash{Algorithm: "sha256", Value: sum[:]})
+		}
 		m.Source.Inline = nil
 		parts[i].Media = &m
 	}
