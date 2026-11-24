@@ -17,7 +17,10 @@ import (
 	"github.com/TundraWork/Ex-Otogi/internal/kernel"
 )
 
-// Config is the otogi.yaml file. See docs/operations.md.
+// Config is the otogi.yaml file. See docs/operations.md. The keys of the
+// settings that moved to the panel (log.level, eventlog, commands,
+// operators, llm) are still read, for a section's first revision: see
+// loadSections.
 type Config struct {
 	DataDir         string            `yaml:"data_dir"`
 	ShutdownTimeout time.Duration     `yaml:"shutdown_timeout"`
@@ -30,9 +33,51 @@ type Config struct {
 	Telegram        []TelegramAccount `yaml:"telegram"`
 	QQ              []QQAccount       `yaml:"qq"`
 	LLM             LLMConfig         `yaml:"llm"`
+
+	moved movedKeys
 }
 
-// LogConfig selects process log verbosity and format.
+// movedKeys is which of the keys that moved to the panel the file has.
+type movedKeys struct {
+	general []string   // of operators, commands.prefixes, eventlog.retention, and log.level
+	llm     *LLMConfig // llm as the file writes it, ${NAME} not expanded; nil without it
+}
+
+// movedIn finds the moved keys in the file, before ${NAME} is expanded.
+func movedIn(root *yaml.Node) (movedKeys, error) {
+	var file struct {
+		Operators yaml.Node `yaml:"operators"`
+		Commands  struct {
+			Prefixes yaml.Node `yaml:"prefixes"`
+		} `yaml:"commands"`
+		EventLog struct {
+			Retention yaml.Node `yaml:"retention"`
+		} `yaml:"eventlog"`
+		Log struct {
+			Level yaml.Node `yaml:"level"`
+		} `yaml:"log"`
+		LLM *LLMConfig `yaml:"llm"`
+	}
+	if err := root.Decode(&file); err != nil {
+		return movedKeys{}, fmt.Errorf("decode: %w", err)
+	}
+	moved := movedKeys{llm: file.LLM}
+	for _, key := range []struct {
+		name string
+		node yaml.Node
+	}{
+		{"operators", file.Operators}, {"commands.prefixes", file.Commands.Prefixes},
+		{"eventlog.retention", file.EventLog.Retention}, {"log.level", file.Log.Level},
+	} {
+		if !key.node.IsZero() {
+			moved.general = append(moved.general, key.name)
+		}
+	}
+	return moved, nil
+}
+
+// LogConfig selects the process log's format, and its verbosity until the
+// general settings are loaded: level moved to the panel.
 type LogConfig struct {
 	Level  string `yaml:"level"`  // debug | info | warn | error
 	Format string `yaml:"format"` // json | text
@@ -71,13 +116,13 @@ type OIDCConfig struct {
 	Allow []string `yaml:"allow"`
 }
 
-// CommandsConfig configures the command parser.
+// CommandsConfig is the file's commands key, which moved to the panel.
 type CommandsConfig struct {
 	// Prefixes start a command; nil means ["/"], an empty list disables parsing.
 	Prefixes []string `yaml:"prefixes"`
 }
 
-// EventLogConfig configures the structured event log.
+// EventLogConfig is the file's eventlog key, which moved to the panel.
 type EventLogConfig struct {
 	// Retention is how long records are kept; default 30 days.
 	Retention time.Duration `yaml:"retention"`
@@ -117,10 +162,14 @@ func loadConfig(path string) (Config, error) {
 	if err := yaml.Unmarshal(data, &root); err != nil {
 		return Config{}, fmt.Errorf("parse %s: %w", path, err)
 	}
+	moved, err := movedIn(&root)
+	if err != nil {
+		return Config{}, fmt.Errorf("%s: %w", path, err)
+	}
 	if err := expandEnv(&root); err != nil {
 		return Config{}, fmt.Errorf("%s: %w", path, err)
 	}
-	var cfg Config
+	cfg := Config{moved: moved}
 	if err := decodeStrict(&root, &cfg); err != nil {
 		return Config{}, fmt.Errorf("%s: %w", path, err)
 	}
@@ -179,7 +228,7 @@ func (c Config) validate() error {
 		errs = append(errs, errors.New("shutdown_timeout must not be negative"))
 	}
 	if _, err := logLevel(c.Log.Level); err != nil {
-		errs = append(errs, err)
+		errs = append(errs, fmt.Errorf("log.level %w", err))
 	}
 	if c.Log.Format != "json" && c.Log.Format != "text" {
 		errs = append(errs, fmt.Errorf("log.format %q: want json or text", c.Log.Format))

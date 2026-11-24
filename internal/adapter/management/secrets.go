@@ -15,9 +15,10 @@ type Secrets interface {
 	// Secrets lists, by name, the secrets set in the panel and every name
 	// settings refer to.
 	Secrets(ctx context.Context) ([]Secret, error)
-	// SetSecret sets a secret or replaces it, rebuilds the running modules
-	// that refer to it, and returns those it restarted. Nothing is stored if
-	// one does not build.
+	// SetSecret sets a secret or replaces it, rebuilds what refers to it (the
+	// running modules, and the language model providers with the running
+	// modules that use one), and returns the modules it restarted. Nothing
+	// is stored if one does not build.
 	SetSecret(ctx context.Context, name, value, by string) (restarted []string, err error)
 	// DeleteSecret deletes a secret set in the panel and returns the modules
 	// it restarted, which now read the environment variable of the name. The
@@ -35,7 +36,7 @@ type Secret struct {
 	Source     string    `json:"source" enum:"panel,environment,missing" doc:"Where its value is: set in the panel, which wins; an environment variable of the name; or missing, when settings refer to a name set in neither."`
 	By         string    `json:"by,omitempty" doc:"Who set it in the panel."`
 	At         time.Time `json:"at,omitzero" doc:"When it was set in the panel."`
-	References []string  `json:"references" nullable:"false" doc:"The modules whose current settings refer to it."`
+	References []string  `json:"references" nullable:"false" doc:"Whose current settings refer to it: module IDs, and system:<section> for a section outside modules, such as system:llm."`
 }
 
 // SecretPath names a secret in a route.
@@ -88,7 +89,7 @@ func registerSecrets(api huma.API, secrets Secrets) {
 			return &struct{ Body []Secret }{append([]Secret{}, all...)}, nil
 		})
 	huma.Register(api, huma.Operation{OperationID: putSecret, Method: http.MethodPut, Path: "/api/secrets/{name}", Summary: "Set or replace a secret",
-		Description: "The running modules whose settings refer to the secret are rebuilt with the new value, which is stored only if they all build. It wins over an environment variable of the same name. Recorded as secret.changed, without the value.", Tags: []string{"Secrets"}},
+		Description: "The running modules whose settings refer to the secret are rebuilt with the new value, and so are the language model providers that refer to it, with the running modules that use one; the value is stored only if they all build. It wins over an environment variable of the same name. Recorded as secret.changed, without the value.", Tags: []string{"Secrets"}},
 		func(ctx context.Context, in *struct {
 			SecretPath
 			Body SecretValue

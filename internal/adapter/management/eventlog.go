@@ -257,11 +257,12 @@ func (l *EventLog) Prune(ctx context.Context, before time.Time) error {
 }
 
 // RunPruner prunes records older than retention every hour until ctx ends.
-func (l *EventLog) RunPruner(ctx context.Context, retention time.Duration) {
+// It asks retention each time, so a changed one applies from the next round.
+func (l *EventLog) RunPruner(ctx context.Context, retention func() time.Duration) {
 	ticker := time.NewTicker(time.Hour)
 	defer ticker.Stop()
 	for {
-		if err := l.Prune(ctx, time.Now().Add(-retention)); err != nil && !errors.Is(err, context.Canceled) {
+		if err := l.Prune(ctx, time.Now().Add(-retention())); err != nil && !errors.Is(err, context.Canceled) {
 			l.log.Warn("event log: prune failed", "error", err)
 		}
 		select {

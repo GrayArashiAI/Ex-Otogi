@@ -33,7 +33,7 @@ import (
 // moduleEnv is what the composition root offers modules beyond their
 // settings. Status and commands are only valid once the process runs.
 type moduleEnv struct {
-	operators []string
+	operators func() []string                  // the operators now
 	secret    func(name string) (string, bool) // see moduleSettings.environment
 	llm       func(name string) (llm.Provider, error)
 	status    func(context.Context) utility.Status
@@ -73,47 +73,62 @@ func built[M otogi.Module](m M, err error) (otogi.Module, error) {
 	return m, nil
 }
 
-// moduleKind is a module compiled into the binary: the JSON Schema of its
-// settings, generated from its Config type, and how to build it.
-type moduleKind struct {
+// settingsSchema is the JSON Schema of settings, generated from their Config
+// type: a module's, or those of a section outside modules.
+type settingsSchema struct {
 	config   reflect.Type
 	registry huma.Registry // the schema's $defs
 	schema   *huma.Schema
-	build    func(settings []byte, env moduleEnv) (otogi.Module, error)
 	// secrets names the secrets settings refer to, from their Secret fields.
 	secrets func(settings []byte) ([]string, error)
 }
 
-func kind[C any](build func(C, moduleEnv) (otogi.Module, error)) moduleKind {
+func schemaOf[C any]() settingsSchema {
 	r := huma.NewMapRegistry("#/$defs/", huma.DefaultSchemaNamer)
 	r.RegisterTypeAlias(reflect.TypeFor[otogi.Duration](), reflect.TypeFor[durationSchema]())
 	r.RegisterTypeAlias(reflect.TypeFor[otogi.Secret](), reflect.TypeFor[secretSchema]())
-	decode := func(settings []byte) (C, error) {
-		var cfg C
-		decoder := json.NewDecoder(bytes.NewReader(settings))
-		decoder.DisallowUnknownFields()
-		if err := decoder.Decode(&cfg); err != nil {
-			return cfg, fmt.Errorf("decode settings: %w", err)
-		}
-		return cfg, nil
-	}
-	return moduleKind{
+	return settingsSchema{
 		config: reflect.TypeFor[C](), registry: r, schema: huma.SchemaFromType(r, reflect.TypeFor[C]()),
-		build: func(settings []byte, env moduleEnv) (otogi.Module, error) {
-			cfg, err := decode(settings)
-			if err != nil {
-				return nil, err
-			}
-			return build(cfg, env)
-		},
 		secrets: func(settings []byte) ([]string, error) {
-			cfg, err := decode(settings)
+			cfg, err := decodeSettings[C](settings)
 			if err != nil {
 				return nil, err
 			}
 			names := map[string]bool{}
 			secretNames(reflect.ValueOf(cfg), names)
 			return slices.Sorted(maps.Keys(names)), nil
+		},
+	}
+}
+
+// decodeSettings decodes settings into their Config type; a setting the
+// type does not have is an error.
+func decodeSettings[C any](settings []byte) (C, error) {
+	var cfg C
+	decoder := json.NewDecoder(bytes.NewReader(settings))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&cfg); err != nil {
+		return cfg, fmt.Errorf("decode settings: %w", err)
+	}
+	return cfg, nil
+}
+
+// moduleKind is a module compiled into the binary: the JSON Schema of its
+// settings, generated from its Config type, and how to build it.
+type moduleKind struct {
+	settingsSchema
+	build func(settings []byte, env moduleEnv) (otogi.Module, error)
+}
+
+func kind[C any](build func(C, moduleEnv) (otogi.Module, error)) moduleKind {
+	return moduleKind{
+		settingsSchema: schemaOf[C](),
+		build: func(settings []byte, env moduleEnv) (otogi.Module, error) {
+			cfg, err := decodeSettings[C](settings)
+			if err != nil {
+				return nil, err
+			}
+			return build(cfg, env)
 		},
 	}
 }
@@ -146,13 +161,11 @@ func secretNames(v reflect.Value, names map[string]bool) {
 	}
 }
 
-// instance validates settings against the schema and builds the module from
-// them. Building starts nothing, which is the kernel's, so a constructor
-// that fails has refused the settings: the error is otogi.ErrInvalid.
-func (k moduleKind) instance(settings []byte, env moduleEnv) (otogi.Module, error) {
+// check validates settings against the schema, field by field.
+func (k settingsSchema) check(settings []byte) error {
 	var v any
 	if err := json.Unmarshal(settings, &v); err != nil {
-		return nil, fmt.Errorf("settings are not JSON: %w: %w", otogi.ErrInvalid, err)
+		return fmt.Errorf("settings are not JSON: %w: %w", otogi.ErrInvalid, err)
 	}
 	res := &huma.ValidateResult{}
 	huma.Validate(k.registry, k.schema, huma.NewPathBuffer(nil, 0), huma.ModeWriteToServer, v, res)
@@ -164,18 +177,32 @@ func (k moduleKind) instance(settings []byte, env moduleEnv) (otogi.Module, erro
 				d.Value = nil
 			}
 		}
-		return nil, &invalidSettings{details: res.Errors}
+		return &invalidSettings{details: res.Errors}
 	}
-	m, err := k.build(settings, env)
+	return nil
+}
+
+// instance validates settings against the schema and builds the module from
+// them. Building starts nothing, which is the kernel's, so a constructor
+// that fails has refused the settings: the error is otogi.ErrInvalid.
+func (k moduleKind) instance(settings []byte, env moduleEnv) (otogi.Module, error) {
+	if err := k.check(settings); err != nil {
+		return nil, err
+	}
+	return refused(k.build(settings, env))
+}
+
+// refused makes an error from building with settings the settings' fault.
+func refused[T any](built T, err error) (T, error) {
 	if err != nil && !errors.Is(err, otogi.ErrInvalid) {
 		err = fmt.Errorf("%w: %w", err, otogi.ErrInvalid)
 	}
-	return m, err
+	return built, err
 }
 
 // schemaDocument is the settings' JSON Schema with the types it refers to
 // under $defs, as one document.
-func (k moduleKind) schemaDocument() (map[string]any, error) {
+func (k settingsSchema) schemaDocument() (map[string]any, error) {
 	data, err := json.Marshal(k.schema)
 	if err != nil {
 		return nil, fmt.Errorf("encode schema: %w", err)

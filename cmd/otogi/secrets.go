@@ -16,8 +16,9 @@ import (
 
 // Settings refer to a secret as ${NAME}. Its value is the one set in the
 // panel, kept in the module store, or else the environment variable of that
-// name. Modules read it when they are built, so a changed secret reaches the
-// running ones by rebuilding them.
+// name. Modules read it when they are built, and so do the language model
+// providers, so a changed secret reaches the running ones by rebuilding
+// them.
 
 // environment is what modules are built with now: s.env, and the secrets as
 // the module store holds them at this moment.
@@ -46,8 +47,8 @@ func (s *moduleSettings) storedSecrets(ctx context.Context) (map[string]string, 
 	return values, err
 }
 
-// secretUsers returns, for each secret name, the modules whose current
-// settings refer to it, sorted by ID, whether they run or not.
+// secretUsers returns, for each secret name, the modules and sections whose
+// current settings refer to it, sorted by ID, whether they run or not.
 func (s *moduleSettings) secretUsers(ctx context.Context) (map[string][]otogi.ModuleID, error) {
 	revisions, err := s.store.CurrentSettings(ctx)
 	if err != nil {
@@ -56,13 +57,13 @@ func (s *moduleSettings) secretUsers(ctx context.Context) (map[string][]otogi.Mo
 	slices.SortFunc(revisions, func(a, b modulestore.SettingsRevision) int { return cmp.Compare(a.Module, b.Module) })
 	users := map[string][]otogi.ModuleID{}
 	for _, r := range revisions {
-		kind, ok := s.kinds[r.Module]
+		schema, ok := s.schema(r.Module)
 		if !ok {
 			continue // not in this build
 		}
-		names, err := kind.secrets(r.Settings)
+		names, err := schema.secrets(r.Settings)
 		if err != nil {
-			return nil, fmt.Errorf("module %s, settings revision %d: %w", r.Module, r.Revision, err)
+			return nil, fmt.Errorf("%s, settings revision %d: %w", r.Module, r.Revision, err)
 		}
 		for _, name := range names {
 			users[name] = append(users[name], r.Module)
@@ -111,10 +112,12 @@ func (s *moduleSettings) deleteSecret(ctx context.Context, name, by string) ([]o
 }
 
 // changeSecret applies a secret's new value, or with nil its deletion, and
-// stores it: the running modules whose settings refer to the secret are
-// rebuilt from their current revisions, with the modules holding their
-// services, and replace the running instances. Nothing is stored unless
-// that succeeds. It returns the modules restarted.
+// stores it. The sections whose settings refer to the secret are applied
+// again; the running modules whose settings refer to it, and those a section
+// rebuilds, are rebuilt from their current revisions, with the modules
+// holding their services, and replace the running instances. Nothing is
+// stored, and the sections are put back, unless that succeeds. It returns
+// the modules restarted.
 func (s *moduleSettings) changeSecret(ctx context.Context, name string, value *string, by string) ([]otogi.ModuleID, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -145,21 +148,38 @@ func (s *moduleSettings) changeSecret(ctx context.Context, name string, value *s
 	} else {
 		delete(stored, name)
 	}
-	restart := []otogi.ModuleID{}
-	for _, d := range s.kernel.Descriptors() {
-		if slices.Contains(users[name], d.ID) {
-			restart = append(restart, d.ID)
+	env := s.environmentWith(stored)
+	var undo []func()
+	back := func() {
+		for _, u := range undo {
+			u()
 		}
 	}
-	restart = append(restart, s.kernel.Dependents(restart...)...)
-	set, err := s.rebuilt(ctx, s.environmentWith(stored), restart, "secret "+name)
-	if err != nil {
-		return nil, err
-	}
-	if len(set) > 0 {
-		if err := s.kernel.Reconfigure(ctx, set, nil); err != nil {
+	use := func(module otogi.ModuleID) bool { return slices.Contains(users[name], module) }
+	for _, id := range users[name] {
+		sec, ok := sections[id]
+		if !ok {
+			continue
+		}
+		cur, err := s.current(ctx, id)
+		if err != nil {
+			back()
 			return nil, err
 		}
+		u, err := sec.apply(s.system, cur.Settings, env.secret)
+		if err != nil {
+			back()
+			return nil, fmt.Errorf("%s, which uses secret %s: %w", id, name, err)
+		}
+		undo = append(undo, u)
+		if rebuilds, others := sec.rebuilds, use; rebuilds != nil {
+			use = func(module otogi.ModuleID) bool { return others(module) || rebuilds(s, module) }
+		}
+	}
+	restart, err := s.restart(ctx, env, use, "secret "+name)
+	if err != nil {
+		back()
+		return nil, err
 	}
 	now := time.Now()
 	if value != nil {
@@ -170,10 +190,16 @@ func (s *moduleSettings) changeSecret(ctx context.Context, name string, value *s
 	if err != nil {
 		return nil, err
 	}
-	s.log.Info("secret changed", "name", name, "action", action, "by", by, "restarted", restart)
-	s.recorder.Record(ctx, otogi.Record{
-		At: now, Kind: "secret.changed", Component: "secret:" + name, Outcome: "ok",
-		Payload: map[string]any{"name": name, "action": action, "by": by, "restarted": restart},
-	})
+	s.secretChanged(ctx, now, name, action, by, restart)
 	return restart, nil
+}
+
+// secretChanged logs and records a stored change of a secret, without its
+// value.
+func (s *moduleSettings) secretChanged(ctx context.Context, at time.Time, name, action, by string, restarted []otogi.ModuleID) {
+	s.log.Info("secret changed", "name", name, "action", action, "by", by, "restarted", restarted)
+	s.recorder.Record(ctx, otogi.Record{
+		At: at, Kind: "secret.changed", Component: "secret:" + name, Outcome: "ok",
+		Payload: map[string]any{"name": name, "action": action, "by": by, "restarted": restarted},
+	})
 }

@@ -12,7 +12,7 @@ import (
 
 // Translate configures the translated cards.
 type Translate struct {
-	Provider string `json:"provider" minLength:"1" doc:"A language model provider configured under llm in otogi.yaml, such as gemini."`
+	Provider string `json:"provider" minLength:"1" doc:"A language model provider set in the panel under Language models, such as gemini."`
 	Model    string `json:"model" minLength:"1" doc:"The provider's model ID."`
 	Thinking string `json:"thinking,omitempty" enum:"minimal,low,medium,high" doc:"How much the model thinks before answering; unset is the model's default."`
 }

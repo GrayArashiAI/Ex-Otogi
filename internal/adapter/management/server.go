@@ -39,6 +39,9 @@ type ServerConfig struct {
 	// Modules serves the module, allowlist, and chat routes; without it
 	// they are absent.
 	Modules Modules
+	// System serves the routes of the settings outside modules; without it
+	// they are absent.
+	System System
 	// Secrets serves the secret routes; without it they are absent.
 	Secrets Secrets
 	// Media fetches media people sent through the platform's driver.
@@ -245,6 +248,9 @@ func newAPI(cfg ServerConfig, signIn *signIn, every bool) (*http.ServeMux, huma.
 		registerModules(api, cfg.Modules)
 		registerAllowlists(api, cfg.Modules, cfg.Events)
 		registerChats(api, cfg.Modules, cfg.Events, cfg.Media)
+	}
+	if cfg.System != nil || every {
+		registerSystem(api, cfg.System)
 	}
 	if cfg.Secrets != nil || every {
 		registerSecrets(api, cfg.Secrets)

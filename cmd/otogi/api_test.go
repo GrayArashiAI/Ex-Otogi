@@ -37,9 +37,12 @@ func apiHarness(t *testing.T, log *slog.Logger) (*kernel.Kernel, func(method, pa
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = events.Close() })
-	settings := &moduleSettings{store: storage, kinds: moduleKinds, recorder: events, log: log, env: moduleEnv{
+	settings := &moduleSettings{store: storage, kinds: moduleKinds, recorder: events, log: log, system: newSystem(new(slog.LevelVar), events, log), env: moduleEnv{
 		llm: func(string) (llm.Provider, error) { return silentModel{}, nil },
 	}}
+	if err := settings.loadSections(ctx, Config{}); err != nil {
+		t.Fatal(err)
+	}
 	k, err := kernel.New(kernel.Config{Storage: storage, Recorder: events}, nil, nil, capture.New(), log)
 	if err != nil {
 		t.Fatal(err)
@@ -51,7 +54,7 @@ func apiHarness(t *testing.T, log *slog.Logger) (*kernel.Kernel, func(method, pa
 	settings.kernel = k
 	server, err := management.StartServer(management.ServerConfig{
 		Addr: "127.0.0.1:0", Token: "secret", Events: events, Logger: log, Ready: func() bool { return true }, Shutdown: func() {},
-		Status: func(context.Context) management.Status { return management.Status{} }, Modules: moduleAPI{settings}, Secrets: moduleAPI{settings},
+		Status: func(context.Context) management.Status { return management.Status{} }, Modules: newModuleAPI(settings), System: newSystemAPI(settings), Secrets: newModuleAPI(settings),
 		Media: func(context.Context, otogi.Destination, otogi.MediaSource) ([]byte, error) {
 			return []byte("JPEG"), nil
 		},
@@ -247,4 +250,72 @@ func TestSecretsAPI(t *testing.T) {
 			t.Fatalf("a secret's value is in %s", text)
 		}
 	}
+}
+
+// The section routes over the real runtime: the sections, their settings
+// with a schema, saved against their revision, their history, and an
+// earlier revision restored.
+func TestSystemAPI(t *testing.T) {
+	_, do := apiHarness(t, slog.New(slog.DiscardHandler))
+	contains := func(what, body string, want ...string) {
+		t.Helper()
+		for _, w := range want {
+			if !strings.Contains(body, w) {
+				t.Fatalf("%s: %s lacks %s", what, body, w)
+			}
+		}
+	}
+
+	_, body := do("GET", "/api/system", "", "", 200)
+	contains("sections", body, `{"id":"general","revision":0}`, `{"id":"llm","revision":0}`)
+	header, body := do("GET", "/api/system/general/settings", "", "", 200)
+	contains("general settings", body, `"module":"system:general"`, `"revision":0`, `"settings":{}`, `"schema":{`, `"log_level"`, `"x-order":["operators","command_prefixes","eventlog_retention","log_level"]`)
+	if header.Get("ETag") != `"0"` {
+		t.Fatalf("ETag %q", header.Get("ETag"))
+	}
+	_, body = do("GET", "/api/system/llm/settings", "", "", 200)
+	contains("language model settings", body, `"format":"secret"`, `"$defs"`)
+
+	do("PUT", "/api/system/general/settings", "", `{}`, 422) // If-Match is required
+	_, body = do("PUT", "/api/system/general/settings", `"0"`, `{"log_level": "loud", "eventlog_retention": "soon"}`, 422)
+	contains("invalid general settings", body, `"location":"log_level"`, `"location":"eventlog_retention"`)
+	_, body = do("PUT", "/api/system/llm/settings", `"0"`, `{"gemini": {"api_key": "value-pasted"}}`, 422)
+	contains("a pasted key", body, `"location":"gemini.api_key"`)
+	if strings.Contains(body, "value-") {
+		t.Fatalf("a refused key is in the answer: %s", body)
+	}
+	header, body = do("PUT", "/api/system/general/settings", `"0"`, `{"log_level": "debug"}`, 200)
+	contains("saved", body, `"module":"system:general"`, `"revision":1`, `"settings":{"log_level":"debug"}`, `"by":"management API"`)
+	if header.Get("ETag") != `"1"` {
+		t.Fatalf("ETag after saving %q", header.Get("ETag"))
+	}
+	do("PUT", "/api/system/general/settings", `"0"`, `{"log_level": "warn"}`, 412)
+	do("PUT", "/api/system/general/settings", `"1"`, `{"log_level": "warn"}`, 200)
+	_, body = do("GET", "/api/system/general/settings/revisions", "", "", 200)
+	contains("history", body, `"revision":2`, `"revision":1`, `"more":false`)
+	do("POST", "/api/system/general/settings/revisions/1/restore", `"1"`, "", 412)
+	header, body = do("POST", "/api/system/general/settings/revisions/1/restore", `"2"`, "", 200)
+	contains("restored", body, `"revision":3`, `"settings":{"log_level":"debug"}`)
+	if header.Get("ETag") != `"3"` {
+		t.Fatalf("ETag after restoring %q", header.Get("ETag"))
+	}
+	do("POST", "/api/system/general/settings/revisions/9/restore", `"3"`, "", 404)
+	_, body = do("GET", "/api/system", "", "", 200)
+	contains("sections", body, `{"id":"general","revision":3}`)
+
+	// Sections are not modules, and modules are not sections.
+	for _, path := range []string{"/api/system/accounts/settings", "/api/system/echo/settings", "/api/modules/system:general/settings", "/api/system/echo/settings/revisions", "/api/modules/system:general/settings/revisions"} {
+		do("GET", path, "", "", 404)
+	}
+	do("PUT", "/api/modules/system:general/settings", `"3"`, `{}`, 404)
+	do("POST", "/api/modules/system:general/settings/revisions/1/restore", `"3"`, "", 404)
+	_, body = do("GET", "/api/modules", "", "", 200)
+	if strings.Contains(body, "system:") {
+		t.Fatalf("a section is listed as a module: %s", body)
+	}
+
+	_, body = do("GET", "/api/events?kind=system.reconfigured", "", "", 200)
+	contains("records", body, `"component":"system:general"`, `"revision":3`, `"by":"management API"`, `"restarted":[]`)
+	_, body = do("GET", "/api/openapi.json", "", "", 200)
+	contains("OpenAPI document", body, `"/api/system/{section}/settings/revisions/{revision}/restore"`)
 }

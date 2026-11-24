@@ -17,22 +17,28 @@ import (
 	"github.com/TundraWork/Ex-Otogi/pkg/otogi"
 )
 
+// Settings is settings kept as revisions, of the modules or of the sections
+// outside them (see System), each named by an ID.
+type Settings interface {
+	// Settings returns the current revision and the JSON Schema of the
+	// settings. One never saved is revision 0, with empty settings.
+	Settings(ctx context.Context, id string) (Revision, map[string]any, error)
+	// SaveSettings applies and stores a new revision, based on the revision
+	// base. Nil enabled or settings keep the current.
+	SaveSettings(ctx context.Context, id string, base int64, enabled *bool, settings json.RawMessage, by string) (Revision, error)
+	// Revisions returns up to limit revisions older than before, newest
+	// first.
+	Revisions(ctx context.Context, id string, before int64, limit int) ([]Revision, error)
+	// Revision returns one revision, or an error wrapping ErrNotFound.
+	Revision(ctx context.Context, id string, revision int64) (Revision, error)
+}
+
 // Modules is the module runtime as the API sees it; the composition root
 // implements it.
 type Modules interface {
+	Settings
 	// Modules lists every module compiled into the binary, by ID.
 	Modules(ctx context.Context) ([]Module, error)
-	// Settings returns a module's current revision and the JSON Schema of
-	// its settings.
-	Settings(ctx context.Context, module string) (Revision, map[string]any, error)
-	// SaveSettings applies and stores a new revision of a module's settings,
-	// based on the revision base. Nil enabled or settings keep the current.
-	SaveSettings(ctx context.Context, module string, base int64, enabled *bool, settings json.RawMessage, by string) (Revision, error)
-	// Revisions returns up to limit revisions older than before, newest
-	// first.
-	Revisions(ctx context.Context, module string, before int64, limit int) ([]Revision, error)
-	// Revision returns one revision, or an error wrapping ErrNotFound.
-	Revision(ctx context.Context, module string, revision int64) (Revision, error)
 	// Allowlists returns every chat on every module's allowlists.
 	Allowlists() []AllowedChat
 	// SetAllowed adds a chat to a module's allowlist, or removes it.
@@ -41,8 +47,8 @@ type Modules interface {
 	SetIgnoreBots(ctx context.Context, module string, ignore bool, by string) error
 }
 
-// ErrNotFound is what Modules returns for a module or revision that does
-// not exist.
+// ErrNotFound is what Modules and System return for a module, section, or
+// revision that does not exist.
 var ErrNotFound = errors.New("not found")
 
 // StaleRevisionError is a change based on a revision that is no longer the
@@ -91,9 +97,9 @@ type ModuleCounts struct {
 	Panicked  int64 `json:"panicked"`
 }
 
-// Revision is one saved revision of a module's settings.
+// Revision is one saved revision of a module's settings, or a section's.
 type Revision struct {
-	Module   string          `json:"module"`
+	Module   string          `json:"module" doc:"The module's ID, or system:<section> for a section."`
 	Revision int64           `json:"revision"`
 	Enabled  bool            `json:"enabled"`
 	Settings json.RawMessage `json:"settings"`
@@ -239,87 +245,171 @@ func registerModules(api huma.API, modules Modules) {
 			m, err := find(ctx, in.Module)
 			return &struct{ Body Module }{m}, err
 		})
+	h := settingsHandlers{modules}
 	huma.Register(api, huma.Operation{OperationID: "get-settings", Method: http.MethodGet, Path: "/api/modules/{module}/settings", Summary: "A module's current settings and their schema", Tags: []string{"Settings"}},
-		func(ctx context.Context, in *ModulePath) (*settingsOutput, error) {
-			r, schema, err := modules.Settings(ctx, in.Module)
-			if err != nil {
-				return nil, problem(err)
-			}
-			out := &settingsOutput{ETag: etag(r.Revision)}
-			out.Body.Revision, out.Body.Schema = r, schema
-			return out, nil
-		})
+		func(ctx context.Context, in *ModulePath) (*settingsOutput, error) { return h.get(ctx, in.Module) })
 	huma.Register(api, huma.Operation{OperationID: "put-settings", Method: http.MethodPut, Path: "/api/modules/{module}/settings", Summary: "Save and apply new settings",
 		Description: "Validates the settings against their schema, builds the module from them, swaps it in while it runs, and stores the revision. Nothing is stored if any step fails.", Tags: []string{"Settings"}},
 		func(ctx context.Context, in *struct {
 			ModulePath
-			IfMatch string `header:"If-Match" required:"true" doc:"The ETag of the settings this replaces."`
-			Body    json.RawMessage
+			IfMatch
+			Body json.RawMessage
 		},
 		) (*revisionOutput, error) {
-			base, err := revisionOf(in.IfMatch)
-			if err != nil {
-				return nil, err
-			}
-			r, err := modules.SaveSettings(ctx, in.Module, base, nil, in.Body, caller(ctx))
-			if err != nil {
-				return nil, problem(err)
-			}
-			return &revisionOutput{ETag: etag(r.Revision), Body: r}, nil
+			return h.put(ctx, in.Module, in.IfMatch, in.Body)
 		})
 	huma.Register(api, huma.Operation{OperationID: "list-revisions", Method: http.MethodGet, Path: "/api/modules/{module}/settings/revisions", Summary: "A module's settings history, newest first", Tags: []string{"Settings"}},
 		func(ctx context.Context, in *struct {
 			ModulePath
-			Before int64 `query:"before" minimum:"1" doc:"Revisions older than this one."`
-			Limit  int   `query:"limit" minimum:"1" maximum:"100" default:"20"`
+			RevisionsQuery
 		},
-		) (*struct {
-			Body struct {
-				Revisions []Revision `json:"revisions"`
-				More      bool       `json:"more"`
-			}
-		}, error,
-		) {
-			before := in.Before
-			if before == 0 {
-				before = 1<<63 - 1
-			}
-			revisions, err := modules.Revisions(ctx, in.Module, before, in.Limit+1)
-			if err != nil {
-				return nil, problem(err)
-			}
-			out := &struct {
-				Body struct {
-					Revisions []Revision `json:"revisions"`
-					More      bool       `json:"more"`
-				}
-			}{}
-			out.Body.More = len(revisions) > in.Limit
-			out.Body.Revisions = revisions[:min(len(revisions), in.Limit)]
-			return out, nil
+		) (*revisionsPage, error) {
+			return h.list(ctx, in.Module, in.RevisionsQuery)
 		})
 	huma.Register(api, huma.Operation{OperationID: "restore-revision", Method: http.MethodPost, Path: "/api/modules/{module}/settings/revisions/{revision}/restore", Summary: "Restore earlier settings",
 		Description: "Saves the settings of an earlier revision as a new revision and applies them. Whether the module runs is left as it is.", Tags: []string{"Settings"}},
 		func(ctx context.Context, in *struct {
 			ModulePath
-			Revision int64  `path:"revision"`
-			IfMatch  string `header:"If-Match" required:"true" doc:"The ETag of the settings this replaces."`
+			RevisionPath
+			IfMatch
 		},
 		) (*revisionOutput, error) {
-			base, err := revisionOf(in.IfMatch)
-			if err != nil {
-				return nil, err
-			}
-			old, err := modules.Revision(ctx, in.Module, in.Revision)
-			if err != nil {
-				return nil, problem(err)
-			}
-			r, err := modules.SaveSettings(ctx, in.Module, base, nil, old.Settings, caller(ctx))
-			if err != nil {
-				return nil, problem(err)
-			}
-			return &revisionOutput{ETag: etag(r.Revision), Body: r}, nil
+			return h.restore(ctx, in.Module, in.Revision, in.IfMatch)
 		})
+}
+
+// System is the settings outside modules as the API sees them, in
+// sections; the composition root implements it.
+type System interface {
+	Settings
+	// Sections lists the sections, in the order the panel shows them.
+	Sections(ctx context.Context) ([]Section, error)
+}
+
+// Section is a group of settings outside modules, such as the language
+// model providers. Its settings are kept as revisions, like a module's.
+type Section struct {
+	ID       string `json:"id" doc:"The section, as its routes name it. Its revisions and records carry system:<id>."`
+	Revision int64  `json:"revision" doc:"Its current revision; 0 when it was never saved and runs on the defaults."`
+}
+
+// SectionPath names a section in a route.
+type SectionPath struct {
+	Section string `path:"section" doc:"The section's ID, such as general."`
+}
+
+func registerSystem(api huma.API, system System) {
+	huma.Register(api, huma.Operation{OperationID: "list-sections", Method: http.MethodGet, Path: "/api/system", Summary: "The sections of settings outside modules", Tags: []string{"System"}},
+		func(ctx context.Context, _ *struct{}) (*struct{ Body []Section }, error) {
+			all, err := system.Sections(ctx)
+			if err != nil {
+				return nil, problem(err)
+			}
+			return &struct{ Body []Section }{all}, nil
+		})
+	h := settingsHandlers{system}
+	huma.Register(api, huma.Operation{OperationID: "get-section-settings", Method: http.MethodGet, Path: "/api/system/{section}/settings", Summary: "A section's current settings and their schema", Tags: []string{"System"}},
+		func(ctx context.Context, in *SectionPath) (*settingsOutput, error) { return h.get(ctx, in.Section) })
+	huma.Register(api, huma.Operation{OperationID: "put-section-settings", Method: http.MethodPut, Path: "/api/system/{section}/settings", Summary: "Save and apply a section's new settings",
+		Description: "Validates the settings against their schema, puts them into effect, rebuilding the running modules that use what changed, and stores the revision. Nothing is stored, and nothing changes, if any step fails. Recorded as system.reconfigured.", Tags: []string{"System"}},
+		func(ctx context.Context, in *struct {
+			SectionPath
+			IfMatch
+			Body json.RawMessage
+		},
+		) (*revisionOutput, error) {
+			return h.put(ctx, in.Section, in.IfMatch, in.Body)
+		})
+	huma.Register(api, huma.Operation{OperationID: "list-section-revisions", Method: http.MethodGet, Path: "/api/system/{section}/settings/revisions", Summary: "A section's settings history, newest first", Tags: []string{"System"}},
+		func(ctx context.Context, in *struct {
+			SectionPath
+			RevisionsQuery
+		},
+		) (*revisionsPage, error) {
+			return h.list(ctx, in.Section, in.RevisionsQuery)
+		})
+	huma.Register(api, huma.Operation{OperationID: "restore-section-revision", Method: http.MethodPost, Path: "/api/system/{section}/settings/revisions/{revision}/restore", Summary: "Restore a section's earlier settings",
+		Description: "Saves the settings of an earlier revision as a new revision and applies them.", Tags: []string{"System"}},
+		func(ctx context.Context, in *struct {
+			SectionPath
+			RevisionPath
+			IfMatch
+		},
+		) (*revisionOutput, error) {
+			return h.restore(ctx, in.Section, in.Revision, in.IfMatch)
+		})
+}
+
+// IfMatch is the revision a change of settings is based on.
+type IfMatch struct {
+	IfMatch string `header:"If-Match" required:"true" doc:"The ETag of the settings this replaces."`
+}
+
+// RevisionPath names one revision of settings in a route.
+type RevisionPath struct {
+	Revision int64 `path:"revision"`
+}
+
+// RevisionsQuery pages through a settings history.
+type RevisionsQuery struct {
+	Before int64 `query:"before" minimum:"1" doc:"Revisions older than this one."`
+	Limit  int   `query:"limit" minimum:"1" maximum:"100" default:"20"`
+}
+
+type revisionsPage struct {
+	Body struct {
+		Revisions []Revision `json:"revisions"`
+		More      bool       `json:"more"`
+	}
+}
+
+// settingsHandlers serves settings kept as revisions, a module's or a
+// section's, named by id.
+type settingsHandlers struct{ settings Settings }
+
+func (h settingsHandlers) get(ctx context.Context, id string) (*settingsOutput, error) {
+	r, schema, err := h.settings.Settings(ctx, id)
+	if err != nil {
+		return nil, problem(err)
+	}
+	out := &settingsOutput{ETag: etag(r.Revision)}
+	out.Body.Revision, out.Body.Schema = r, schema
+	return out, nil
+}
+
+func (h settingsHandlers) put(ctx context.Context, id string, ifMatch IfMatch, settings json.RawMessage) (*revisionOutput, error) {
+	base, err := revisionOf(ifMatch.IfMatch)
+	if err != nil {
+		return nil, err
+	}
+	r, err := h.settings.SaveSettings(ctx, id, base, nil, settings, caller(ctx))
+	if err != nil {
+		return nil, problem(err)
+	}
+	return &revisionOutput{ETag: etag(r.Revision), Body: r}, nil
+}
+
+func (h settingsHandlers) list(ctx context.Context, id string, page RevisionsQuery) (*revisionsPage, error) {
+	before := page.Before
+	if before == 0 {
+		before = 1<<63 - 1
+	}
+	revisions, err := h.settings.Revisions(ctx, id, before, page.Limit+1)
+	if err != nil {
+		return nil, problem(err)
+	}
+	out := &revisionsPage{}
+	out.Body.More = len(revisions) > page.Limit
+	out.Body.Revisions = revisions[:min(len(revisions), page.Limit)]
+	return out, nil
+}
+
+func (h settingsHandlers) restore(ctx context.Context, id string, revision int64, ifMatch IfMatch) (*revisionOutput, error) {
+	old, err := h.settings.Revision(ctx, id, revision)
+	if err != nil {
+		return nil, problem(err)
+	}
+	return h.put(ctx, id, ifMatch, old.Settings)
 }
 
 // baseRevision is the revision a change is based on: If-Match, or else the

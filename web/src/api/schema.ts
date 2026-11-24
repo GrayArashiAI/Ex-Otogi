@@ -351,7 +351,7 @@ export interface paths {
         get?: never;
         /**
          * Set or replace a secret
-         * @description The running modules whose settings refer to the secret are rebuilt with the new value, which is stored only if they all build. It wins over an environment variable of the same name. Recorded as secret.changed, without the value.
+         * @description The running modules whose settings refer to the secret are rebuilt with the new value, and so are the language model providers that refer to it, with the running modules that use one; the value is stored only if they all build. It wins over an environment variable of the same name. Recorded as secret.changed, without the value.
          */
         put: operations["put-secret"];
         post?: never;
@@ -393,6 +393,81 @@ export interface paths {
         get: operations["get-status"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/system": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The sections of settings outside modules */
+        get: operations["list-sections"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/system/{section}/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A section's current settings and their schema */
+        get: operations["get-section-settings"];
+        /**
+         * Save and apply a section's new settings
+         * @description Validates the settings against their schema, puts them into effect, rebuilding the running modules that use what changed, and stores the revision. Nothing is stored, and nothing changes, if any step fails. Recorded as system.reconfigured.
+         */
+        put: operations["put-section-settings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/system/{section}/settings/revisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A section's settings history, newest first */
+        get: operations["list-section-revisions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/system/{section}/settings/revisions/{revision}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Restore a section's earlier settings
+         * @description Saves the settings of an earlier revision as a new revision and applies them.
+         */
+        post: operations["restore-section-revision"];
         delete?: never;
         options?: never;
         head?: never;
@@ -676,10 +751,6 @@ export interface components {
             messages: components["schemas"]["ChatMessage"][] | null;
             more: boolean;
         };
-        "List-revisionsResponse": {
-            more: boolean;
-            revisions: components["schemas"]["Revision"][] | null;
-        };
         ListedChat: {
             /** Format: date-time */
             added_at: string;
@@ -821,10 +892,15 @@ export interface components {
             at?: string;
             by?: string;
             enabled: boolean;
+            /** @description The module's ID, or system:<section> for a section. */
             module: string;
             /** Format: int64 */
             revision: number;
             settings: unknown;
+        };
+        RevisionsPageBody: {
+            more: boolean;
+            revisions: components["schemas"]["Revision"][] | null;
         };
         Running: {
             account?: string;
@@ -846,7 +922,7 @@ export interface components {
             /** @description Who set it in the panel. */
             by?: string;
             name: string;
-            /** @description The modules whose current settings refer to it. */
+            /** @description Whose current settings refer to it: module IDs, and system:<section> for a section outside modules, such as system:llm. */
             references: string[];
             /**
              * @description Where its value is: set in the panel, which wins; an environment variable of the name; or missing, when settings refer to a name set in neither.
@@ -861,6 +937,15 @@ export interface components {
         SecretValue: {
             /** @description The secret itself. */
             value: string;
+        };
+        Section: {
+            /** @description The section, as its routes name it. Its revisions and records carry system:<id>. */
+            id: string;
+            /**
+             * Format: int64
+             * @description Its current revision; 0 when it was never saved and runs on the defaults.
+             */
+            revision: number;
         };
         SeenChat: {
             account: string;
@@ -902,6 +987,7 @@ export interface components {
             at?: string;
             by?: string;
             enabled: boolean;
+            /** @description The module's ID, or system:<section> for a section. */
             module: string;
             /** Format: int64 */
             revision: number;
@@ -1662,7 +1748,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["List-revisionsResponse"];
+                    "application/json": components["schemas"]["RevisionsPageBody"];
                 };
             };
             /** @description Error */
@@ -1853,6 +1939,181 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Status"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "list-sections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Section"][] | null;
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-section-settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The section's ID, such as general. */
+                section: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SettingsOutputBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "put-section-settings": {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description The ETag of the settings this replaces. */
+                "If-Match": string;
+            };
+            path: {
+                /** @description The section's ID, such as general. */
+                section: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": unknown;
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Revision"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "list-section-revisions": {
+        parameters: {
+            query?: {
+                /** @description Revisions older than this one. */
+                before?: number;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description The section's ID, such as general. */
+                section: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RevisionsPageBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "restore-section-revision": {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description The ETag of the settings this replaces. */
+                "If-Match": string;
+            };
+            path: {
+                /** @description The section's ID, such as general. */
+                section: string;
+                revision: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Revision"];
                 };
             };
             /** @description Error */

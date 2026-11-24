@@ -19,7 +19,6 @@ import (
 
 	"github.com/TundraWork/Ex-Otogi/internal/adapter/management"
 	"github.com/TundraWork/Ex-Otogi/internal/adapter/telegram"
-	"github.com/TundraWork/Ex-Otogi/pkg/otogi"
 )
 
 func main() { os.Exit(mainExit()) }
@@ -70,11 +69,7 @@ func withConfig(ctx context.Context, path, command string, args []string) error 
 	}
 	switch command {
 	case "validate":
-		providers, err := buildProviders(cfg.LLM, otogi.NopRecorder{}, slog.New(slog.DiscardHandler))
-		if err != nil {
-			return err
-		}
-		fmt.Printf("%s: OK (%d Telegram account(s), %d QQ bot(s), %d LLM provider(s))\n", path, len(cfg.Telegram), len(cfg.QQ), len(providers))
+		fmt.Printf("%s: OK (%d Telegram account(s), %d QQ bot(s))\n", path, len(cfg.Telegram), len(cfg.QQ))
 		return nil
 	case "login":
 		if len(args) != 1 {
@@ -82,11 +77,8 @@ func withConfig(ctx context.Context, path, command string, args []string) error 
 		}
 		return login(ctx, cfg, args[0])
 	default:
-		log, err := newLogger(cfg.Log)
-		if err != nil {
-			return err
-		}
-		return run(ctx, cfg, log)
+		level := new(slog.LevelVar)
+		return run(ctx, cfg, newLogger(cfg.Log.Format, level), level)
 	}
 }
 
@@ -104,22 +96,20 @@ func login(ctx context.Context, cfg Config, account string) error {
 	return fmt.Errorf("no Telegram account %q in the config", account)
 }
 
-func newLogger(cfg LogConfig) (*slog.Logger, error) {
-	level, err := logLevel(cfg.Level)
-	if err != nil {
-		return nil, err
-	}
+// newLogger returns the process log. Its level is the general settings',
+// which set it when they are loaded and each time they are saved.
+func newLogger(format string, level *slog.LevelVar) *slog.Logger {
 	options := &slog.HandlerOptions{Level: level}
-	if cfg.Format == "text" {
-		return slog.New(slog.NewTextHandler(os.Stdout, options)), nil
+	if format == "text" {
+		return slog.New(slog.NewTextHandler(os.Stdout, options))
 	}
-	return slog.New(slog.NewJSONHandler(os.Stdout, options)), nil
+	return slog.New(slog.NewJSONHandler(os.Stdout, options))
 }
 
 func logLevel(name string) (slog.Level, error) {
 	var level slog.Level
 	if err := level.UnmarshalText([]byte(name)); err != nil {
-		return 0, fmt.Errorf("log.level %q: want debug, info, warn, or error", name)
+		return 0, fmt.Errorf("%q: want debug, info, warn, or error", name)
 	}
 	return level, nil
 }

@@ -29,8 +29,9 @@ func command(name string, direction otogi.Direction, actor otogi.ActorID) otogi.
 }
 
 func TestCommands(t *testing.T) {
+	operators := []string{"telegram:user:1"}
 	m := New(Config{}, Deps{
-		Operators: []string{"telegram:user:1"},
+		Operators: func() []string { return operators },
 		Status: func(context.Context) Status {
 			return Status{Version: "v1", Ready: true, Uptime: time.Hour,
 				Drivers: []DriverStatus{{Name: "telegram/main", Ready: true, Detail: "0 pending"}}, EventLog: EventLogStatus{OK: true}}
@@ -70,5 +71,16 @@ func TestCommands(t *testing.T) {
 				t.Errorf("reply %q starts with a command prefix", got)
 			}
 		})
+	}
+	// The operators are the ones there are when the command comes.
+	operators = []string{"telegram:user:9"}
+	for actor, want := range map[otogi.ActorID]string{"user:9": "Status: ready", "user:1": "Only operators"} {
+		inv := &invocation{}
+		if err := m.Handle(context.Background(), command("status", otogi.DirectionIncoming, actor), inv); err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(inv.replies[0], want) {
+			t.Errorf("/status by %s after the operators changed: %q, want %q", actor, inv.replies[0], want)
+		}
 	}
 }

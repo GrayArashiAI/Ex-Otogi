@@ -61,7 +61,7 @@ const (
 // Module is the todou module.
 type Module struct {
 	cfg       Config
-	operators []string
+	operators func() []string
 	agents    map[string]*agent
 	names     []string // agent names, sorted
 	render    renderer
@@ -92,10 +92,11 @@ type watcherState struct {
 	failedAt time.Time
 }
 
-// New validates cfg and returns the module. operators are the
-// platform-qualified actor IDs allowed to link and unlink projects; secret
+// New validates cfg and returns the module. operators returns the
+// platform-qualified actor IDs allowed to link and unlink projects, as they
+// are now; secret
 // returns a secret, such as an agent's token, by name.
-func New(cfg Config, operators []string, secret func(name string) (string, bool)) (*Module, error) {
+func New(cfg Config, operators func() []string, secret func(name string) (string, bool)) (*Module, error) {
 	var errs []error
 	if cfg.CLI == "" {
 		errs = append(errs, errors.New("cli is required"))
@@ -598,7 +599,7 @@ func cooldownText(d time.Duration) string {
 }
 
 func (m *Module) operator(e otogi.Event) bool {
-	return e.Actor.ID != "" && slices.Contains(m.operators, e.ActorKey())
+	return e.Actor.ID != "" && slices.Contains(m.operators(), e.ActorKey())
 }
 
 // link links a project to the chat through an agent, after checking that

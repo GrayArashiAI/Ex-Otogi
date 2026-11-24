@@ -34,7 +34,7 @@ type driver interface {
 // drivers, waits for ctx to end (a signal or POST /api/shutdown) or a driver
 // to stop, then shuts down within the configured timeout. It returns the
 // first failure, or nil after a requested stop.
-func run(ctx context.Context, cfg Config, log *slog.Logger) (failure error) {
+func run(ctx context.Context, cfg Config, log *slog.Logger, level *slog.LevelVar) (failure error) {
 	ctx, requestShutdown := context.WithCancel(ctx)
 	defer requestShutdown()
 	started := time.Now()
@@ -56,18 +56,6 @@ func run(ctx context.Context, cfg Config, log *slog.Logger) (failure error) {
 		}
 		events.Record(context.Background(), otogi.Record{At: time.Now(), Kind: "process.state", Component: "process", Outcome: outcome, Payload: payload})
 	}
-	var background sync.WaitGroup
-	pruneCtx, stopPruning := context.WithCancel(context.Background())
-	background.Go(func() { events.RunPruner(pruneCtx, cfg.EventLog.Retention) })
-	defer func() {
-		stopPruning()
-		background.Wait()
-	}()
-
-	providers, err := buildProviders(cfg.LLM, events, log)
-	if err != nil {
-		return err
-	}
 	storage, err := modulestore.Open(ctx, cfg.DataDir)
 	if err != nil {
 		return err
@@ -81,12 +69,24 @@ func run(ctx context.Context, cfg Config, log *slog.Logger) (failure error) {
 	// only called once the process runs.
 	var status func(context.Context) utility.Status
 	var k *kernel.Kernel
-	settings := &moduleSettings{store: storage, kinds: moduleKinds, recorder: events, log: log, env: moduleEnv{
-		operators: cfg.Operators,
-		llm:       providerLookup(providers),
+	sys := newSystem(level, events, log)
+	settings := &moduleSettings{store: storage, kinds: moduleKinds, recorder: events, log: log, system: sys, env: moduleEnv{
+		operators: sys.operatorList,
+		llm:       sys.provider,
 		status:    func(ctx context.Context) utility.Status { return status(ctx) },
 		commands:  func() []utility.CommandInfo { return commandsOf(k.Descriptors()) },
 	}}
+	if err := settings.loadSections(ctx, cfg); err != nil {
+		return err
+	}
+	// The pruner starts once the retention is loaded.
+	var background sync.WaitGroup
+	pruneCtx, stopPruning := context.WithCancel(context.Background())
+	background.Go(func() { events.RunPruner(pruneCtx, sys.retention) })
+	defer func() {
+		stopPruning()
+		background.Wait()
+	}()
 	modules, err := settings.enabled(ctx)
 	if err != nil {
 		return err
@@ -94,10 +94,7 @@ func run(ctx context.Context, cfg Config, log *slog.Logger) (failure error) {
 	routes := router{}
 	kernelConfig := cfg.Kernel.kernel()
 	kernelConfig.Recorder, kernelConfig.Storage = events, storage
-	middleware := []otogi.Middleware{namesMiddleware{events: events, log: log}}
-	if len(cfg.Commands.Prefixes) > 0 {
-		middleware = append(middleware, kernel.CommandParser(cfg.Commands.Prefixes))
-	}
+	middleware := []otogi.Middleware{namesMiddleware{events: events, log: log}, kernel.CommandParser(&sys.prefixes)}
 	k, err = kernel.New(kernelConfig, modules, middleware, routes, log)
 	if err != nil {
 		return err
@@ -172,7 +169,7 @@ func run(ctx context.Context, cfg Config, log *slog.Logger) (failure error) {
 			PublicURL: cfg.Management.PublicURL, CookieKey: key, Panel: web.Panel(),
 			OIDC: management.OIDC{Issuer: o.Issuer, ClientID: o.ClientID, ClientSecret: o.ClientSecret, Allow: o.Allow},
 			Addr: addr, Token: cfg.Management.Token, Events: events, Logger: log,
-			Shutdown: requestShutdown, Modules: moduleAPI{settings}, Secrets: moduleAPI{settings}, Media: routes.FetchMedia, Version: version(),
+			Shutdown: requestShutdown, Modules: newModuleAPI(settings), System: newSystemAPI(settings), Secrets: newModuleAPI(settings), Media: routes.FetchMedia, Version: version(),
 			Ready: func() bool { return allReady(drivers) },
 			Running: func() []management.Running {
 				out := []management.Running{}
@@ -189,7 +186,7 @@ func run(ctx context.Context, cfg Config, log *slog.Logger) (failure error) {
 				s := management.Status{
 					Version: version(), StartedAt: started, Ready: allReady(drivers), Drivers: []management.DriverStatus{},
 					Kernel:   management.KernelStatus{State: stats.State, InFlight: stats.InFlight, MaxInFlight: stats.MaxInFlight, Workers: stats.Workers},
-					EventLog: management.EventLogStatus{Health: events.Health(ctx), RetentionMS: cfg.EventLog.Retention.Milliseconds()},
+					EventLog: management.EventLogStatus{Health: events.Health(ctx), RetentionMS: sys.retention().Milliseconds()},
 				}
 				for _, status := range statuses {
 					d := status(ctx)

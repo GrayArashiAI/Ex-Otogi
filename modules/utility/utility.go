@@ -53,9 +53,9 @@ type CommandInfo struct {
 
 // Deps are runtime views the composition root provides.
 type Deps struct {
-	// Operators are the platform-qualified actor IDs ("telegram:user:123")
-	// allowed to use operator commands.
-	Operators []string
+	// Operators returns the platform-qualified actor IDs ("telegram:user:123")
+	// allowed to use operator commands, as they are now.
+	Operators func() []string
 	// Status returns the current runtime status.
 	Status func(ctx context.Context) Status
 	// Commands lists the commands of every enabled module.
@@ -93,7 +93,7 @@ func (m *Module) Handle(ctx context.Context, e otogi.Event, inv otogi.Invocation
 			reply = fmt.Sprintf("Pong. Delivered %s after it was sent.", time.Since(e.OccurredAt).Round(100*time.Millisecond))
 		}
 	case "status":
-		if !IsOperator(e, m.deps.Operators) {
+		if !IsOperator(e, m.deps.Operators()) {
 			reply = denied(e)
 		} else {
 			reply = formatStatus(m.deps.Status(ctx))
@@ -113,7 +113,7 @@ func IsOperator(e otogi.Event, operators []string) bool {
 }
 
 func denied(e otogi.Event) string {
-	return fmt.Sprintf("Only operators can do that. Your ID is %s; an operator can add it to `operators` in the config.", e.ActorKey())
+	return fmt.Sprintf("Only operators can do that. Your ID is %s; an operator can add it to the operators in the control panel's general settings.", e.ActorKey())
 }
 
 func whoami(e otogi.Event) string {

@@ -67,6 +67,24 @@ BOOTH cards and X cards draw with Content safety's settings: turn Content safety
 
 Where a module answers: Add chats on its page, picking from the chats the bot has seen, or the module switches on a chat's page in Chats.
 
+## General settings and language models
+
+The settings outside modules that apply while the bot runs are in two sections, saved, reviewed, and restored like a module's (Settings in the panel; `/api/system/general` and `/api/system/llm` from the server):
+
+- General: the operators, the command prefixes, how long the event log is kept, and the log level. Each applies the moment it is saved; no module restarts.
+- Language models: the Gemini provider and the OpenAI-compatible services such as DeepSeek, each with its address and its API key as a secret. Saving rebuilds the providers and restarts the modules that use one, which the answer's record (`system.reconfigured`) names; their next request goes to the new address with the new key. If a provider or one of those modules does not build with the new settings (a module names a provider that is gone, a key is set nowhere), nothing changes and the answer says why.
+
+From the server, with the `ETag` of the settings being replaced:
+
+```sh
+curl -i http://127.0.0.1:8090/api/system/llm/settings        # the settings, their schema, and the ETag
+curl -X PUT http://127.0.0.1:8090/api/system/llm/settings -H 'If-Match: "1"' \
+  -H 'Content-Type: application/json' \
+  -d '{"gemini": {"api_key": "${OTOGI_GEMINI_API_KEY}"}, "openai": {"deepseek": {"base_url": "https://api.deepseek.com", "api_key": "${OTOGI_DEEPSEEK_API_KEY}"}}}'
+```
+
+These settings used to be keys of `otogi.yaml`. After an upgrade the first start saves the file's keys as each section's first revision, by `otogi.yaml`; later starts ignore them and say so in one warning. Remove them from the file then (see `docs/operations.md`).
+
 ## Secrets
 
 A setting that is a secret, such as a todou token, holds only a reference to it, `${OTOGI_TODOU_TOKEN}`. The secret itself is set in the panel, or stays in the environment (`otogi.env`) under that name; one set in the panel wins.
@@ -78,7 +96,7 @@ curl -X PUT http://127.0.0.1:8090/api/secrets/OTOGI_TODOU_TOKEN \
   -H 'Content-Type: application/json' -d '{"value": "todou_pat_..."}'
 ```
 
-The modules whose settings refer to it are restarted with the new value at once, and the answer names them. If one does not build with it, nothing changes and the answer says why. The value is not shown again anywhere: `GET /api/secrets` lists each secret's name, whether it comes from the panel or the environment, who set it and when, and the modules that refer to it. A name listed as `missing` is one some settings refer to that is set nowhere: that module does not start until it is set.
+The modules whose settings refer to it are restarted with the new value at once, and the answer names them; a language model provider that refers to it is rebuilt too, with the modules that use a provider. If one does not build with it, nothing changes and the answer says why. The value is not shown again anywhere: `GET /api/secrets` lists each secret's name, whether it comes from the panel or the environment, who set it and when, and what refers to it: modules by their ID, and the language model settings as `system:llm`. A name listed as `missing` is one some settings refer to that is set nowhere: that module does not start until it is set.
 
 To move a secret out of `otogi.env`, set one of the same name in the panel, then delete the line from the file.
 

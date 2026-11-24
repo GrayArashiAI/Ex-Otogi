@@ -4,6 +4,7 @@ import (
 	"context"
 	"regexp"
 	"strings"
+	"sync/atomic"
 
 	"github.com/TundraWork/Ex-Otogi/pkg/otogi"
 )
@@ -14,11 +15,13 @@ var commandName = regexp.MustCompile(`^[a-z0-9_]{1,64}$`)
 // CommandParser returns middleware that sets Event.Command on new messages
 // whose text starts with one of prefixes, such as "/remind 10m tea" or
 // "/remind@mybot 10m tea". Events that already carry a command are left alone.
-func CommandParser(prefixes []string) otogi.Middleware {
+// The prefixes are read for each event, so storing a new list changes them
+// at once; an empty list parses no commands.
+func CommandParser(prefixes *atomic.Pointer[[]string]) otogi.Middleware {
 	return commandParser{prefixes: prefixes}
 }
 
-type commandParser struct{ prefixes []string }
+type commandParser struct{ prefixes *atomic.Pointer[[]string] }
 
 func (commandParser) ID() otogi.MiddlewareID { return "commands" }
 
@@ -29,7 +32,7 @@ func (p commandParser) Intercept(_ context.Context, e *otogi.Event) (otogi.Verdi
 		return otogi.Continue, nil
 	}
 	text := strings.TrimSpace(withoutLeadingMention(*e))
-	for _, prefix := range p.prefixes {
+	for _, prefix := range *p.prefixes.Load() {
 		rest, ok := strings.CutPrefix(text, prefix)
 		if !ok {
 			continue

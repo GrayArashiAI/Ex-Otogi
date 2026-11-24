@@ -5,13 +5,44 @@ import (
 	"errors"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/TundraWork/Ex-Otogi/pkg/otogi"
 )
 
+func prefixes(list ...string) *atomic.Pointer[[]string] {
+	p := &atomic.Pointer[[]string]{}
+	p.Store(&list)
+	return p
+}
+
+// The parser reads the prefixes for each event.
+func TestCommandParserFollowsChangedPrefixes(t *testing.T) {
+	list := prefixes("/")
+	parser := CommandParser(list)
+	parsed := func(text string) bool {
+		e := event("c", text)
+		if _, err := parser.Intercept(context.Background(), &e); err != nil {
+			t.Fatal(err)
+		}
+		return e.Command != nil
+	}
+	if !parsed("/ping") || parsed("!ping") {
+		t.Fatal("with the prefix /")
+	}
+	list.Store(&[]string{"!"})
+	if parsed("/ping") || !parsed("!ping") {
+		t.Fatal("after the prefix became !")
+	}
+	list.Store(&[]string{})
+	if parsed("/ping") || parsed("!ping") {
+		t.Fatal("with no prefix")
+	}
+}
+
 func TestCommandParser(t *testing.T) {
-	parser := CommandParser([]string{"/", "!"})
+	parser := CommandParser(prefixes("/", "!"))
 	tests := []struct {
 		text, action string
 		want         *otogi.Command
@@ -46,7 +77,7 @@ func TestCommandParser(t *testing.T) {
 // "@Otogi /status" in a group runs /status; a mention of someone else
 // before a command does not.
 func TestCommandAfterMentionOfTheAccount(t *testing.T) {
-	parser := CommandParser([]string{"/"})
+	parser := CommandParser(prefixes("/"))
 	for _, test := range []struct {
 		mentioned bool
 		want      bool
@@ -78,7 +109,7 @@ func TestCommandsAndFiltersRouteEvents(t *testing.T) {
 	sleeper := moduleFunc{descriptor: otogi.ModuleDescriptor{ID: "sleeper", Commands: []otogi.CommandSpec{{Name: "sleep"}}}, handle: handler("sleeper")}
 	watcher := moduleFunc{descriptor: otogi.ModuleDescriptor{ID: "watcher", Subscribes: []otogi.EventAction{otogi.ActionMessageCreated},
 		Filter: otogi.Filter{Directions: []otogi.Direction{otogi.DirectionIncoming, otogi.DirectionOutgoing}, ConversationKinds: []otogi.ConversationKind{otogi.ConversationGroup}}}, handle: handler("watcher")}
-	k := start(t, Config{}, []otogi.Module{chat, sleeper, watcher}, []otogi.Middleware{CommandParser([]string{"/"})}, nil)
+	k := start(t, Config{}, []otogi.Module{chat, sleeper, watcher}, []otogi.Middleware{CommandParser(prefixes("/"))}, nil)
 
 	send := func(text string, direction otogi.Direction, kind otogi.ConversationKind) {
 		e := event("c", text)

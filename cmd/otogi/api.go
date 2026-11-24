@@ -6,19 +6,64 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 
 	"github.com/TundraWork/Ex-Otogi/internal/adapter/management"
 	"github.com/TundraWork/Ex-Otogi/internal/adapter/modulestore"
 	"github.com/TundraWork/Ex-Otogi/pkg/otogi"
 )
 
+// settingsAPI is settings kept as revisions as the management API sees
+// them: the modules', or the sections'. id finds the ID they are kept under
+// from the name in a route, or fails with management.ErrNotFound.
+type settingsAPI struct {
+	settings *moduleSettings
+	id       func(name string) (otogi.ModuleID, error)
+}
+
 // moduleAPI is the module runtime as the management API sees it.
-type moduleAPI struct{ settings *moduleSettings }
+type moduleAPI struct{ settingsAPI }
+
+// systemAPI is the sections as the management API sees them: system:general
+// is the section general.
+type systemAPI struct{ settingsAPI }
 
 var (
 	_ management.Modules = moduleAPI{}
 	_ management.Secrets = moduleAPI{}
+	_ management.System  = systemAPI{}
 )
+
+func newModuleAPI(s *moduleSettings) moduleAPI {
+	return moduleAPI{settingsAPI{settings: s, id: func(name string) (otogi.ModuleID, error) {
+		if _, ok := s.kinds[otogi.ModuleID(name)]; !ok {
+			return "", fmt.Errorf("module %q: %w", name, management.ErrNotFound)
+		}
+		return otogi.ModuleID(name), nil
+	}}}
+}
+
+func newSystemAPI(s *moduleSettings) systemAPI {
+	return systemAPI{settingsAPI{settings: s, id: func(name string) (otogi.ModuleID, error) {
+		id := otogi.ModuleID(sectionPrefix + name)
+		if _, ok := sections[id]; !ok {
+			return "", fmt.Errorf("section %q: %w", name, management.ErrNotFound)
+		}
+		return id, nil
+	}}}
+}
+
+func (a systemAPI) Sections(ctx context.Context) ([]management.Section, error) {
+	var out []management.Section
+	for _, id := range slices.Sorted(maps.Keys(sections)) {
+		r, err := a.settings.current(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, management.Section{ID: strings.TrimPrefix(string(id), sectionPrefix), Revision: r.Revision})
+	}
+	return out, nil
+}
 
 func (a moduleAPI) Modules(ctx context.Context) ([]management.Module, error) {
 	s := a.settings
@@ -76,37 +121,35 @@ func (a moduleAPI) Modules(ctx context.Context) ([]management.Module, error) {
 	return out, nil
 }
 
-func (a moduleAPI) kind(module string) (moduleKind, error) {
-	k, ok := a.settings.kinds[otogi.ModuleID(module)]
-	if !ok {
-		return moduleKind{}, fmt.Errorf("module %q: %w", module, management.ErrNotFound)
-	}
-	return k, nil
-}
-
-func (a moduleAPI) Settings(ctx context.Context, module string) (management.Revision, map[string]any, error) {
-	k, err := a.kind(module)
+func (a settingsAPI) Settings(ctx context.Context, name string) (management.Revision, map[string]any, error) {
+	id, err := a.id(name)
 	if err != nil {
 		return management.Revision{}, nil, err
 	}
-	r, err := a.settings.current(ctx, otogi.ModuleID(module))
+	r, err := a.settings.current(ctx, id)
 	if err != nil {
 		return management.Revision{}, nil, err
 	}
-	schema, err := k.schemaDocument()
+	kind, _ := a.settings.schema(id)
+	schema, err := kind.schemaDocument()
 	return revisionOut(r), schema, err
 }
 
-func (a moduleAPI) SaveSettings(ctx context.Context, module string, base int64, enabled *bool, settings json.RawMessage, by string) (management.Revision, error) {
-	r, err := a.settings.save(ctx, otogi.ModuleID(module), base, enabled, settings, by)
+func (a settingsAPI) SaveSettings(ctx context.Context, name string, base int64, enabled *bool, settings json.RawMessage, by string) (management.Revision, error) {
+	id, err := a.id(name)
+	if err != nil {
+		return management.Revision{}, err
+	}
+	r, err := a.settings.save(ctx, id, base, enabled, settings, by)
 	return revisionOut(r), err
 }
 
-func (a moduleAPI) Revisions(ctx context.Context, module string, before int64, limit int) ([]management.Revision, error) {
-	if _, err := a.kind(module); err != nil {
+func (a settingsAPI) Revisions(ctx context.Context, name string, before int64, limit int) ([]management.Revision, error) {
+	id, err := a.id(name)
+	if err != nil {
 		return nil, err
 	}
-	revisions, err := a.settings.store.SettingsRevisions(ctx, otogi.ModuleID(module), before, limit)
+	revisions, err := a.settings.store.SettingsRevisions(ctx, id, before, limit)
 	out := make([]management.Revision, len(revisions))
 	for i, r := range revisions {
 		out[i] = revisionOut(r)
@@ -114,10 +157,14 @@ func (a moduleAPI) Revisions(ctx context.Context, module string, before int64, l
 	return out, err
 }
 
-func (a moduleAPI) Revision(ctx context.Context, module string, revision int64) (management.Revision, error) {
-	r, found, err := a.settings.store.SettingsRevision(ctx, otogi.ModuleID(module), revision)
+func (a settingsAPI) Revision(ctx context.Context, name string, revision int64) (management.Revision, error) {
+	id, err := a.id(name)
+	if err != nil {
+		return management.Revision{}, err
+	}
+	r, found, err := a.settings.store.SettingsRevision(ctx, id, revision)
 	if err == nil && !found {
-		err = fmt.Errorf("module %q has no settings revision %d: %w", module, revision, management.ErrNotFound)
+		err = fmt.Errorf("%s has no settings revision %d: %w", id, revision, management.ErrNotFound)
 	}
 	return revisionOut(r), err
 }

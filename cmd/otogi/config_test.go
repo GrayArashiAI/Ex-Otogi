@@ -92,21 +92,20 @@ func TestLoadConfigRejections(t *testing.T) {
 
 func TestLLMProviders(t *testing.T) {
 	t.Setenv("TEST_GEMINI_KEY", "k")
-	cfg, err := loadConfig(writeConfig(t, "llm:\n  gemini:\n    api_key: ${TEST_GEMINI_KEY}\n    base_url: https://gateway.example/gemini\n  openai:\n    deepseek: {api_key: k, base_url: https://api.deepseek.com}\n"))
-	if err != nil {
+	sys := newSystem(new(slog.LevelVar), otogi.NopRecorder{}, slog.New(slog.DiscardHandler))
+	settings := llmSettings{
+		Gemini: &geminiSettings{APIKey: "${TEST_GEMINI_KEY}", BaseURL: "https://gateway.example/gemini"},
+		OpenAI: map[string]openAISettings{"deepseek": {APIKey: "${TEST_GEMINI_KEY}", BaseURL: "https://api.deepseek.com"}},
+	}
+	if _, err := sys.applyLLM(settings, os.LookupEnv); err != nil {
 		t.Fatal(err)
 	}
-	providers, err := buildProviders(cfg.LLM, otogi.NopRecorder{}, slog.New(slog.DiscardHandler))
-	if err != nil {
-		t.Fatal(err)
-	}
-	lookup := providerLookup(providers)
 	for _, name := range []string{"gemini", "deepseek"} {
-		if p, err := lookup(name); p == nil || err != nil {
+		if p, err := sys.provider(name); p == nil || err != nil {
 			t.Fatalf("%s: %v, %v", name, p, err)
 		}
 	}
-	if _, err := lookup("openai"); !errors.Is(err, otogi.ErrInvalid) {
+	if _, err := sys.provider("openai"); !errors.Is(err, otogi.ErrInvalid) {
 		t.Fatalf("openai: %v, want ErrInvalid", err)
 	}
 }

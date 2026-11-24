@@ -222,13 +222,14 @@ func (c *clock) advance(d time.Duration) {
 }
 
 type harness struct {
-	m       *Module
-	host    *fakeHost
-	clock   *clock
-	storage *modulestore.Storage
-	cli     *fakeCLI
-	sends   []sent
-	fail    func(otogi.ConversationID) error
+	operators []string // read when a command needs an operator
+	m         *Module
+	host      *fakeHost
+	clock     *clock
+	storage   *modulestore.Storage
+	cli       *fakeCLI
+	sends     []sent
+	fail      func(otogi.ConversationID) error
 }
 
 func newHarness(t *testing.T, cfg Config, stream streamer) *harness {
@@ -249,11 +250,12 @@ func startHarness(t *testing.T, storage *modulestore.Storage, cfg Config, stream
 	if cfg.Agents == nil {
 		cfg.Agents = map[string]AgentConfig{"neptune": {Server: "https://todou.test", Token: "${TODOU_TOKEN}"}}
 	}
-	m, err := New(cfg, []string{"telegram:user:1"}, os.LookupEnv)
+	h := &harness{operators: []string{"telegram:user:1"}}
+	m, err := New(cfg, func() []string { return h.operators }, os.LookupEnv)
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := &harness{m: m, host: &fakeHost{storage: storage, timers: map[string]otogi.Timer{}}, clock: &clock{t: time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)}, storage: storage}
+	*h = harness{operators: h.operators, m: m, host: &fakeHost{storage: storage, timers: map[string]otogi.Timer{}}, clock: &clock{t: time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)}, storage: storage}
 	m.now = h.clock.now
 	h.cli = &fakeCLI{projects: []string{"web", "api"}}
 	for _, a := range m.agents {
@@ -578,6 +580,14 @@ func TestCommands(t *testing.T) {
 		if got := h.command(t, "chat:a", s.actor, s.direction, s.args); !strings.Contains(got, s.want) {
 			t.Errorf("/todou %s by %q = %q, want %q", s.args, s.actor, got, s.want)
 		}
+	}
+	// The operators are the ones there are when the command comes.
+	h.operators = []string{"telegram:user:9"}
+	if got := h.command(t, "chat:a", "user:9", otogi.DirectionIncoming, "link neptune web"); !strings.Contains(got, "Linked web through neptune") {
+		t.Errorf("/todou link by a new operator = %q", got)
+	}
+	if got := h.command(t, "chat:a", "user:1", otogi.DirectionIncoming, "unlink web"); !strings.Contains(got, "Your ID is telegram:user:1") {
+		t.Errorf("/todou unlink by a former operator = %q", got)
 	}
 }
 

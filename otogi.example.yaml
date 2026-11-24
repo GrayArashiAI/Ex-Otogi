@@ -6,7 +6,6 @@ data_dir: data            # Telegram state lives in <data_dir>/telegram/<account
 shutdown_timeout: 30s
 
 log:
-  level: info             # debug | info | warn | error
   format: json            # json | text
 
 kernel:
@@ -24,16 +23,6 @@ management:
   #   client_secret: ${OTOGI_OIDC_CLIENT_SECRET}
   #   allow: [tundra]                       # provider usernames that may sign in
 
-# Platform-qualified actor IDs (as /whoami prints them) allowed to use operator
-# commands such as /status and /todou link.
-operators: []             # e.g. ["telegram:user:123456789"]
-
-commands:
-  prefixes: ["/"]         # "/name args" in a message invokes a module's command
-
-eventlog:
-  retention: 720h         # how long event log records are kept (and chat history with them)
-
 telegram:
   - account: main         # becomes the event account ID; log in with: otogi login main
     app_id: ${OTOGI_TELEGRAM_APP_ID}
@@ -50,16 +39,16 @@ telegram:
 #     app_secret: ${OTOGI_QQ_APP_SECRET}
 #     # database: data/qq/otogi/state.sqlite
 
-# Language model providers that modules can use; each is optional.
-# llm:
-#   gemini:
-#     api_key: ${OTOGI_GEMINI_API_KEY}
-#     # base_url: https://generativelanguage.googleapis.com/v1beta   # the default; or a proxy/gateway speaking the Gemini API
-#   openai:               # services that speak the OpenAI Chat Completions API, by the provider name agents use
-#     deepseek:
-#       base_url: https://api.deepseek.com
-#       api_key: ${OTOGI_DEEPSEEK_API_KEY}
-
-# Modules are not set up here. Which modules run, their settings, and where
-# they answer are runtime data, changed through the management API and kept
-# as revisions (see docs/operations.md).
+# Not set up here, but in the control panel (or through the management API),
+# where a change applies at once and is kept as a revision; see
+# docs/operations.md:
+#   - Settings, General (/api/system/general): the operators, the command
+#     prefixes, how long the event log is kept, and the log level. These were
+#     the keys operators, commands.prefixes, eventlog.retention, and log.level.
+#   - Settings, Language models (/api/system/llm): the Gemini provider and
+#     the OpenAI-compatible services, with their API keys as secrets. This was
+#     the key llm.
+#   - Modules: which run, their settings, and where they answer.
+# A file that still has the moved keys starts: the first start after the
+# upgrade saves them as the first revision of their section, and later starts
+# ignore them with a warning. Remove them once that has happened.
