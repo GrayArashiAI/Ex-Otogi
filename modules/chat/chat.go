@@ -16,6 +16,7 @@ import (
 	"github.com/TundraWork/Ex-Otogi/pkg/decision"
 	"github.com/TundraWork/Ex-Otogi/pkg/llm"
 	"github.com/TundraWork/Ex-Otogi/pkg/markdown"
+	mediasvc "github.com/TundraWork/Ex-Otogi/pkg/media"
 	"github.com/TundraWork/Ex-Otogi/pkg/otogi"
 )
 
@@ -28,7 +29,8 @@ type Module struct {
 	tools       map[otogi.ModuleID][]llm.Tool // each tool module's functions; set in Start
 	host        otogi.Host
 	store       *store
-	decider     decision.Decider // set in Start when an agent is judged
+	decider     decision.Decider   // set in Start when an agent is judged
+	describer   mediasvc.Describer // set in Start when an agent reads descriptions
 	now         func() time.Time
 }
 
@@ -65,6 +67,9 @@ func (m *Module) Descriptor() otogi.ModuleDescriptor {
 	}
 	if m.judged() {
 		requires = append(requires, decision.Service)
+	}
+	if m.describes() {
+		requires = append(requires, mediasvc.Service)
 	}
 	return otogi.ModuleDescriptor{
 		ID:         "chat",
@@ -108,6 +113,11 @@ func (m *Module) Start(ctx context.Context, host otogi.Host) error {
 			return fmt.Errorf("decision: %w", err)
 		}
 	}
+	if m.describes() {
+		if m.describer, err = otogi.Lookup[mediasvc.Describer](host, mediasvc.Service); err != nil {
+			return fmt.Errorf("media: %w", err)
+		}
+	}
 	return host.Schedule("prune", "@every 1h", m.prune)
 }
 
@@ -144,13 +154,16 @@ func (m *Module) Handle(ctx context.Context, e otogi.Event, inv otogi.Invocation
 	if e.Action != otogi.ActionMessageCreated || e.Direction != otogi.DirectionIncoming || e.Command != nil || e.Actor.Bot {
 		return nil
 	}
+	// The judgment and the reply wait for this message's descriptions until
+	// one deadline, together; see describeWait.
+	until := time.Now().Add(describeWait)
 	p, parent, trigger, elsewhere, err := m.route(ctx, e)
 	if err != nil || p == nil && elsewhere {
 		return err
 	}
 	var j *judgment
 	if p == nil {
-		if p, j, err = m.wake(ctx, e); p == nil {
+		if p, j, err = m.wake(ctx, e, until); p == nil {
 			return err
 		}
 		trigger = "decision"
@@ -158,7 +171,7 @@ func (m *Module) Handle(ctx context.Context, e otogi.Event, inv otogi.Invocation
 			trigger = "keyword" // the judgment failed; the message starts with p's name
 		}
 	}
-	return m.respond(ctx, e, inv, p, parent, trigger, j)
+	return m.respond(ctx, e, inv, p, parent, trigger, j, until)
 }
 
 // toolsIn is the functions agents get in chat: those of the modules whose
