@@ -47,10 +47,28 @@ export function properties(s: JSONSchema): [string, JSONSchema][] {
   return order.filter((k) => k in props).map((k) => [k, props[k] as JSONSchema]);
 }
 
-/** label turns max_tool_rounds into "Max tool rounds", and max_media_mb into "Max media MB". */
+// The words of a key that are not written as the key has them. The schema
+// has no titles, so openai, a map of services, is named here.
+const spelt: Record<string, string> = {
+  api: "API",
+  url: "URL",
+  kb: "KB",
+  mb: "MB",
+  gb: "GB",
+  eventlog: "event log",
+  openai: "OpenAI-compatible services",
+};
+
+/** label turns max_tool_rounds into "Max tool rounds", and base_url into "Base URL". */
 export function label(key: string): string {
-  const words = key.replaceAll("_", " ").replace(/\b[kmg]b\b/g, (unit) => unit.toUpperCase());
+  const words = key.replace(/[a-z]+/g, (word) => spelt[word] ?? word).replaceAll("_", " ");
   return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/** noun is what one item of a list or map is called, after its title:
+ * "Profiles" has a profile, "OpenAI-compatible services" a service. */
+export function noun(title: string): string {
+  return (title.split(" ").at(-1) ?? "").replace(/s$/, "").toLowerCase();
 }
 
 /** pathLabel reads profiles[1].model as "Profiles 2 › Model". */

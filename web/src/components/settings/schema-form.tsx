@@ -15,6 +15,7 @@ import {
   type JSONSchema,
   kindOf,
   label,
+  noun,
   type Problem,
   properties,
   resolve,
@@ -267,7 +268,7 @@ function Row({
           {action}
         </div>
         {doc && (
-          <p id={`${id}-doc`} className="mt-0.5 text-muted-foreground text-xs leading-relaxed">
+          <p id={`${id}-doc`} className="mt-0.5 break-words text-muted-foreground text-xs leading-relaxed">
             {doc}
           </p>
         )}
@@ -314,13 +315,15 @@ function Control({
       const chosen = (value ?? schema.default ?? []) as unknown[];
       return <Choices labelling={a} options={item.enum} value={chosen} onChange={onChange} />;
     }
+    // An unset list shows what it is by default. When that is something, a
+    // list emptied is a list of nothing; otherwise an optional one is unset.
+    const unset = (schema.default ?? []) as unknown[];
     return (
       <Tags
         labelling={a}
         numeric={["integer", "number"].includes(kindOf(item))}
-        value={(value as unknown[] | undefined) ?? []}
-        // An optional list emptied is unset, not a list of nothing.
-        onChange={(v) => onChange(v.length || a["aria-required"] ? v : undefined)}
+        value={(value as unknown[] | undefined) ?? unset}
+        onChange={(v) => onChange(v.length || unset.length || a["aria-required"] ? v : undefined)}
       />
     );
   }
@@ -500,7 +503,7 @@ function Tags({
         className="min-w-24 flex-1 bg-transparent px-1 text-sm outline-none placeholder:text-muted-foreground/72"
         inputMode={numeric ? "decimal" : undefined}
         value={draft}
-        placeholder={value.length ? "" : "Type, then Enter"}
+        placeholder={value.length ? "Add another" : "Type, then Enter"}
         onChange={(e) => setDraft(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === ",") {
@@ -531,7 +534,7 @@ function ObjectList({ schema, name, title, doc, required }: FieldProps) {
   const { form, root, id: prefix, saved, problems, open, setOpen, forget, reveal } = useSettings();
   const item = resolve(root, schema.items ?? {});
   const id = controlId(prefix, name);
-  const noun = title.replace(/s$/, "");
+  const one = noun(title);
   const error = problems.find((p) => p.path === name)?.message;
   const savedCount = ((getBy(saved, name) as unknown[] | undefined) ?? []).length;
   return (
@@ -545,8 +548,7 @@ function ObjectList({ schema, name, title, doc, required }: FieldProps) {
                 const path = `${name}[${i}]`;
                 const itemId = controlId(prefix, path);
                 // A saved item with nothing to call it by is its place in the list.
-                const heading =
-                  itemTitle(item, value) ?? (i < savedCount ? `${noun} ${i + 1}` : `New ${noun.toLowerCase()}`);
+                const heading = itemTitle(item, value) ?? (i < savedCount ? `${label(one)} ${i + 1}` : `New ${one}`);
                 const own = problems.find((p) => p.path === path)?.message;
                 const inside = problems.filter((p) => p.path.startsWith(`${path}.`) || p.path.startsWith(`${path}[`));
                 const isOpen = open.has(path);
@@ -604,7 +606,7 @@ function ObjectList({ schema, name, title, doc, required }: FieldProps) {
                   reveal(`${name}[${items.length}]`);
                 }}
               >
-                <Plus /> Add {noun.toLowerCase()}
+                <Plus /> Add {one}
               </Button>
             </div>
           </Row>
@@ -621,7 +623,7 @@ function ObjectMap({ schema, name, title, doc, required }: FieldProps) {
   const [key, setKey] = useState("");
   const item = resolve(root, entrySchema(schema));
   const id = controlId(prefix, name);
-  const noun = title.replace(/s$/, "").toLowerCase();
+  const one = noun(title);
   const error = problems.find((p) => p.path === name)?.message;
   return (
     <form.Field name={name}>
@@ -687,10 +689,10 @@ function ObjectMap({ schema, name, title, doc, required }: FieldProps) {
               <div className="flex gap-2">
                 <Input
                   id={id}
-                  aria-label={`Name of a new ${noun}`}
+                  aria-label={`Name of a new ${one}`}
                   aria-describedby={error ? `${id}-error` : undefined}
                   className="max-w-48 font-mono text-[13px]"
-                  placeholder="name"
+                  placeholder={`${one} name`}
                   value={key}
                   onChange={(e) => setKey(e.target.value.trim())}
                   onKeyDown={(e) => {
@@ -701,7 +703,7 @@ function ObjectMap({ schema, name, title, doc, required }: FieldProps) {
                   }}
                 />
                 <Button variant="outline" size="sm" disabled={!key || key in map} onClick={add}>
-                  <Plus /> Add {noun}
+                  <Plus /> Add {one}
                 </Button>
               </div>
             </div>

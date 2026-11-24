@@ -49,6 +49,9 @@ export function SecretPicker({
       <Select
         value={name}
         onValueChange={(next) => {
+          // Not a choice: when the list changes, the select gives up a value
+          // it had no item for, which is how a secret just added arrives.
+          if (next === null) return;
           if (next === adding) setAdd(true);
           else onChange(next ? reference(next) : "");
         }}
@@ -112,6 +115,6 @@ export function SecretNote({ value }: { value: unknown }) {
   }
   if (secret?.source === "environment") return "Read from the environment variable of this name.";
   return (
-    <span className="text-destructive-foreground">Set nowhere: the module cannot be built until it has a value.</span>
+    <span className="text-destructive-foreground">Set nowhere: what uses it cannot be built until it has a value.</span>
   );
 }

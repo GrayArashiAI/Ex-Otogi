@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 // Node runs this file as it is, so the import names the file.
-import { changes, check, clean, itemTitle, type JSONSchema, label, pathLabel, validate } from "./schema.ts";
+import { changes, check, clean, itemTitle, type JSONSchema, label, noun, pathLabel, validate } from "./schema.ts";
 
 const root: JSONSchema = {
   type: "object",
@@ -125,6 +125,27 @@ test("itemTitle is the item's name, model, or first value", () => {
 test("label reads a key as words, with units in capitals", () => {
   assert.equal(label("max_tool_rounds"), "Max tool rounds");
   assert.equal(label("max_media_mb"), "Max media MB");
+});
+
+test("label spells the words a key cannot", () => {
+  assert.equal(label("api_key"), "API key");
+  assert.equal(label("base_url"), "Base URL");
+  assert.equal(label("eventlog_retention"), "Event log retention");
+  assert.equal(label("openai"), "OpenAI-compatible services");
+  assert.equal(label("command_prefixes"), "Command prefixes");
+});
+
+test("noun is one of what a title names", () => {
+  assert.equal(noun("Profiles"), "profile");
+  assert.equal(noun("Judge steps"), "step");
+  assert.equal(noun("OpenAI-compatible services"), "service");
+});
+
+test("a list emptied is a change to a list of nothing, not to the default", () => {
+  assert.deepEqual(changes({ command_prefixes: ["/"] }, clean({}, { command_prefixes: [] })), [
+    { path: "command_prefixes", from: ["/"], to: [] },
+  ]);
+  assert.deepEqual(changes({}, { command_prefixes: [] }), [{ path: "command_prefixes", from: undefined, to: [] }]);
 });
 
 test("pathLabel reads a path as its labels", () => {

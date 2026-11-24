@@ -16,18 +16,17 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { toastManager } from "@/components/ui/toast";
-import { moduleMeta } from "@/lib/meta";
-import { nameProblem, reference } from "@/lib/secrets";
+import { nameProblem, reference, restartNote, titlesList } from "@/lib/secrets";
+import { llmPage, referenceTitle, sectionPage } from "@/lib/settings";
 import { modulesQuery } from "@/queries/modules";
 import { secretsQuery } from "@/queries/secrets";
 
 type Secret = Schemas["Secret"];
 
-const list = new Intl.ListFormat("en");
-
-/** moduleTitles names modules in a sentence: Decisions and todou. */
-export function moduleTitles(ids: string[]): string {
-  return list.format(ids.map((id) => moduleMeta(id).title));
+/** referenceTitles names in a sentence the modules and sections that refer
+ * to a secret, or that it restarted: Decisions and Language models. */
+export function referenceTitles(ids: string[]): string {
+  return titlesList(ids.map(referenceTitle));
 }
 
 /** SecretDialog sets a secret's value: a new secret's, or the one given.
@@ -77,7 +76,8 @@ function SecretForm({
   // A new name can be one settings refer to already, from the environment or from nowhere.
   const known = secret ?? secrets.find((s) => s.name === name);
   const replaces = secret?.source === "panel";
-  const restarts = (known?.references ?? []).filter((m) => modules.some((x) => x.id === m && x.running));
+  const references = known?.references ?? [];
+  const restarts = references.filter((id) => modules.some((m) => m.id === id && m.running));
   const nameError = secret ? undefined : nameProblem(typed, secrets);
   const valueError = value ? undefined : "Required";
 
@@ -93,7 +93,7 @@ function SecretForm({
       toastManager.add({
         type: "success",
         title: `${replaces ? "Replaced" : secret ? "Set" : "Added"} ${name}`,
-        description: restarted.length > 0 ? `${moduleTitles(restarted)} restarted with it.` : undefined,
+        description: restarted.length > 0 ? `${referenceTitles(restarted)} restarted with it.` : undefined,
       });
       onSaved?.(name);
       close();
@@ -217,9 +217,10 @@ function SecretForm({
           )}
         </div>
         <p className="text-muted-foreground text-sm">
-          {restarts.length > 0
-            ? `${moduleTitles(restarts)} ${restarts.length === 1 ? "restarts" : "restart"} with it at once.`
-            : "No running module refers to it, so nothing restarts."}
+          {restartNote(
+            restarts.map(referenceTitle),
+            references.some((id) => sectionPage(id) === llmPage),
+          )}
         </p>
       </DialogPanel>
       <DialogFooter>

@@ -1,15 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { ArrowLeft, KeyRound, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 import { Fragment, useState } from "react";
 import { ApiError, api, data, type Schemas } from "@/api/client";
 import { Ago } from "@/components/ago";
 import { Card, CardInset, rows } from "@/components/card";
 import { LoadError } from "@/components/load-error";
 import { Notice } from "@/components/notice";
-import { moduleTitles, SecretDialog } from "@/components/secret-dialog";
+import { referenceTitles, SecretDialog } from "@/components/secret-dialog";
+import { SettingsPage } from "@/components/settings/settings-page";
 import { StatusDot } from "@/components/status-dot";
-import { Tile } from "@/components/tile";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -23,8 +23,8 @@ import {
 } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toastManager } from "@/components/ui/toast";
-import { moduleMeta } from "@/lib/meta";
 import { reference, sources } from "@/lib/secrets";
+import { referenceTitle, secretsPage, sectionPage } from "@/lib/settings";
 import { cn } from "@/lib/utils";
 import { secretsQuery } from "@/queries/secrets";
 
@@ -46,29 +46,22 @@ function SecretsPage() {
   const [setting, setSetting] = useState<Secret | "new" | null>(null);
   const [removing, setRemoving] = useState<Secret | null>(null);
   return (
-    <div className="min-w-0 px-5 py-6 sm:px-10 sm:py-7">
-      <Link
-        to="/settings"
-        activeOptions={{ exact: true }}
-        className="hit-target relative mb-4 inline-flex items-center gap-1 rounded-md text-muted-foreground text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring md:hidden"
-      >
-        <ArrowLeft className="size-4" /> Settings
-      </Link>
-      <div className="flex flex-wrap items-start gap-x-4 gap-y-3">
-        <Tile tone="amber" icon={KeyRound} size="lg" />
-        <div className="min-w-0 flex-1 basis-64">
-          <h1 className="font-bold text-2xl leading-tight tracking-[-0.035em] sm:text-[1.875rem]">Secrets</h1>
-          <p className="max-w-[70ch] text-muted-foreground text-sm">
-            Tokens and keys that settings refer to by name, as{" "}
-            <span className="font-mono text-[13px]">{reference("NAME")}</span>, so the settings never hold them. A value
-            set here wins over the environment variable of that name; it is stored on the server, in the data directory,
-            and never shown again.
-          </p>
-        </div>
+    <SettingsPage
+      page={secretsPage}
+      about={
+        <>
+          Tokens and keys that settings refer to by name, as{" "}
+          <span className="font-mono text-[13px]">{reference("NAME")}</span>, so the settings never hold them. A value
+          set here wins over the environment variable of that name; it is stored on the server, in the data directory,
+          and never shown again.
+        </>
+      }
+      action={
         <Button onClick={() => setSetting("new")}>
           <Plus /> Add secret
         </Button>
-      </div>
+      }
+    >
       <Card className="@container mt-6 pt-3.5">
         {secrets && secrets.length > 0 && (
           <div aria-hidden className={cn("mx-3.5 hidden px-3 pb-2 font-medium text-muted-foreground text-xs", columns)}>
@@ -88,7 +81,7 @@ function SecretsPage() {
           )}
           {secrets?.length === 0 && (
             <p className="mx-auto max-w-[52ch] py-8 text-center text-muted-foreground text-sm">
-              No secrets yet. Add one here, then choose it in a module's settings wherever a token or key is asked for.
+              No secrets yet. Add one here, then choose it in settings wherever a token or key is asked for.
             </p>
           )}
           <ul className={rows}>
@@ -104,7 +97,7 @@ function SecretsPage() {
         onOpenChange={(open) => !open && setSetting(null)}
       />
       <RemoveDialog secret={removing} close={() => setRemoving(null)} />
-    </div>
+    </SettingsPage>
   );
 }
 
@@ -147,18 +140,22 @@ function SecretRow({ secret: s, onSet, onRemove }: { secret: Secret; onSet: () =
         ) : (
           <>
             <span className="text-muted-foreground @3xl:sr-only">Used by </span>
-            {s.references.map((m, i) => (
-              <Fragment key={m}>
-                {i > 0 && ", "}
-                <Link
-                  to="/modules/$module"
-                  params={{ module: m }}
-                  className="hit-target relative rounded-sm font-medium underline decoration-foreground/24 outline-none hover:decoration-foreground focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  {moduleMeta(m).title}
-                </Link>
-              </Fragment>
-            ))}
+            {s.references.map((id, i) => {
+              // What refers to it is a module, or a section with a page here.
+              const page = sectionPage(id);
+              const link = page ? { to: page.to } : ({ to: "/modules/$module", params: { module: id } } as const);
+              return (
+                <Fragment key={id}>
+                  {i > 0 && ", "}
+                  <Link
+                    {...link}
+                    className="hit-target relative rounded-sm font-medium underline decoration-foreground/24 outline-none hover:decoration-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    {referenceTitle(id)}
+                  </Link>
+                </Fragment>
+              );
+            })}
           </>
         )}
       </span>
@@ -214,7 +211,7 @@ function RemoveConfirm({ secret, close }: { secret: Secret; close: () => void })
         title: `Removed ${name}`,
         description: fallsBack
           ? `Settings that refer to it now read the environment variable.${
-              restarted.length > 0 ? ` ${moduleTitles(restarted)} restarted with it.` : ""
+              restarted.length > 0 ? ` ${referenceTitles(restarted)} restarted with it.` : ""
             }`
           : undefined,
       });
@@ -232,7 +229,7 @@ function RemoveConfirm({ secret, close }: { secret: Secret; close: () => void })
         <DialogDescription>
           {used.length === 0
             ? "Nothing refers to it. Its value is deleted from the server, and cannot be brought back."
-            : `The settings of ${moduleTitles(used)} refer to it. If the bot's environment has a variable of this name, they read that from now on; if not, the bot refuses and nothing changes.`}
+            : `The settings of ${referenceTitles(used)} refer to it. If the bot's environment has a variable of this name, they read that from now on; if not, the bot refuses and nothing changes.`}
         </DialogDescription>
       </DialogHeader>
       {remove.error && (

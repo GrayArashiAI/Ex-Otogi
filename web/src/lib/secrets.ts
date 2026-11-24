@@ -38,3 +38,28 @@ export function choices<T extends Secret>(secrets: T[], name: string): (T | Secr
   if (!name || secrets.some((s) => s.name === name)) return secrets;
   return [...secrets, { name, source: "missing", references: [] }];
 }
+
+/** sectionOf is the section an ID such as system:llm names: what refers to
+ * a secret is a module, whose ID has no colon, or a section. */
+export function sectionOf(id: string): string | undefined {
+  return id.startsWith("system:") ? id.slice("system:".length) : undefined;
+}
+
+const list = new Intl.ListFormat("en");
+
+/** titlesList names things in a sentence: Decisions and todou. */
+export function titlesList(titles: string[]): string {
+  return list.format(titles);
+}
+
+/** restartNote says what a secret's new value restarts: the running modules
+ * whose settings refer to it, by title, and, when the language model
+ * providers refer to it, the running modules that use one. Which those are
+ * the server says only once it has restarted them. */
+export function restartNote(modules: string[], providers: boolean): string {
+  const named =
+    modules.length > 0 && `${titlesList(modules)} ${modules.length === 1 ? "restarts" : "restart"} with it at once.`;
+  if (!providers) return named || "No running module refers to it, so nothing restarts.";
+  const rebuilt = "The language model providers are rebuilt with it, and the running modules that use one restart.";
+  return named ? `${named} ${rebuilt}` : rebuilt;
+}

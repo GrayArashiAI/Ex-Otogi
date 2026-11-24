@@ -4,7 +4,7 @@ import { useBlocker } from "@tanstack/react-router";
 import { format, formatDistanceToNowStrict } from "date-fns";
 import { History, RotateCcw } from "lucide-react";
 import { type ReactNode, useEffect, useEffectEvent, useId, useMemo, useState } from "react";
-import { ApiError, api, data, type Schemas } from "@/api/client";
+import { ApiError, type Schemas } from "@/api/client";
 import { Card, CardHeader } from "@/components/card";
 import { Notice } from "@/components/notice";
 import { Button } from "@/components/ui/button";
@@ -29,7 +29,14 @@ import {
 } from "@/components/ui/sheet";
 import { toastManager } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
-import { revisionsQuery, settingsQuery } from "@/queries/modules";
+import {
+  restoreSettings,
+  revisionsQuery,
+  type Subject,
+  saveSettings,
+  settingsQuery,
+  subjectKey,
+} from "@/queries/modules";
 import { type Change, changes, clean, type JSONSchema, type Problem, pathLabel, properties, validate } from "./schema";
 import { controlId, SchemaFields, SettingsContext, type SettingsForm, useReveal } from "./schema-form";
 
@@ -38,30 +45,37 @@ type Revision = Schemas["Revision"];
 
 const count = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
 
-/** SettingsCard edits a module's settings: Save reviews what changes,
- * then saves it as a new revision, which the bot applies at once. */
-export function SettingsCard({ module }: { module: string }) {
+/** SettingsCard edits the settings of a module or of a section: Save reviews
+ * what changes, then saves it as a new revision, which the bot applies at once. */
+export function SettingsCard({
+  of,
+  effect = "the bot swaps in the module with them at once",
+}: {
+  of: Subject;
+  /** effect ends "They are saved as revision 3, and …": what the bot does with a saved revision. */
+  effect?: string;
+}) {
   const queryClient = useQueryClient();
-  const { data: current } = useSuspenseQuery(settingsQuery(module));
+  const { data: current } = useSuspenseQuery(settingsQuery(of));
   const root = current.schema as JSONSchema;
   /** keep makes a revision the server just saved the current settings. */
   const keep = (saved: Revision): Current => {
     const next = { ...current, ...saved };
-    queryClient.setQueryData(settingsQuery(module).queryKey, next);
-    void queryClient.invalidateQueries({ queryKey: ["modules"] });
-    void queryClient.invalidateQueries({ queryKey: ["events"] });
-    // The secrets list says which modules' settings refer to each.
+    queryClient.setQueryData(settingsQuery(of).queryKey, next);
+    // A section's settings can restart modules, and the status page shows some of them.
+    for (const key of ["modules", "events", "status"]) void queryClient.invalidateQueries({ queryKey: [key] });
+    // The secrets list says whose settings refer to each.
     void queryClient.invalidateQueries({ queryKey: ["secrets"] });
     return next;
   };
   if (properties(root).length > 0) {
     // Each module has its own form; a new revision of one does not remount it.
-    return <SettingsEditor key={module} module={module} current={current} keep={keep} />;
+    return <SettingsEditor key={current.module} of={of} effect={effect} current={current} keep={keep} />;
   }
   return (
     <Card>
       <SettingsHeader current={current}>
-        <HistorySheet current={current} unsaved={0} onRestored={keep} />
+        <HistorySheet of={of} effect={effect} current={current} unsaved={0} onRestored={keep} />
       </SettingsHeader>
       <p className="px-4 pb-4 text-muted-foreground text-sm">This module has no settings.</p>
     </Card>
@@ -84,11 +98,13 @@ function SettingsHeader({ current, children }: { current: Current; children: Rea
 type Refusal = Problem & { value: string };
 
 function SettingsEditor({
-  module,
+  of,
+  effect,
   current: fetched,
   keep,
 }: {
-  module: string;
+  of: Subject;
+  effect: string;
   current: Current;
   keep: (saved: Revision) => Current;
 }) {
@@ -140,13 +156,7 @@ function SettingsEditor({
   const save = useMutation({
     // The review dialog shows why a save failed.
     meta: { quiet: true },
-    mutationFn: () =>
-      data(
-        api.PUT("/api/modules/{module}/settings", {
-          params: { path: { module }, header: { "If-Match": `"${current.revision}"` } },
-          body: cleaned as never,
-        }),
-      ),
+    mutationFn: () => saveSettings(of, current.revision, cleaned),
     onSuccess: (saved) => {
       load(keep(saved));
       toastManager.add({
@@ -158,7 +168,7 @@ function SettingsEditor({
     onError: async (error) => {
       if (error instanceof ApiError && error.status === 412) {
         // Someone saved first: their settings become what the changes are against.
-        await queryClient.invalidateQueries({ queryKey: settingsQuery(module).queryKey });
+        await queryClient.invalidateQueries({ queryKey: settingsQuery(of).queryKey });
         return;
       }
       // Settings the server refused name their fields; a refusal that names none is the whole form's.
@@ -205,7 +215,13 @@ function SettingsEditor({
   return (
     <Card>
       <SettingsHeader current={current}>
-        <HistorySheet current={current} unsaved={diff.length} onRestored={(saved) => load(keep(saved))} />
+        <HistorySheet
+          of={of}
+          effect={effect}
+          current={current}
+          unsaved={diff.length}
+          onRestored={(saved) => load(keep(saved))}
+        />
       </SettingsHeader>
       <form
         noValidate
@@ -227,7 +243,7 @@ function SettingsEditor({
           >
             <ul className="mt-1 flex flex-col items-start gap-0.5">
               {summary.map((p) => (
-                <li key={`${p.path} ${p.message}`}>
+                <li key={`${p.path} ${p.message}`} className="whitespace-pre-line">
                   {p.path ? (
                     <button
                       type="button"
@@ -285,7 +301,7 @@ function SettingsEditor({
           <DialogHeader>
             <DialogTitle>Apply these changes?</DialogTitle>
             <DialogDescription>
-              They are saved as revision {current.revision + 1}, and the bot swaps in the module with them at once.
+              They are saved as revision {current.revision + 1}, and {effect}.
             </DialogDescription>
           </DialogHeader>
           <DialogPanel className="flex flex-col gap-2.5">
@@ -306,7 +322,7 @@ function SettingsEditor({
                     ))}
                   </ul>
                 ) : (
-                  <p className="mt-0.5">{failure.message}</p>
+                  <p className="mt-0.5 whitespace-pre-line">{failure.message}</p>
                 )}
               </Notice>
             )}
@@ -355,8 +371,9 @@ function ChangeList({ changes: list }: { changes: Change[] }) {
   return (
     <ul className="flex flex-col gap-2">
       {list.map((c) => {
-        // A list item that is not there was added or removed; a field that is not set has its default.
-        const unset = c.path.endsWith("]") ? "none" : "default";
+        // A list item or a group of fields that is not there was added or removed; a field that is not set has its default.
+        const group = [c.from, c.to].some((v) => v !== null && typeof v === "object" && !Array.isArray(v));
+        const unset = c.path.endsWith("]") || group ? "none" : "default";
         return (
           <li key={c.path} className="surface-inset rounded-lg px-3 py-2 text-sm">
             <div className="font-medium font-mono text-xs">{c.path}</div>
@@ -374,33 +391,34 @@ function ChangeList({ changes: list }: { changes: Change[] }) {
 }
 
 function Value({ v, unset }: { v: unknown; unset: string }) {
-  if (v === undefined) return <span className="text-muted-foreground italic">{unset}</span>;
+  // A list of nothing is said in words, as an unset value is.
+  if (v === undefined || (Array.isArray(v) && v.length === 0)) {
+    return <span className="text-muted-foreground italic">{v ? "empty list" : unset}</span>;
+  }
   const text = typeof v === "string" ? v : JSON.stringify(v);
   return <span className="line-clamp-3 whitespace-pre-wrap break-all font-mono">{text}</span>;
 }
 
 function HistorySheet({
+  of,
+  effect,
   current,
   unsaved,
   onRestored,
 }: {
+  of: Subject;
+  effect: string;
   current: Current;
   /** unsaved is how many changes the form has that a restore discards. */
   unsaved: number;
   onRestored: (saved: Revision) => void;
 }) {
   const queryClient = useQueryClient();
-  const module = current.module;
   const root = current.schema as JSONSchema;
-  const history = useInfiniteQuery({ ...revisionsQuery(module), enabled: current.revision > 0 });
+  const history = useInfiniteQuery({ ...revisionsQuery(of), enabled: current.revision > 0 });
   const [picked, setPicked] = useState<Revision | null>(null);
   const restore = useMutation({
-    mutationFn: (revision: number) =>
-      data(
-        api.POST("/api/modules/{module}/settings/revisions/{revision}/restore", {
-          params: { path: { module, revision }, header: { "If-Match": `"${current.revision}"` } },
-        }),
-      ),
+    mutationFn: (revision: number) => restoreSettings(of, current.revision, revision),
     onSuccess: (saved) => {
       setPicked(null);
       onRestored(saved);
@@ -411,7 +429,7 @@ function HistorySheet({
       });
     },
     // A restore refused because someone saved first is tried again on what they saved.
-    onError: () => queryClient.invalidateQueries({ queryKey: ["modules", module] }),
+    onError: () => queryClient.invalidateQueries({ queryKey: subjectKey(of) }),
   });
   const revisions = history.data?.pages.flatMap((p) => p.revisions ?? []) ?? [];
   const diff = picked ? changes(clean(root, current.settings ?? {}), clean(root, picked.settings ?? {})) : [];
@@ -437,7 +455,10 @@ function HistorySheet({
                 <div className="min-w-0 flex-1 text-sm">
                   <div className="font-medium">
                     {r.by || "Unknown"}
-                    {!r.enabled && <span className="ml-2 font-normal text-muted-foreground text-xs">Off</span>}
+                    {/* Only a module is on or off. */}
+                    {"module" in of && !r.enabled && (
+                      <span className="ml-2 font-normal text-muted-foreground text-xs">Off</span>
+                    )}
                   </div>
                   {r.at && (
                     <time
@@ -475,8 +496,7 @@ function HistorySheet({
             <DialogHeader>
               <DialogTitle>Restore revision {picked?.revision}?</DialogTitle>
               <DialogDescription>
-                Its settings are saved again as revision {current.revision + 1}, and the bot swaps in the module with
-                them at once.
+                Its settings are saved again as revision {current.revision + 1}, and {effect}.
               </DialogDescription>
             </DialogHeader>
             <DialogPanel className="flex flex-col gap-2.5">

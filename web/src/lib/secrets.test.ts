@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 // Node runs this file as it is, so the import names the file.
-import { choices, nameProblem, reference, referenceName, type Secret } from "./secrets.ts";
+import { choices, nameProblem, reference, referenceName, restartNote, type Secret, sectionOf } from "./secrets.ts";
 
 const secrets: Secret[] = [
   { name: "JEV_KEY", source: "panel", references: ["decision"] },
@@ -43,4 +43,26 @@ test("a field's reference the list lacks is offered as missing", () => {
   );
   assert.equal(choices(secrets, "JEV_KEY"), secrets);
   assert.equal(choices(secrets, ""), secrets);
+});
+
+test("a reference with system: names a section, and a module's ID names none", () => {
+  assert.equal(sectionOf("system:llm"), "llm");
+  assert.equal(sectionOf("chat"), undefined);
+});
+
+test("a secret's new value restarts the modules that refer to it, by name", () => {
+  assert.equal(restartNote([], false), "No running module refers to it, so nothing restarts.");
+  assert.equal(restartNote(["Decisions"], false), "Decisions restarts with it at once.");
+  assert.equal(restartNote(["Decisions", "todou"], false), "Decisions and todou restart with it at once.");
+});
+
+test("a secret the providers refer to restarts the modules that use one, unnamed", () => {
+  assert.equal(
+    restartNote([], true),
+    "The language model providers are rebuilt with it, and the running modules that use one restart.",
+  );
+  assert.equal(
+    restartNote(["todou"], true),
+    "todou restarts with it at once. The language model providers are rebuilt with it, and the running modules that use one restart.",
+  );
 });
