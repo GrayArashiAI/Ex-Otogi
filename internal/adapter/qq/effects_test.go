@@ -242,6 +242,114 @@ func (u *unresolved) RoundTrip(r *http.Request) (*http.Response, error) {
 	return http.DefaultTransport.RoundTrip(r)
 }
 
+// queued maps the inbox's pending rows to events, as the dispatcher does.
+func queued(t *testing.T, s *qqstore.Store) []otogi.Event {
+	t.Helper()
+	rows, err := s.PendingInbox(context.Background(), 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := testMapper(t)
+	var out []otogi.Event
+	for _, row := range rows {
+		var f frame
+		if err := json.Unmarshal(row.Payload, &f); err != nil {
+			t.Fatal(err)
+		}
+		e, err := m.mapFrame(context.Background(), f, row.ReceivedAt)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, e)
+	}
+	return out
+}
+
+// QQ pushes none of the bot's own messages, in groups as in C2C: each one
+// the driver sends is queued as the bot's own event, once, at the time QQ
+// gives, as Unix seconds too, or when QQ gives none, when it was sent.
+func TestSentMessagesAreQueuedAsTheBotsOwn(t *testing.T) {
+	x, srv, s := newEffects(t)
+	ctx := context.Background()
+	if err := s.PutOrigin(ctx, "e1", "m1", "group:G1", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	reply := otogi.Message{Roots: []otogi.PartID{"t", "i"}, Parts: []otogi.Part{
+		{ID: "t", Kind: otogi.PartText, Text: "a cat"},
+		{ID: "i", Kind: otogi.PartMedia, Media: &otogi.Media{Role: otogi.MediaImage, MediaType: "image/png", Source: otogi.MediaSource{Kind: otogi.MediaSourceInline, Inline: []byte("png")}}},
+	}}
+	for range 2 { // the second is a replay: nothing is sent or queued again
+		if _, err := sendText(x, "k1", "e1", "group:G1", reply); err != nil {
+			t.Fatal(err)
+		}
+	}
+	events := queued(t, s)
+	if srv.count() != 2 || len(events) != 2 {
+		t.Fatalf("%d posts, %d events queued", srv.count(), len(events))
+	}
+	at := time.Date(2026, 11, 6, 2, 0, 0, 0, time.UTC) // the fake's 10:00 +08:00
+	for i, text := range []string{"a cat", "[image]"} {
+		e := events[i]
+		if e.Direction != otogi.DirectionOutgoing || e.Conversation.ID != "group:G1" || e.Conversation.Kind != otogi.ConversationGroup ||
+			string(e.SourceID) != fmt.Sprintf("s%d", i+1) || e.Actor.ID != "user:B1" || e.Actor.Name != "Otogi" || e.Actor.Bot ||
+			e.Message.PlainText() != text || !e.OccurredAt.Equal(at) {
+			t.Fatalf("event %d = %+v", i, e)
+		}
+	}
+
+	sent := time.Date(2026, 11, 25, 3, 0, 0, 0, time.UTC)
+	x.now = func() time.Time { return sent }
+	answers := map[string]string{"unix": `{"id":"u1","timestamp":1764039600}`, "none": `{"id":"n1"}`}
+	srv.fail = func(_ string, body map[string]any) (int, string, bool) {
+		r, ok := answers[fmt.Sprint(body["content"])]
+		return http.StatusOK, r, ok
+	}
+	for _, text := range []string{"unix", "none"} {
+		if _, err := sendText(x, "k-"+text, "", "user:U1", otogi.TextMessage(text)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	events = queued(t, s)[2:]
+	if len(events) != 2 || events[0].Conversation.ID != "user:U1" || !events[0].OccurredAt.Equal(time.Unix(1764039600, 0)) || !events[1].OccurredAt.Equal(sent) {
+		t.Fatalf("events = %+v", events)
+	}
+}
+
+// When QQ pushes a message the driver queued as sent, or pushed it first,
+// it is queued once: both are keyed by the message's ID.
+func TestASentMessageQQPushesIsQueuedOnce(t *testing.T) {
+	x, _, s := newEffects(t)
+	ctx := context.Background()
+	push := func(id string) bool {
+		t.Helper()
+		f := frame{Op: opDispatch, T: "GROUP_MESSAGE_CREATE", ID: "ev-" + id, D: json.RawMessage(`{"id":"` + id + `","content":"hi","group_openid":"G1","author":{"id":"B1","bot":true,"member_openid":"B9"}}`)}
+		raw, err := json.Marshal(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		inserted, err := s.Receive(ctx, dedupKey(f), raw, qqstore.Session{ID: "S1", Seq: 1, UpdatedAt: time.Now()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return inserted
+	}
+	if _, err := sendText(x, "k1", "", "group:G1", otogi.TextMessage("hi")); err != nil {
+		t.Fatal(err)
+	}
+	if push("s1") {
+		t.Fatal("a push of a message queued as sent was queued again")
+	}
+	if !push("s2") {
+		t.Fatal("a push was not queued")
+	}
+	if _, err := sendText(x, "k2", "", "group:G1", otogi.TextMessage("hi")); err != nil { // QQ answers s2
+		t.Fatal(err)
+	}
+	if events := queued(t, s); len(events) != 2 || events[0].SourceID != "s1" || events[1].SourceID != "s2" {
+		t.Fatalf("events = %+v", events)
+	}
+}
+
 // Formatting becomes Markdown, mentions <@openid>, long text more messages,
 // a reply a quote, and media an upload then a media message.
 func TestEncoding(t *testing.T) {

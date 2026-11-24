@@ -152,6 +152,13 @@ func TestMapSentMessage(t *testing.T) {
 	if e.Direction != otogi.DirectionOutgoing || e.Conversation.ID != "user:U1" || e.Actor.ID != "user:B1" || e.Actor.Name != "Otogi" || e.Message.PlainText() != "**hi**" || e.SourceID != "s1" {
 		t.Fatalf("event = %+v", e)
 	}
+	e = mapOne(t, m, sentType, `{"id":"s2","content":"hello","timestamp":"2026-11-06T02:00:00Z","group":"G1","self":"B1","self_name":"Otogi"}`)
+	if e.Direction != otogi.DirectionOutgoing || e.Conversation.ID != "group:G1" || e.Conversation.Kind != otogi.ConversationGroup || e.Actor.ID != "user:B1" || e.Actor.Bot || e.SourceID != "s2" {
+		t.Fatalf("group event = %+v", e)
+	}
+	if _, err := m.mapFrame(context.Background(), frame{Op: opDispatch, T: sentType, D: json.RawMessage(`{"id":"s3","content":"?","self":"B1"}`)}, time.Now()); err == nil {
+		t.Fatal("a sent message with no chat was mapped")
+	}
 }
 
 // Names a message shows are kept: a later mention that QQ sends without a

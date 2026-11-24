@@ -64,16 +64,18 @@ type attachment struct {
 // messageQuote is the message_type of a message that quotes another.
 const messageQuote = 103
 
-// sentType is the dispatch type of a C2C message the bot sent, which the
-// driver queues itself: QQ does not echo those.
+// sentType is the dispatch type of a message the bot sent, which the driver
+// queues itself: QQ pushes none of the bot's own messages.
 const sentType = "OTOGI_C2C_SENT"
 
-// sentMessage is the payload of a sentType dispatch.
+// sentMessage is the payload of a sentType dispatch. Peer or Group names
+// the chat.
 type sentMessage struct {
 	ID        string `json:"id"`
 	Content   string `json:"content"` // as sent: text, or Markdown
 	Timestamp string `json:"timestamp"`
-	Peer      string `json:"peer"` // the user's openid
+	Peer      string `json:"peer,omitempty"`  // the user's openid, in C2C
+	Group     string `json:"group,omitempty"` // the group's openid
 	RefIdx    string `json:"ref_idx,omitempty"`
 	Self      string `json:"self"`
 	SelfName  string `json:"self_name,omitempty"`
@@ -157,15 +159,25 @@ func (m *mapper) mapFrame(ctx context.Context, f frame, received time.Time) (oto
 	return e, nil
 }
 
-// sent maps a C2C message the bot sent.
+// sent maps a message the bot sent. It is not marked as a bot's: modules
+// ignoring bots would not see it, and its direction says whose it is.
 func (m *mapper) sent(f frame, received time.Time) (otogi.Event, error) {
 	var s sentMessage
 	if err := json.Unmarshal(f.D, &s); err != nil {
 		return otogi.Event{}, fmt.Errorf("decode %s: %w", f.T, err)
 	}
+	var conversation otogi.Conversation
+	switch {
+	case s.Group != "":
+		conversation = otogi.Conversation{ID: otogi.ConversationID("group:" + s.Group), Kind: otogi.ConversationGroup}
+	case s.Peer != "":
+		conversation = otogi.Conversation{ID: otogi.ConversationID("user:" + s.Peer), Kind: otogi.ConversationDirect}
+	default:
+		return otogi.Event{}, fmt.Errorf("decode %s: no peer or group", f.T)
+	}
 	e := otogi.Event{
 		Platform: Platform, Account: m.account, SourceID: otogi.SourceEventID(s.ID),
-		Conversation: otogi.Conversation{ID: otogi.ConversationID("user:" + s.Peer), Kind: otogi.ConversationDirect},
+		Conversation: conversation,
 		Actor:        otogi.Actor{ID: otogi.ActorID("user:" + s.Self), Name: s.SelfName},
 		Action:       otogi.ActionMessageCreated, Direction: otogi.DirectionOutgoing,
 		ReceivedAt: received, Completeness: otogi.CompletenessComplete, Message: otogi.TextMessage(s.Content),
