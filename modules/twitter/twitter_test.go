@@ -408,8 +408,8 @@ func (m *model) Generate(_ context.Context, req llm.Request, _ func(otogi.Messag
 	return llm.Response{Markdown: m.reply}, m.err
 }
 
-// A part the model gives back as it came is not a translation, and a part
-// it calls Chinese has none, whatever it sent for it.
+// A part the model gives back as it came is not a translation and is named
+// in Echoed, and a part it calls Chinese has none, whatever it sent for it.
 func TestTranslationLeavesOutWhatWasNotTranslated(t *testing.T) {
 	t.Parallel()
 	lm := &model{reply: `<post language="中文">我觉得这没什么用。</post>
@@ -420,14 +420,15 @@ func TestTranslationLeavesOutWhatWasNotTranslated(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := (translation{Language: "中文", ParentQuote: "早上好"}); got != want || !needed {
+	if want := (translation{Language: "中文", ParentQuote: "早上好", Echoed: "parent"}); got != want || !needed {
 		t.Fatalf("got %+v, needed %v", got, needed)
 	}
 }
 
 // A post not in Chinese gets its translation on its card, under the
 // original, the quote's under the quote; a post in Chinese gets none; a
-// reply out of form is recorded, and the card goes out without it.
+// part the model gives back untranslated gets none and is recorded; a reply
+// out of form is recorded, and the card goes out without it.
 func TestTranslatedCards(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -437,6 +438,7 @@ func TestTranslatedCards(t *testing.T) {
 	}{
 		{"english", `<post language="英语">我们 2026 年第三季度的财报现已公开 → https://ir.spacex.com/x @ElonMusk</post><quote language="英语">观看直播</quote>`, true, "ok"},
 		{"chinese", `<post language="中文"></post><quote language="中文"></quote>`, false, ""},
+		{"the quote given back as it came", `<post language="中文"></post><quote language="英语">Watch live as SpaceX discusses our Q3 2026 earnings at 3:30pm CT today → https://x.com/i/broadcasts/1PKqrNbLZbPGb</quote>`, false, "degraded"},
 		{"out of form", "Sure! Here is the translation.", false, "error"},
 	} {
 		t.Run(c.name, func(t *testing.T) {

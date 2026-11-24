@@ -289,7 +289,8 @@ func (m *Module) message(ctx context.Context, e otogi.Event, t tweet, c card, pa
 // translate adds the post in Chinese to its card, under the original, and
 // so its quote, the post it replies to, and that post's quote: each unless
 // it is in Chinese already. A failed translation is recorded and returned,
-// and the card goes out without it.
+// and the card goes out without it. A part the model gave back as it came
+// gets no translation, and the record is degraded and names it in echoed.
 func (m *Module) translate(ctx context.Context, t tweet, c *card) error {
 	started := m.now()
 	tr, needed, err := m.translator.translate(ctx, t)
@@ -323,7 +324,12 @@ func (m *Module) translate(ctx context.Context, t tweet, c *card) error {
 		}
 		quote(p.Quote, tr.ParentQuote)
 	}
-	m.host.Record(ctx, otogi.Record{Kind: "twitter.translation", Outcome: "ok", Duration: m.now().Sub(started), Payload: payload})
+	outcome := "ok"
+	if tr.Echoed != "" {
+		m.host.Logger().Warn("twitter: the model gave parts back untranslated", "post", t.ID, "parts", tr.Echoed)
+		payload["echoed"], outcome = tr.Echoed, "degraded"
+	}
+	m.host.Record(ctx, otogi.Record{Kind: "twitter.translation", Outcome: outcome, Duration: m.now().Sub(started), Payload: payload})
 	return nil
 }
 

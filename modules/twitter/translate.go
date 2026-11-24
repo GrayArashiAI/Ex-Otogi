@@ -30,6 +30,9 @@ type translation struct {
 	Post, Quote string
 	Parent      string // the post replied to
 	ParentQuote string // the post that one quotes
+	// Echoed names the parts, comma-separated, the model gave back as
+	// they came instead of translating: they have no translation.
+	Echoed string
 }
 
 const translatePrompt = `You translate posts from X into Simplified Chinese.
@@ -53,7 +56,8 @@ var tagged = map[string]*regexp.Regexp{
 
 // translate returns what of the post, its quote, the post it replies to,
 // and that post's quote is not in Chinese, in Chinese: false when all of it
-// is in Chinese already, or none of them has text. The model names the
+// is in Chinese already, or none of them has text; true also when the
+// model gave a part back untranslated, to have that recorded. The model names the
 // language of a post with text; one of only pictures has none to name.
 func (tr *translator) translate(ctx context.Context, t tweet) (translation, bool, error) {
 	var parts []string
@@ -81,16 +85,21 @@ func (tr *translator) translate(ctx context.Context, t tweet) (translation, bool
 		return translation{}, false, fmt.Errorf("twitter: translate: %w", err)
 	}
 	// find returns a part's language and its translation: none when the
-	// part is in Chinese, or the model gave it back as it came, which
-	// gemini-3.5-flash-lite did with one part of two in different languages.
+	// part is in Chinese, or the model gave it back as it came (echoed),
+	// which gemini-3.5-flash-lite did with one part of two in different
+	// languages.
+	var echoed []string
 	find := func(tag string) (language, text string) {
 		m := tagged[tag].FindStringSubmatch(resp.Markdown)
 		if m == nil {
 			return "", ""
 		}
 		language, text = strings.TrimSpace(m[1]), strings.TrimSpace(m[2])
-		if language == "中文" || text == given[tag] {
+		switch {
+		case language == "中文":
 			text = ""
+		case text == given[tag]:
+			echoed, text = append(echoed, tag), ""
 		}
 		return language, text
 	}
@@ -99,11 +108,12 @@ func (tr *translator) translate(ctx context.Context, t tweet) (translation, bool
 	_, out.Quote = find("quote")
 	_, out.Parent = find("parent")
 	_, out.ParentQuote = find("parent_quote")
+	out.Echoed = strings.Join(echoed, ",")
 	switch {
 	case t.Text == "":
 		out.Language, out.Post = "", ""
 	case out.Language == "中文":
-	case out.Language == "" || out.Post == "":
+	case out.Language == "" || out.Post == "" && !strings.HasPrefix(out.Echoed, "post"):
 		return translation{}, false, fmt.Errorf("twitter: translate: the model replied out of form: %q", resp.Markdown)
 	}
 	return out, out != translation{Language: out.Language}, nil
