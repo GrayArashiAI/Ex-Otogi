@@ -127,7 +127,7 @@ function Fact({
       {icon}
       <div className="min-w-0 flex-1">
         <div className="font-medium text-sm">{label}</div>
-        <div className="truncate text-muted-foreground text-xs">{children}</div>
+        <div className="text-muted-foreground text-xs">{children}</div>
       </div>
       <span className="flex items-center gap-2 text-sm">
         <StatusDot tone={tone} /> {value}
@@ -192,7 +192,7 @@ function Modules() {
               <Link
                 to="/modules/$module"
                 params={{ module: m.id }}
-                className="flex items-center gap-3 py-2.5 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="flex items-center gap-3 rounded-md py-2.5 outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <Tile tone={meta.tone} icon={meta.icon} size="sm" className="opacity-55 saturate-50" />
                 <span className="min-w-0 flex-1 truncate font-medium text-sm">{meta.title}</span>
@@ -208,7 +208,7 @@ function Modules() {
             <Link
               to="/modules/$module"
               params={{ module: m.id }}
-              className="flex items-center gap-3 py-2.5 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="flex items-center gap-3 rounded-md py-2.5 outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <Tile tone={meta.tone} icon={meta.icon} size="sm" />
               <span className="min-w-0 flex-1 truncate font-medium text-sm">{meta.title}</span>
@@ -247,7 +247,7 @@ function Working({ running }: { running: Schemas["Running"][] }) {
           <Link
             to="/events"
             search={r.event ? { view: "tasks", event: r.event } : { view: "records", q: r.origin }}
-            className="flex items-center gap-2.5 py-2.5 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="flex items-center gap-2.5 rounded-md py-2.5 outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <StatusDot tone="running" />
             <span className="min-w-0 flex-1">
@@ -283,7 +283,7 @@ function Failures() {
           <Link
             to="/events"
             search={r.event ? { view: "tasks", event: r.event } : { view: "records", record: r.id }}
-            className="flex items-center gap-2.5 py-2.5 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="flex items-center gap-2.5 rounded-md py-2.5 outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <StatusDot tone={outcomeTone(r.outcome)} label={r.outcome} />
             <span className="min-w-0 flex-1">
@@ -292,7 +292,7 @@ function Failures() {
               </span>
               <span className="block truncate text-muted-foreground text-xs">{errorText(r.payload)}</span>
             </span>
-            <Ago at={r.at} className="font-mono text-muted-foreground text-xs" />
+            <Ago at={r.at} className="text-muted-foreground text-xs" />
           </Link>
         </li>
       ))}

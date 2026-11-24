@@ -11,7 +11,7 @@ export const Route = createFileRoute("/_app/settings/general")({
   component: () => (
     <SectionPage
       page={generalPage}
-      about="Who operates the bot, what starts a command, how long the event log is kept, and how much the process logs. A saved change applies at once, and nothing restarts."
+      about="Who operates the bot, what starts a command, how long the event log is kept, and how much it logs. A saved change applies at once, and nothing restarts."
       review={(was, now, schema) => {
         // Unset, the retention is the default the schema names.
         const unset = schema.properties?.eventlog_retention?.default;

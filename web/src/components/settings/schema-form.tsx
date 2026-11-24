@@ -438,7 +438,7 @@ function Choices({
               onChange(on ? value.filter((w) => w !== o) : options.filter((x) => x === o || value.includes(x)))
             }
             className={cn(
-              "inline-flex h-7 items-center gap-1.5 rounded-md border px-2.5 font-mono text-xs outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+              "hit-target relative inline-flex h-7 items-center gap-1.5 rounded-md border px-2.5 font-mono text-xs outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:h-9",
               on
                 ? "border-foreground/80 bg-foreground text-background"
                 : "bg-background text-muted-foreground shadow-xs/5 hover:text-foreground",
@@ -490,7 +490,7 @@ function Tags({
           {String(word)}
           <button
             type="button"
-            className="rounded text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+            className="relative rounded text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:after:absolute pointer-coarse:after:-inset-2"
             aria-label={`Remove ${word}`}
             onClick={() => onChange(value.filter((w) => w !== word))}
           >
@@ -564,7 +564,7 @@ function ObjectList({ schema, name, title, doc, required }: FieldProps) {
                       <CollapsibleTrigger
                         id={itemId}
                         aria-describedby={own ? `${itemId}-error` : undefined}
-                        className="group flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-1.5 py-1 text-left font-medium text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        className="hit-target group relative flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-1.5 py-1 text-left font-medium text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       >
                         <ChevronRight className="size-4 flex-none text-muted-foreground transition-transform group-data-panel-open:rotate-90" />
                         <span className="min-w-0 flex-1 truncate">{heading}</span>

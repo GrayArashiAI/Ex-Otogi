@@ -78,7 +78,7 @@ export function SecretPicker({
           <SelectSeparator />
           <SelectItem value={adding}>
             <span className="flex items-center gap-2">
-              <Plus className="size-4" /> New secret…
+              <Plus className="size-4" /> Add secret…
             </span>
           </SelectItem>
         </SelectPopup>

@@ -25,7 +25,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { toastManager } from "@/components/ui/toast";
 import { reference, sources } from "@/lib/secrets";
 import { referenceTitle, secretsPage, sectionPage } from "@/lib/settings";
-import { cn } from "@/lib/utils";
+import { cn, textLink } from "@/lib/utils";
 import { secretsQuery } from "@/queries/secrets";
 
 type Secret = Schemas["Secret"];
@@ -147,10 +147,7 @@ function SecretRow({ secret: s, onSet, onRemove }: { secret: Secret; onSet: () =
               return (
                 <Fragment key={id}>
                   {i > 0 && ", "}
-                  <Link
-                    {...link}
-                    className="hit-target relative rounded-sm font-medium underline decoration-foreground/24 outline-none hover:decoration-foreground focus-visible:ring-2 focus-visible:ring-ring"
-                  >
+                  <Link {...link} className={cn(textLink, "hit-target relative font-medium")}>
                     {referenceTitle(id)}
                   </Link>
                 </Fragment>

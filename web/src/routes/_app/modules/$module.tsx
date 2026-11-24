@@ -1,12 +1,13 @@
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute, Link, notFound } from "@tanstack/react-router";
 import { format } from "date-fns";
-import { ArrowLeft, Bot, CircleAlert } from "lucide-react";
+import { ArrowLeft, Bot } from "lucide-react";
 import { Suspense } from "react";
 import { api, data, type Schemas } from "@/api/client";
 import { AllowlistCard } from "@/components/allowlist-card";
 import { Card, CardHeader, CardInset, rows } from "@/components/card";
 import { LoadError } from "@/components/load-error";
+import { Notice } from "@/components/notice";
 import { NotFound } from "@/components/route-states";
 import { SettingsCard } from "@/components/settings/settings-card";
 import { outcomeTone, StatusDot } from "@/components/status-dot";
@@ -68,13 +69,9 @@ function ModulePage() {
         </div>
       </div>
       {m.problem && (
-        <div className="mt-5 flex gap-2.5 rounded-xl border border-destructive/24 bg-destructive/4 px-3.5 py-3 text-sm">
-          <CircleAlert className="mt-0.5 size-4 flex-none text-destructive-foreground" />
-          <div>
-            <div className="font-medium">Its settings do not build</div>
-            <p className="mt-0.5 break-words text-muted-foreground">{m.problem}</p>
-          </div>
-        </div>
+        <Notice className="mt-6" title="Its settings do not build">
+          <p className="mt-0.5">{m.problem}</p>
+        </Notice>
       )}
       <div className="mt-6 grid grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
         <Suspense fallback={<Skeleton className="h-96 w-full rounded-2xl" />}>

@@ -9,7 +9,7 @@ export const Route = createFileRoute("/_app/settings/process")({
   component: () => (
     <SectionPage
       page={processPage}
-      about="How much the bot handles at once, how long it lets a delivery and a stop take, and how its log is written. The process reads these when it starts: a saved change applies on restart."
+      about="How much the bot handles at once, how long it lets a delivery and a stop take, and how its log is written. The bot reads these when it starts: a saved change applies on restart."
     />
   ),
 });

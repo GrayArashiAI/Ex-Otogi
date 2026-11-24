@@ -161,6 +161,8 @@ function SettingsEditor({
   const summary = [...standing, ...(attempted ? invalid : [])];
   const dirty = diff.length > 0;
   const stale = current !== base;
+  // A section the bot reads when it starts is only saved; anything else is applied by saving.
+  const verb = applies === "restart" ? "Save" : "Apply";
 
   /** load starts the form over from a revision. */
   const load = (from: Current) => {
@@ -324,7 +326,7 @@ function SettingsEditor({
           }}
         >
           <DialogHeader>
-            <DialogTitle>{applies === "restart" ? "Save" : "Apply"} these changes?</DialogTitle>
+            <DialogTitle>{verb} these changes?</DialogTitle>
             <DialogDescription>
               They are saved as revision {current.revision + 1}, and {effect}.
             </DialogDescription>
@@ -354,7 +356,7 @@ function SettingsEditor({
             {stale && (
               <Notice tone="warning" title={`${current.by || "Someone"} saved revision ${current.revision} meanwhile`}>
                 <p className="mt-0.5">
-                  Your changes are kept, and are now compared with that revision: Apply saves the settings as you have
+                  Your changes are kept, and are now compared with that revision: {verb} saves the settings as you have
                   them here, over it.
                 </p>
               </Notice>
@@ -365,7 +367,7 @@ function SettingsEditor({
           <DialogFooter>
             <DialogClose render={<Button variant="ghost" />}>Keep editing</DialogClose>
             <Button loading={save.isPending} disabled={!dirty} onClick={() => save.mutate()}>
-              {failure ? "Try again" : applies === "restart" ? "Save" : "Apply"}
+              {failure ? "Try again" : verb}
             </Button>
           </DialogFooter>
         </DialogPopup>

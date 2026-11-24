@@ -3,7 +3,7 @@ import { cn } from "@/lib/utils";
 
 /** Card is the panel's raised card. */
 export function Card({ className, ...props }: ComponentProps<"section">) {
-  return <section className={cn("surface-raised rounded-2xl", className)} {...props} />;
+  return <section className={cn("surface-raised flow-root rounded-2xl", className)} {...props} />;
 }
 
 /** CardHeader titles a card: an optional tile, the title with a note beside

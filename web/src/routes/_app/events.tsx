@@ -17,7 +17,7 @@ import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "@/c
 import { Sheet, SheetDescription, SheetHeader, SheetPanel, SheetPopup, SheetTitle } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
 import { took, useNow } from "@/lib/time";
-import { cn } from "@/lib/utils";
+import { cn, textLink } from "@/lib/utils";
 import {
   type EventFilter,
   eventsQuery,
@@ -444,11 +444,7 @@ function RecordSheet({ id, loaded }: { id?: number; loaded?: Entry }) {
                 {record.duration_ms !== undefined && <Fact label="Took">{took(record.duration_ms)}</Fact>}
                 {record.event && (
                   <Fact label="Event">
-                    <Link
-                      to="/events"
-                      search={{ view: "tasks", event: record.event }}
-                      className="underline-offset-3 hover:underline"
-                    >
+                    <Link to="/events" search={{ view: "tasks", event: record.event }} className={textLink}>
                       {record.event}
                     </Link>
                   </Fact>
@@ -550,7 +546,7 @@ function TaskSheet({ event }: { event?: string }) {
                   )}
                 </Fact>
                 {failure && (
-                  <Fact label="Failed" wrap>
+                  <Fact label="Failed">
                     <span className="text-destructive-foreground">
                       {failure.kind}
                       {errorText(failure) && `: ${errorText(failure)}`}
@@ -636,11 +632,7 @@ function ChatFact({ entry }: { entry: Entry }) {
   return (
     <Fact label="Chat">
       {entry.conversation ? (
-        <Link
-          to="/chats/$chat"
-          params={{ chat: `${entry.platform}:${entry.conversation}` }}
-          className="underline-offset-3 hover:underline"
-        >
+        <Link to="/chats/$chat" params={{ chat: `${entry.platform}:${entry.conversation}` }} className={textLink}>
           {entry.platform}:{entry.conversation}
         </Link>
       ) : (
@@ -651,11 +643,11 @@ function ChatFact({ entry }: { entry: Entry }) {
   );
 }
 
-function Fact({ label, wrap, children }: { label: string; wrap?: boolean; children: ReactNode }) {
+function Fact({ label, children }: { label: string; children: ReactNode }) {
   return (
     <>
       <dt className="text-muted-foreground">{label}</dt>
-      <dd className={cn("font-mono text-xs leading-5", wrap ? "wrap-anywhere" : "truncate")}>{children}</dd>
+      <dd className="wrap-anywhere font-mono text-xs leading-5">{children}</dd>
     </>
   );
 }

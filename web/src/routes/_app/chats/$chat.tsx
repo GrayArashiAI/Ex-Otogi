@@ -80,8 +80,12 @@ function ChatPage() {
           </Link>
           <Tile tone={p.tone} icon={p.icon} />
           <div className="min-w-0 flex-1">
-            <h1 className="truncate font-semibold text-[17px] leading-tight tracking-[-0.01em]">{chatName(chat)}</h1>
-            <span className="block truncate font-mono text-muted-foreground text-xs">{chat.id}</span>
+            <h1 className="truncate font-semibold text-[17px] leading-tight tracking-[-0.01em]" title={chatName(chat)}>
+              {chatName(chat)}
+            </h1>
+            <span className="block truncate font-mono text-muted-foreground text-xs" title={chat.id}>
+              {chat.id}
+            </span>
           </div>
           <Button
             variant="outline"
@@ -627,7 +631,7 @@ function Name({ chat }: { chat: Schemas["ChatOutputBody"] }) {
       <div className="flex items-center gap-2 py-2.5">
         <div className="min-w-0 flex-1 text-[13px]">
           <div className="text-muted-foreground">Name</div>
-          <div className="truncate font-medium">
+          <div className="wrap-anywhere font-medium">
             {chat.name || (
               <span className="text-muted-foreground">{chat.title ? `${chat.title} (from the platform)` : "None"}</span>
             )}

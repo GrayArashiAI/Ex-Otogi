@@ -20,6 +20,7 @@ import { pendingRestart, type Section } from "@/lib/restart";
 import { titlesList } from "@/lib/secrets";
 import { accountsPage, sectionPage } from "@/lib/settings";
 import { took, useNow } from "@/lib/time";
+import { cn, textLink } from "@/lib/utils";
 import { restart, restartKey, sectionsQuery, untilBack } from "@/queries/system";
 
 const list = new Intl.ListFormat("en");
@@ -93,7 +94,7 @@ export function PendingRestart() {
                 <Link
                   key={page.to}
                   to={page.to}
-                  className="hit-target relative rounded-sm font-medium text-foreground underline decoration-foreground/24 outline-none hover:decoration-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                  className={cn(textLink, "hit-target relative font-medium text-foreground")}
                 >
                   {part.value}
                 </Link>
@@ -148,7 +149,7 @@ export function PendingRestart() {
             <p role="status" className="text-muted-foreground text-sm">
               {waiting
                 ? "If the bot does not come back, nothing on the server started it again, and it has to be started there. This keeps waiting however long that takes, and carries on once the bot answers again."
-                : "If nothing supervises the process, it stays down, and has to be started on the server."}
+                : "If nothing supervises the bot, it stays down, and has to be started on the server."}
             </p>
           </DialogPanel>
           {!waiting && (
