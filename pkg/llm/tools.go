@@ -148,6 +148,10 @@ var wrapUpErrors = map[string]string{
 // later calls included. A reply is so at most two messages. onCall, if not
 // nil, sees each call as it finishes.
 //
+// A round whose calls all ran, are all to tools made by NewEndingTool, and
+// all succeeded ends the reply: Run returns after their results without
+// asking the model again.
+//
 // A call to an unknown function, or one that fails or panics, is answered
 // with an error the model sees. Calls are run for at most limits.Rounds
 // rounds, and not once ctx's deadline is nearer than limits.Reserve of the
@@ -201,6 +205,9 @@ func Run(ctx context.Context, p Provider, req Request, tools map[string]Tool, ev
 			out.Last = otogi.Message{}
 		}
 		results := make([]Result, len(resp.Turn.Calls))
+		// ended stays true while every call ran, ends the reply, and
+		// succeeded: the model is then not asked again.
+		ended := out.WrappedUp == ""
 		for i, c := range resp.Turn.Calls {
 			if out.WrappedUp != "" {
 				results[i] = Result{CallID: c.ID, Name: c.Name, Error: wrapUpErrors[out.WrappedUp]}
@@ -212,11 +219,23 @@ func Run(ctx context.Context, p Provider, req Request, tools map[string]Tool, ev
 			if onCall != nil {
 				onCall(CallRecord{Call: c, Result: results[i], Duration: time.Since(started), Panic: stack})
 			}
+			if results[i].Error != "" || !endsReply(tools[c.Name]) {
+				ended = false
+			}
 		}
 		toolTurn := Turn{Role: RoleTool, Results: results}
 		out.Turns = append(out.Turns, toolTurn)
 		req.Turns = append(req.Turns, toolTurn)
+		if ended {
+			return out, nil
+		}
 	}
+}
+
+// endsReply reports whether t was made by NewEndingTool.
+func endsReply(t Tool) bool {
+	_, ok := t.(interface{ endsReply() })
+	return ok
 }
 
 // runCall runs one call, turning a failure or a panic into an error result.
@@ -282,6 +301,15 @@ func NewTool(f Function, call func(ctx context.Context, event otogi.Event, args 
 	return funcTool{f: f, call: call}
 }
 
+// NewEndingTool is NewTool for a tool whose call ends the reply: when every
+// call in a round ran, is to such a tool, and did not fail, Run returns after
+// them without asking the model again. The words the model said before the
+// calls are then the reply. A round with a failed call, or with a call to any
+// other tool, goes on as usual.
+func NewEndingTool(f Function, call func(ctx context.Context, event otogi.Event, args json.RawMessage) (any, error)) Tool {
+	return endingTool{funcTool{f: f, call: call}}
+}
+
 type funcTool struct {
 	f    Function
 	call func(context.Context, otogi.Event, json.RawMessage) (any, error)
@@ -292,6 +320,11 @@ func (t funcTool) Function() Function { return t.f }
 func (t funcTool) Call(ctx context.Context, event otogi.Event, args json.RawMessage) (any, error) {
 	return t.call(ctx, event, args)
 }
+
+// endingTool is a funcTool whose successful call ends the reply.
+type endingTool struct{ funcTool }
+
+func (endingTool) endsReply() {}
 
 type agentKey struct{}
 
