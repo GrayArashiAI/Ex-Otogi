@@ -126,6 +126,67 @@ func TestRunSaysBeforeCalls(t *testing.T) {
 	}
 }
 
+// A round whose calls all ran, all end the reply, and all succeeded ends Run
+// without asking the model again; any other round goes on as usual.
+func TestRunEndsAfterEndingTools(t *testing.T) {
+	t.Parallel()
+	var runs []string
+	pick := NewEndingTool(Function{Name: "pick", Parameters: json.RawMessage(`{"type":"object"}`)},
+		func(_ context.Context, _ otogi.Event, args json.RawMessage) (any, error) {
+			runs = append(runs, "pick"+string(args))
+			if string(args) == `{"n":9}` {
+				return nil, errors.New("there is no 9")
+			}
+			return map[string]bool{"sent": true}, nil
+		})
+	tools := map[string]Tool{"pick": pick, "add": add}
+	call := func(id, name, args string) Call { return Call{ID: id, Name: name, Args: json.RawMessage(args)} }
+
+	t.Run("ending calls only", func(t *testing.T) {
+		runs = nil
+		p := &script{responses: []Response{say("Here you go.", call("c1", "pick", `{"n":1}`), call("c2", "pick", `{"n":2}`))}}
+		var said []string
+		out, err := Run(context.Background(), p, Request{}, tools, otogi.Event{}, Limits{Rounds: 4, Reserve: 2}, nil,
+			func(m otogi.Message) error { said = append(said, m.PlainText()); return nil }, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(p.requests) != 1 || len(runs) != 2 {
+			t.Fatalf("requests %d, runs %q", len(p.requests), runs)
+		}
+		// The words still go out first, and the thread ends with the results.
+		if strings.Join(said, "|") != "Here you go." || out.Reply.PlainText() != "Here you go." || len(out.Last.Parts) != 0 {
+			t.Errorf("said %q, reply %q, last %q", said, out.Reply.PlainText(), out.Last.PlainText())
+		}
+		if len(out.Turns) != 2 || out.Turns[1].Role != RoleTool || string(out.Turns[1].Results[0].Output) != `{"sent":true}` || len(out.Final.Turn.Calls) != 2 {
+			t.Fatalf("turns %+v, final %+v", out.Turns, out.Final)
+		}
+	})
+	t.Run("with another call", func(t *testing.T) {
+		p := &script{responses: []Response{say("", call("c1", "pick", `{"n":1}`), call("c2", "add", `{"a":1,"b":2}`)), say("It is 3.")}}
+		out, err := Run(context.Background(), p, Request{}, tools, otogi.Event{}, Limits{Rounds: 4, Reserve: 2}, nil, nil, nil)
+		if err != nil || len(p.requests) != 2 || out.Reply.PlainText() != "It is 3." {
+			t.Fatalf("err %v, requests %d, reply %q", err, len(p.requests), out.Reply.PlainText())
+		}
+	})
+	t.Run("a failed ending call", func(t *testing.T) {
+		p := &script{responses: []Response{say("", call("c1", "pick", `{"n":9}`)), say("Never mind.")}}
+		out, err := Run(context.Background(), p, Request{}, tools, otogi.Event{}, Limits{Rounds: 4, Reserve: 2}, nil, nil, nil)
+		if err != nil || len(p.requests) != 2 || out.Turns[1].Results[0].Error != "there is no 9" || out.Reply.PlainText() != "Never mind." {
+			t.Fatalf("err %v, requests %d, turns %+v", err, len(p.requests), out.Turns)
+		}
+	})
+	t.Run("told to wrap up", func(t *testing.T) {
+		runs = nil
+		p := &script{responses: []Response{say("", call("c1", "pick", `{"n":1}`)), say("Done.")}}
+		out, err := Run(context.Background(), p, Request{}, tools, otogi.Event{}, Limits{Rounds: 0, Reserve: 2}, nil, nil, nil)
+		// The call never ran, so it ends nothing: the model answers again.
+		if err != nil || len(runs) != 0 || len(p.requests) != 2 || out.WrappedUp != WrapUpRounds || out.Reply.PlainText() != "Done." {
+			t.Fatalf("err %v, runs %q, requests %d, wrapped up %q", err, runs, len(p.requests), out.WrappedUp)
+		}
+	})
+}
+
 func TestRunAnswersFailingCallsWithErrors(t *testing.T) {
 	t.Parallel()
 	failing := toolFunc(func(json.RawMessage) (any, error) { return nil, errors.New("no such chat") })
