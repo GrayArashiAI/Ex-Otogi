@@ -239,16 +239,18 @@ func run(ctx context.Context, cfg Config, newLog func(format string) *slog.Logge
 		}()
 	}
 
-	if err := k.Start(ctx); err != nil {
-		return false, err
-	}
+	// A stop may be asked for from here on: the management API is up before
+	// the kernel and the drivers are. Whatever fails to start then stops the
+	// rest the same way, so the exit says a stop or a restart was asked for.
+	failure = k.Start(ctx)
 	var running []driver
 	for _, d := range drivers {
-		if err := d.Start(ctx); err != nil {
-			failure = err
+		if failure != nil {
 			break
 		}
-		running = append(running, d)
+		if failure = d.Start(ctx); failure == nil {
+			running = append(running, d)
+		}
 	}
 	if failure == nil {
 		log.Info("otogi: running", "modules", len(modules), "drivers", len(running))

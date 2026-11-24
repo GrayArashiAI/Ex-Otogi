@@ -283,3 +283,43 @@ func TestExitCodes(t *testing.T) {
 		}
 	}
 }
+
+// askOnListen asks the process something through its management API as soon
+// as the API says it is listening, which is before the kernel has started.
+type askOnListen struct {
+	slog.Handler
+	path   string
+	status chan int
+}
+
+func (h askOnListen) Handle(ctx context.Context, r slog.Record) error {
+	if r.Message == "management: listening" {
+		r.Attrs(func(a slog.Attr) bool {
+			req, _ := http.NewRequestWithContext(context.Background(), "POST", "http://"+a.Value.String()+h.path, nil)
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				h.status <- 0
+				return false
+			}
+			_ = resp.Body.Close()
+			h.status <- resp.StatusCode
+			return false
+		})
+	}
+	return h.Handler.Handle(ctx, r)
+}
+
+func TestAStopAskedForWhileStartingIsAStop(t *testing.T) {
+	for path, wantRestart := range map[string]bool{"/api/shutdown": false, "/api/restart": true} {
+		cfg := fileConfig(t, "data_dir: "+t.TempDir()+"\nmanagement: {addr: \"127.0.0.1:0\"}\n")
+		status := make(chan int, 1)
+		log := slog.New(askOnListen{Handler: slog.NewTextHandler(io.Discard, nil), path: path, status: status})
+		restart, err := run(context.Background(), cfg, func(string) *slog.Logger { return log }, new(slog.LevelVar))
+		if got := <-status; got != 202 {
+			t.Fatalf("POST %s while starting = %d, want 202", path, got)
+		}
+		if err != nil || restart != wantRestart {
+			t.Fatalf("after POST %s while starting: restart %v, failure %v; want restart %v and no failure", path, restart, err, wantRestart)
+		}
+	}
+}
