@@ -165,6 +165,32 @@ func TestModuleSettingsValidation(t *testing.T) {
 	}
 }
 
+// A person's threshold factor out of its range is refused at its field.
+func TestPeopleSettingsValidation(t *testing.T) {
+	ctx := context.Background()
+	storage, err := modulestore.Open(ctx, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = storage.Close() })
+	s, _ := settingsHarness(t, storage)
+	settings := `{"profiles": [{"name": "Luna", "keywords": ["luna"], "provider": "gemini", "model": "m"}], "people": [{"user": "qq:user:x", "threshold_factor": 20}]}`
+	_, err = s.save(ctx, "chat", 0, nil, json.RawMessage(settings), "x")
+	var invalid *invalidSettings
+	if !errors.As(err, &invalid) {
+		t.Fatalf("%v, want invalid settings", err)
+	}
+	var where []string
+	for _, d := range invalid.details {
+		if detail := (*huma.ErrorDetail)(nil); errors.As(d, &detail) {
+			where = append(where, detail.Location)
+		}
+	}
+	if !strings.Contains(strings.Join(where, ";"), "people[0].threshold_factor") {
+		t.Fatalf("refused at %q", where)
+	}
+}
+
 // Every module's settings have a schema document with the types it uses.
 func TestSettingsSchemas(t *testing.T) {
 	for id, k := range moduleKinds {

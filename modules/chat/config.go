@@ -22,6 +22,47 @@ type Config struct {
 	MaxMediaMB  int             `json:"max_media_mb,omitempty" minimum:"1" default:"20" doc:"The largest picture or file the agent is shown, in megabytes; a larger one is named instead."`
 	Profiles    []ProfileConfig `json:"profiles" minItems:"1" doc:"The agents. Each answers in the chats on its allowlist."`
 	Tools       []string        `json:"tools,omitempty" enum:"notes,reminders,todou" doc:"Modules whose tools agents may use. Each gets a list of the chats where agents are offered its tools; a chat on none of them gets none."`
+	People      []PersonConfig  `json:"people,omitempty" doc:"People agents know by more than the name the platform gives them. Everyone else is called by that name, has no note, and a threshold factor of 1."`
+}
+
+// PersonConfig is what agents know about one person.
+type PersonConfig struct {
+	User            string  `json:"user" minLength:"1" doc:"The person: the platform (qq or telegram), a colon, and their sender ID as a chat's page lists it under People, below their name; for example qq:user:7C2E04D1A9B35F86E0C4D2B17A9F3E58. A person's ID on QQ is the same in every group and private chat. The same person on another platform is another entry."`
+	Name            string  `json:"name,omitempty" doc:"What agents call them, in place of the name the platform gives; that name follows in parentheses where it differs, since people mention them by it."`
+	Note            string  `json:"note,omitempty" doc:"Who they are, told to agents where they appear in the conversation: for example the owner, or a friend of the owner's who talks about VRChat. Agents may repeat it, in any chat the person is in."`
+	ThresholdFactor float64 `json:"threshold_factor,omitempty" minimum:"0.1" maximum:"10" default:"1" doc:"Multiplies the judgment thresholds of their messages: below 1 their messages wake agents more easily, above 1 less. Past 1, judgments are not asked about their messages and never wake agents for them; mentions and replies still do."`
+}
+
+// person is what agents know about one person, from the people list.
+type person struct {
+	name   string  // what agents call them; "" for the name the platform gives
+	note   string  // who they are
+	factor float64 // multiplies the judgment thresholds of their messages
+}
+
+// people validates the people list and keys it by user.
+func (c *Config) people() (map[string]person, error) {
+	out := map[string]person{}
+	var errs []error
+	for i, pc := range c.People {
+		field := fmt.Sprintf("people[%d]", i)
+		platform, id, ok := strings.Cut(pc.User, ":")
+		switch {
+		case !ok || platform == "" || id == "" || strings.ContainsFunc(pc.User, unicode.IsSpace):
+			errs = append(errs, fmt.Errorf("%s.user %q: want the platform, a colon, and the sender ID, such as qq:user:7C2E04D1A9B35F86E0C4D2B17A9F3E58", field, pc.User))
+			continue
+		case slices.ContainsFunc(c.People[:i], func(o PersonConfig) bool { return o.User == pc.User }):
+			errs = append(errs, fmt.Errorf("%s.user %q is listed twice", field, pc.User))
+			continue
+		}
+		factor := cmp.Or(pc.ThresholdFactor, 1)
+		if factor < 0.1 || factor > 10 {
+			errs = append(errs, fmt.Errorf("%s.threshold_factor %v: want 0.1 to 10", field, factor))
+		}
+		// One line each: a note is a line of a list the model reads.
+		out[pc.User] = person{name: strings.Join(strings.Fields(pc.Name), " "), note: strings.Join(strings.Fields(pc.Note), " "), factor: factor}
+	}
+	return out, errors.Join(errs...)
 }
 
 // ProfileConfig configures one agent.

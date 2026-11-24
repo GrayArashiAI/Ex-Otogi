@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -27,16 +28,27 @@ func (m *Module) respond(ctx context.Context, e otogi.Event, inv otogi.Invocatio
 	if err != nil {
 		return err
 	}
-	user := llm.Turn{Role: llm.RoleUser, Content: m.userContent(ctx, e, inv, p, parent == 0, until)}
+	content, named := m.userContent(ctx, e, inv, p, parent == 0, until)
+	user := llm.Turn{Role: llm.RoleUser, Content: content}
+	// What leads the message, the notes on the people in it and the recent
+	// chat, goes in this request only: the thread keeps the message alone.
 	sent := llm.Turn{Role: llm.RoleUser, Content: user.Content}
+	var recent string
 	if p.context > 0 {
-		context, err := m.contextText(ctx, e, p, path)
-		if err != nil {
+		var inRecent []sender
+		if recent, inRecent, err = m.contextText(ctx, e, p, path); err != nil {
 			return err
 		}
-		if context != "" {
-			sent.Content = llm.Join(otogi.TextMessage(context), user.Content)
+		named = append(inRecent, named...)
+	}
+	var lead []string
+	for _, s := range []string{m.aboutPeople(e.Platform, named), recent} {
+		if s != "" {
+			lead = append(lead, s)
 		}
+	}
+	if len(lead) > 0 {
+		sent.Content = llm.Join(otogi.TextMessage(strings.Join(lead, "\n\n")), user.Content)
 	}
 	req := llm.Request{Model: p.Model, System: m.system(p, e), Thinking: p.Thinking, MaxOutput: p.MaxOutput, Temperature: p.Temperature, Tools: p.builtins}
 	for _, t := range path {
@@ -118,7 +130,8 @@ func (m *Module) thread(ctx context.Context, parent int64, maxTurns int) ([]stor
 // media.as_text (the quoted message's by its kept descriptions, without
 // waiting), and, when quote is set, after the message it replies to (a reply
 // continuing a thread quotes the agent's own turn, which the thread has).
-func (m *Module) userContent(ctx context.Context, e otogi.Event, inv otogi.Invocation, p *profile, quote bool, until time.Time) otogi.Message {
+// named is the people it names, in order, and its sender, named or not.
+func (m *Module) userContent(ctx context.Context, e otogi.Event, inv otogi.Invocation, p *profile, quote bool, until time.Time) (msg otogi.Message, named []sender) {
 	asText := p.Media != nil && p.Media.AsText
 	shown := func(media otogi.Media) otogi.Message {
 		if asText {
@@ -126,10 +139,14 @@ func (m *Module) userContent(ctx context.Context, e otogi.Event, inv otogi.Invoc
 		}
 		return m.mediaPart(ctx, inv, e.Destination(), media)
 	}
-	var msg otogi.Message
 	if target, ok := replyTarget(e.Message); ok && quote {
 		if quoted, found, err := m.store.message(ctx, e.Destination(), string(target.SourceEvent)); err == nil && found && (quoted.Text != "" || len(quoted.Media) > 0) {
-			msg = llm.Join(msg, otogi.TextMessage("Replying to "+quoted.ActorName+":\n"+quoted.Text))
+			who := quoted.ActorName
+			if !quoted.Outgoing {
+				who = m.nameOf(e.Platform, quoted.ActorID, quoted.ActorName)
+				named = append(named, sender{quoted.ActorID, quoted.ActorName})
+			}
+			msg = llm.Join(msg, otogi.TextMessage("Replying to "+who+":\n"+quoted.Text))
 			for _, media := range quoted.Media {
 				if asText {
 					msg = llm.Join(msg, m.keptPart(ctx, e.Destination(), media))
@@ -139,9 +156,10 @@ func (m *Module) userContent(ctx context.Context, e otogi.Event, inv otogi.Invoc
 			}
 		}
 	}
+	named = append(named, sender{string(e.Actor.ID), speaker(e.Actor)})
 	prefix := ""
 	if e.Conversation.Kind != otogi.ConversationDirect {
-		prefix = speaker(e.Actor) + ": "
+		prefix = m.nameOf(e.Platform, string(e.Actor.ID), speaker(e.Actor)) + ": "
 	}
 	for i, part := range e.Message.Parts {
 		switch {
@@ -164,7 +182,7 @@ func (m *Module) userContent(ctx context.Context, e otogi.Event, inv otogi.Invoc
 	if prefix != "" { // no text: name the sender before the media
 		msg = llm.Join(otogi.TextMessage(strings.TrimSpace(prefix)), msg)
 	}
-	return msg
+	return msg, named
 }
 
 // maxMedia is the largest media part shown to the model, in bytes.
@@ -200,8 +218,8 @@ func (m *Module) mediaPart(ctx context.Context, inv otogi.Invocation, from otogi
 }
 
 // contextText is the chat's recent messages, leaving out those already in
-// the thread.
-func (m *Module) contextText(ctx context.Context, e otogi.Event, p *profile, path []storedTurn) (string, error) {
+// the thread, and the people who sent them, oldest first.
+func (m *Module) contextText(ctx context.Context, e otogi.Event, p *profile, path []storedTurn) (string, []sender, error) {
 	inThread := map[string]bool{string(e.SourceID): true}
 	for _, t := range path {
 		inThread[t.SourceID] = true
@@ -215,27 +233,27 @@ func (m *Module) contextText(ctx context.Context, e otogi.Event, p *profile, pat
 	}
 	lines, err := m.store.recent(ctx, e.Destination(), before.Add(time.Millisecond), p.context+len(inThread))
 	if err != nil {
-		return "", err
+		return "", nil, err
+	}
+	lines = slices.DeleteFunc(lines, func(l line) bool { return inThread[l.SourceID] })
+	if len(lines) > p.context {
+		lines = lines[len(lines)-p.context:]
+	}
+	if len(lines) == 0 {
+		return "", nil, nil
 	}
 	var kept []string
+	var named []sender
 	for _, l := range lines {
-		if inThread[l.SourceID] {
-			continue
-		}
-		name := l.ActorName
-		if l.Outgoing {
-			name += " (this account)"
+		name := l.ActorName + " (this account)"
+		if !l.Outgoing {
+			name = m.nameOf(e.Platform, l.ActorID, l.ActorName)
+			named = append(named, sender{l.ActorID, l.ActorName})
 		}
 		text := strings.TrimSpace(strings.TrimSpace(l.Text) + " " + m.mediaText(ctx, e.Destination(), l.Media, p.Media != nil))
 		kept = append(kept, fmt.Sprintf("[%s] %s: %s", l.At.In(time.Local).Format("15:04"), name, text))
 	}
-	if len(kept) > p.context {
-		kept = kept[len(kept)-p.context:]
-	}
-	if len(kept) == 0 {
-		return "", nil
-	}
-	return "Recent messages in this chat, oldest first, for context:\n" + strings.Join(kept, "\n") + "\n\nThe message to answer:", nil
+	return "Recent messages in this chat, oldest first, for context:\n" + strings.Join(kept, "\n") + "\n\nThe message to answer:", named, nil
 }
 
 // system is the profile's prompt and what the agent needs to know about

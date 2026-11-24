@@ -22,10 +22,12 @@ const (
 	judgeLineRunes = 150
 )
 
-// judgment is what woke an agent: its score and the threshold it passed.
+// judgment is what woke an agent: its score and the threshold it passed,
+// the agent's multiplied by the sender's factor when that is not 1.
 type judgment struct {
 	Score     float64 `json:"score"`
 	Threshold float64 `json:"threshold"`
+	Factor    float64 `json:"factor,omitempty"`
 }
 
 // The state a judgment is about. Messages and people are numbered (m1, u1)
@@ -61,16 +63,19 @@ type (
 // whose name the message starts with, as a keyword would have triggered it
 // without the judgment; it comes back with no judgment. Only reading the chat
 // fails Handle. When a judged agent reads descriptions, the judgment sees
-// them, waiting until until at most for the message's own.
+// them, waiting until until at most for the message's own. Each agent's
+// threshold is multiplied by the sender's factor; an agent whose threshold
+// that takes past 1 is not asked about the message.
 func (m *Module) wake(ctx context.Context, e otogi.Event, until time.Time) (*profile, *judgment, error) {
 	if e.Conversation.Kind != otogi.ConversationGroup {
 		return nil, nil, nil
 	}
+	factor := m.factor(e.Platform, string(e.Actor.ID))
 	var present, judged []*profile
 	for _, p := range m.profiles {
 		if m.answers(p, e.ChatKey()) {
 			present = append(present, p)
-			if p.wake > 0 {
+			if p.wake > 0 && p.wake*factor <= 1 {
 				judged = append(judged, p)
 			}
 		}
@@ -107,14 +112,18 @@ func (m *Module) wake(ctx context.Context, e otogi.Event, until time.Time) (*pro
 	var best *profile
 	var score float64
 	for _, p := range judged {
-		if s, ok := answers[wakeID(ids[p], msg)]; ok && s >= p.wake && (best == nil || s > score) {
+		if s, ok := answers[wakeID(ids[p], msg)]; ok && s >= p.wake*factor && (best == nil || s > score) {
 			best, score = p, s
 		}
 	}
 	if best == nil {
 		return nil, nil, nil
 	}
-	return best, &judgment{Score: score, Threshold: best.wake}, nil
+	j := &judgment{Score: score, Threshold: best.wake * factor}
+	if factor != 1 {
+		j.Factor = factor
+	}
+	return best, j, nil
 }
 
 // agentIDs numbers the agents in a chat: a1, a2, ….
@@ -206,7 +215,11 @@ func (m *Module) replyOf(ctx context.Context, to otogi.Destination, l line, msgI
 	if err != nil || !found {
 		return "", "", err
 	}
-	return "", quoted.ActorName + ": " + cut(strings.TrimSpace(strings.TrimSpace(quoted.Text)+" "+m.mediaText(ctx, to, quoted.Media, described))), nil
+	who := quoted.ActorName
+	if !quoted.Outgoing {
+		who = m.nameOf(to.Platform, quoted.ActorID, quoted.ActorName)
+	}
+	return "", who + ": " + cut(strings.TrimSpace(strings.TrimSpace(quoted.Text)+" "+m.mediaText(ctx, to, quoted.Media, described))), nil
 }
 
 // lineFrom names a message's sender: a person as uN and their name, an
@@ -219,7 +232,7 @@ func (m *Module) lineFrom(ctx context.Context, to otogi.Destination, l line, age
 			id = fmt.Sprintf("u%d", len(people)+1)
 			people[l.ActorID] = id
 		}
-		return id + " " + l.ActorName, nil
+		return id + " " + m.nameOf(to.Platform, l.ActorID, l.ActorName), nil
 	}
 	_, name, found, err := m.store.agentTurn(ctx, otogi.EventRef{Platform: to.Platform, Account: to.Account, Conversation: to.Conversation, SourceEvent: otogi.SourceEventID(l.SourceID)})
 	if err != nil {
