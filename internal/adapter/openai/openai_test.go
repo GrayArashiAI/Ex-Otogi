@@ -215,6 +215,32 @@ func TestGenerateText(t *testing.T) {
 	}
 }
 
+// A video the model cannot take is sent as a text mark and listed in
+// Withheld; with only text and images, Withheld is empty.
+func TestWithheld(t *testing.T) {
+	inline := func(id otogi.PartID, mime string) otogi.Part {
+		return otogi.Part{ID: id, Kind: otogi.PartMedia, Media: &otogi.Media{MediaType: mime, Source: otogi.MediaSource{Kind: otogi.MediaSourceInline, Inline: []byte("data")}}}
+	}
+	for name, c := range map[string]struct {
+		parts []otogi.Part
+		want  []llm.WithheldPart
+	}{
+		"video": {[]otogi.Part{{ID: "t", Kind: otogi.PartText, Text: "what is this?"}, inline("v", "video/mp4")}, []llm.WithheldPart{{Part: "v", MediaType: "video/mp4", Bytes: 4}}},
+		"image": {[]otogi.Part{{ID: "t", Kind: otogi.PartText, Text: "what is this?"}, inline("i", "image/png")}, nil},
+	} {
+		t.Run(name, func(t *testing.T) {
+			p, _, _ := setup(t, fixture(t, "text"))
+			resp, err := p.Generate(context.Background(), llm.Request{Model: "deepseek-flash", Turns: []llm.Turn{{Role: llm.RoleUser, Content: otogi.Message{Parts: c.parts}}}}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(resp.Withheld, c.want) {
+				t.Fatalf("withheld = %+v, want %+v", resp.Withheld, c.want)
+			}
+		})
+	}
+}
+
 // A function call streams in fragments; the next turn sends the assistant
 // message back as it came, reasoning included, and the results as tool
 // messages.
