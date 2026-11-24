@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/TundraWork/Ex-Otogi/pkg/decision"
@@ -34,6 +35,14 @@ type Module struct {
 	describer   mediasvc.Describer // set in Start when an agent reads descriptions
 	stickers    mediasvc.Stickers  // set in Start when an agent sends stickers
 	now         func() time.Time
+
+	// Waiting for senders to finish (see batch). Waits are timed on the
+	// wall clock, not now.
+	mu       sync.Mutex
+	waits    map[string]*waiting    // by agent and chat
+	inflight map[string][]*inflight // by chat
+	together map[string]*judgeGroup // by chat
+	replied  map[string][]time.Time // when agents started replies, read from now, by group chat
 }
 
 // New validates the configuration; providers finds the providers profiles
@@ -45,7 +54,8 @@ func New(cfg Config, providers func(string) (llm.Provider, error)) (*Module, err
 	if err := errors.Join(err, toolsErr, peopleErr); err != nil {
 		return nil, err
 	}
-	m := &Module{cfg: cfg, profiles: profiles, byName: map[string]*profile{}, people: people, toolModules: toolModules, now: time.Now}
+	m := &Module{cfg: cfg, profiles: profiles, byName: map[string]*profile{}, people: people, toolModules: toolModules, now: time.Now,
+		waits: map[string]*waiting{}, inflight: map[string][]*inflight{}, together: map[string]*judgeGroup{}, replied: map[string][]time.Time{}}
 	for _, p := range profiles {
 		m.byName[p.Name] = p
 	}
@@ -132,10 +142,11 @@ func (m *Module) Start(ctx context.Context, host otogi.Host) error {
 	return host.Schedule("prune", "@every 1h", m.prune)
 }
 
-// judged reports whether any agent has the decision service judge messages.
+// judged reports whether any agent has the decision service judge messages:
+// whether they address it, or whether their senders have finished.
 func (m *Module) judged() bool {
 	for _, p := range m.profiles {
-		if p.wake > 0 {
+		if p.wake > 0 || p.waitMax > 0 {
 			return true
 		}
 	}
@@ -167,22 +178,65 @@ func (m *Module) Handle(ctx context.Context, e otogi.Event, inv otogi.Invocation
 	}
 	// The judgment and the reply wait for this message's descriptions until
 	// one deadline, together; see describeWait.
-	until := time.Now().Add(describeWait)
+	at := time.Now()
+	until := at.Add(describeWait)
 	p, parent, trigger, elsewhere, err := m.route(ctx, e)
 	if err != nil || p == nil && elsewhere {
 		return err
 	}
-	var j *judgment
-	if p == nil {
-		if p, j, err = m.wake(ctx, e, until); p == nil {
+	if p != nil {
+		if !waits(p, e) {
+			return m.answer(ctx, inv, ask{p: p, msgs: []otogi.Event{e}, parent: parent, trigger: trigger}, until)
+		}
+		release := m.judging(e.ChatKey(), at)
+		defer release() // however this ends, a panic included
+		done, known, err := m.doneOf(ctx, e, p, until)
+		if err != nil {
 			return err
 		}
-		trigger = "decision"
-		if j == nil {
-			trigger = "keyword" // the judgment failed; the message starts with p's name
-		}
+		return m.join(ctx, inv, p, entry{e: e, at: at, parent: parent, trigger: trigger}, done, known, release)
 	}
-	return m.respond(ctx, e, inv, p, parent, trigger, j, until)
+	window := m.window(e)
+	release := func() {}
+	if window > 0 {
+		release = m.judging(e.ChatKey(), at)
+		defer release()
+	}
+	v, err := m.judgeTogether(ctx, e, until, window)
+	if err != nil || v.p == nil {
+		return err
+	}
+	trigger = "decision"
+	if v.j == nil {
+		trigger = "keyword" // the judgment failed; the message starts with p's name
+	}
+	if !waits(v.p, e) {
+		release()
+		return m.answer(ctx, inv, ask{p: v.p, msgs: []otogi.Event{e}, trigger: trigger, j: v.j}, until)
+	}
+	return m.join(ctx, inv, v.p, entry{e: e, at: at, trigger: trigger, j: v.j}, v.done, v.doneKnown, release)
+}
+
+// answer has an agent answer at once.
+func (m *Module) answer(ctx context.Context, inv otogi.Invocation, a ask, until time.Time) error {
+	_, err := m.respond(ctx, inv, a, until)
+	return err
+}
+
+// join puts en into p's batch in its chat, and, when en opened it, waits for
+// it and answers it; release ends en's being judged, once it is in (the
+// caller defers it too, for when join ends before).
+func (m *Module) join(ctx context.Context, inv otogi.Invocation, p *profile, en entry, done float64, known bool, release func()) error {
+	r, err := m.rhythmOf(ctx, en.e)
+	if err != nil {
+		return err
+	}
+	b := m.enter(p, en, done, known, r)
+	release()
+	if b == nil {
+		return nil
+	}
+	return m.run(ctx, inv, b)
 }
 
 // toolsIn is the functions agents get in chat: those of the modules whose

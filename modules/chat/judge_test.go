@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/TundraWork/Ex-Otogi/pkg/decision"
@@ -15,20 +16,36 @@ import (
 )
 
 // decider answers every question with its score, by the agent it asks
-// about (a1, a2, …), and keeps the requests.
+// about (a1, a2, …), and keeps the requests. answer, when set, answers a
+// question first (ok false leaves it to scores); before, when set, runs
+// before a request is answered, and may block it.
 type decider struct {
+	mu       sync.Mutex
 	scores   map[string]float64
+	answer   func(id string, req decision.Request) (float64, bool)
+	before   func(req decision.Request)
 	err      error
 	requests []decision.Request
 }
 
 func (d *decider) Decide(_ context.Context, req decision.Request) (decision.Answers, error) {
+	if d.before != nil {
+		d.before(req)
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	d.requests = append(d.requests, req)
 	if d.err != nil {
 		return nil, d.err
 	}
 	out := decision.Answers{}
 	for id := range req.Questions {
+		if d.answer != nil {
+			if s, ok := d.answer(id, req); ok {
+				out[id] = s
+				continue
+			}
+		}
 		for agent, s := range d.scores {
 			if strings.HasPrefix(id, "wake."+agent+".") {
 				out[id] = s
@@ -36,6 +53,25 @@ func (d *decider) Decide(_ context.Context, req decision.Request) (decision.Answ
 		}
 	}
 	return out, nil
+}
+
+// asked is the text of the message a question is about: the last part of its
+// ID names it in the request's history.
+func asked(id string, req decision.Request) string {
+	msg := id[strings.LastIndex(id, ".")+1:]
+	var history []judgeLine
+	switch s := req.State.(type) {
+	case judgeState:
+		history = s.History
+	case briefState:
+		history = s.History
+	}
+	for _, l := range history {
+		if l.ID == msg {
+			return l.Text
+		}
+	}
+	return ""
 }
 
 func judgedProfile(name string, threshold float64) ProfileConfig {

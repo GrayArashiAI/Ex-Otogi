@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -15,20 +16,44 @@ import (
 // cleanupTimeout bounds finishing a reply after its context ended.
 const cleanupTimeout = 30 * time.Second
 
-// respond has p answer e, continuing from turn parent (0 for a new thread):
-// the reply streams into the chat, and the turns are kept. What the model
-// first says before calling tools goes out as its own message before the
-// tools run, so the chat sees it at once even where nothing streams (QQ
+// ask is what an agent answers: a message, or the batch of messages to it
+// it waited for (see batch), in the order they arrived.
+type ask struct {
+	p       *profile
+	msgs    []otogi.Event
+	parent  int64 // the turn the first continues, 0 for a new thread
+	trigger string
+	j       *judgment  // the judgment that woke p for the first, if one did
+	batch   *batchInfo // nil when p did not wait
+}
+
+// batchInfo is what a reply's record says of its batch.
+type batchInfo struct {
+	messages []string // the source IDs of the messages it answers
+	waited   time.Duration
+	covered  []string // those left out as the previous reply did for them
+}
+
+// respond has a.p answer a.msgs, continuing from turn a.parent (0 for a new
+// thread): the reply streams into the chat, and the turns are kept. What the
+// model first says before calling tools goes out as its own message before
+// the tools run, so the chat sees it at once even where nothing streams (QQ
 // groups); the rest of the reply, words before later tools included, follows
-// in one more message. j is the judgment that woke p, if one did; until is
-// how long the message may wait for its media's descriptions.
-func (m *Module) respond(ctx context.Context, e otogi.Event, inv otogi.Invocation, p *profile, parent int64, trigger string, j *judgment, until time.Time) error {
+// in one more message. The reply replies to the last message of the batch.
+// until is how long the messages may wait for their media's descriptions. It
+// returns what the reply showed.
+func (m *Module) respond(ctx context.Context, inv otogi.Invocation, a ask, until time.Time) (string, error) {
 	started := m.now()
-	path, err := m.thread(ctx, parent, p.MaxTurns)
+	p, e, last := a.p, a.msgs[0], a.msgs[len(a.msgs)-1]
+	m.startedReplying(e, started)
+	path, err := m.thread(ctx, a.parent, p.MaxTurns)
 	if err != nil {
-		return err
+		return "", err
 	}
-	content, named := m.userContent(ctx, e, inv, p, parent == 0, until)
+	content, named, inBatch, err := m.askContent(ctx, inv, a, until)
+	if err != nil {
+		return "", err
+	}
 	user := llm.Turn{Role: llm.RoleUser, Content: content}
 	// What leads the message, the notes on the people in it and the recent
 	// chat, goes in this request only: the thread keeps the message alone.
@@ -36,8 +61,8 @@ func (m *Module) respond(ctx context.Context, e otogi.Event, inv otogi.Invocatio
 	var recent string
 	if p.context > 0 {
 		var inRecent []sender
-		if recent, inRecent, err = m.contextText(ctx, e, p, path); err != nil {
-			return err
+		if recent, inRecent, err = m.contextText(ctx, e, p, path, inBatch); err != nil {
+			return "", err
 		}
 		named = append(inRecent, named...)
 	}
@@ -48,10 +73,11 @@ func (m *Module) respond(ctx context.Context, e otogi.Event, inv otogi.Invocatio
 	if picks != nil {
 		lead = append(lead, picks.text())
 	}
-	for _, s := range []string{m.aboutPeople(e.Platform, named), recent} {
-		if s != "" {
-			lead = append(lead, s)
-		}
+	if s := m.aboutPeople(e.Platform, named); s != "" {
+		lead = append(lead, s)
+	}
+	if s := m.answerLead(a, recent); s != "" {
+		lead = append(lead, s)
 	}
 	if len(lead) > 0 {
 		sent.Content = llm.Join(otogi.TextMessage(strings.Join(lead, "\n\n")), user.Content)
@@ -71,6 +97,7 @@ func (m *Module) respond(ctx context.Context, e otogi.Event, inv otogi.Invocatio
 	// opened only once it has something to show, so no empty message is
 	// sent or recorded.
 	var refs []otogi.EventRef
+	var shownText []string // what the reply showed, for the next batch's covered
 	stream, said := inv.Stream(ctx, "reply", e.Destination()), false
 	update := func(msg otogi.Message) error {
 		if len(msg.Parts) == 0 {
@@ -79,15 +106,16 @@ func (m *Module) respond(ctx context.Context, e otogi.Event, inv otogi.Invocatio
 		if stream == nil {
 			stream = inv.Stream(ctx, "reply-2", e.Destination())
 		}
-		return stream.Update(ctx, present(p, e, msg))
+		return stream.Update(ctx, present(p, last, msg))
 	}
 	say := func(msg otogi.Message) error {
-		sent, err := stream.Close(ctx, present(p, e, msg))
+		sent, err := stream.Close(ctx, present(p, last, msg))
 		refs, stream, said = append(refs, sent...), nil, true
+		shownText = append(shownText, msg.PlainText())
 		return err
 	}
-	out, runErr := llm.Run(llm.ContextWithAgent(ctx, p.Name), p.provider, req, tools, e, llm.Limits{Rounds: p.MaxToolRounds, Reserve: *m.cfg.ToolReserve},
-		update, say, func(c llm.CallRecord) { m.recordCall(ctx, e, p, c) })
+	out, runErr := llm.Run(llm.ContextWithAgent(ctx, p.Name), p.provider, req, tools, last, llm.Limits{Rounds: p.MaxToolRounds, Reserve: *m.cfg.ToolReserve},
+		update, say, func(c llm.CallRecord) { m.recordCall(ctx, last, p, c) })
 
 	// The reply is finished even when ctx ended, so the chat is not left
 	// with a partial answer.
@@ -108,11 +136,12 @@ func (m *Module) respond(ctx context.Context, e otogi.Event, inv otogi.Invocatio
 		// shows nothing: not even the agent's label.
 		shown := otogi.Message{}
 		if len(final.Parts) > 0 {
-			shown = present(p, e, final)
+			shown = present(p, last, final)
+			shownText = append(shownText, final.PlainText())
 		}
-		var last []otogi.EventRef
-		last, closeErr = stream.Close(cleanup, shown)
-		refs = append(refs, last...)
+		var closed []otogi.EventRef
+		closed, closeErr = stream.Close(cleanup, shown)
+		refs = append(refs, closed...)
 	}
 	messages := make([]sentMessage, 0, len(refs)+1)
 	for _, ref := range refs {
@@ -121,7 +150,7 @@ func (m *Module) respond(ctx context.Context, e otogi.Event, inv otogi.Invocatio
 	var stickerErr error
 	if sends {
 		var ref otogi.EventRef
-		ref, stickerErr = m.sendSticker(cleanup, e, inv, *picks.picked)
+		ref, stickerErr = m.sendSticker(cleanup, last, inv, *picks.picked)
 		if stickerErr == nil {
 			sticker.Ref = string(ref.SourceEvent)
 			refs = append(refs, ref)
@@ -135,11 +164,108 @@ func (m *Module) respond(ctx context.Context, e otogi.Event, inv otogi.Invocatio
 		for _, t := range out.Turns {
 			turns = append(turns, storedTurn{Turn: t})
 		}
-		ids, storeErr = m.store.thread(cleanup, p.Name, e.Destination(), parent, turns, messages, m.now())
+		ids, storeErr = m.store.thread(cleanup, p.Name, e.Destination(), a.parent, turns, messages, m.now())
 	}
 	err = errors.Join(runErr, closeErr, stickerErr, storeErr)
-	m.record(cleanup, e, p, trigger, j, parent, ids, out, refs, sticker, err, m.now().Sub(started))
-	return err
+	m.record(cleanup, a, ids, out, refs, sticker, err, m.now().Sub(started), "")
+	return strings.Join(shownText, "\n"), err
+}
+
+// askContent is what the user turn says: the message, or, for a batch, every
+// message of the chat from the first to answer to the last, in order, those
+// to answer as userContent has them and the rest as the transcript keeps
+// them (the reply to the first quoted when it starts a thread). inBatch is
+// the source IDs it covers, which the recent chat leaves out.
+func (m *Module) askContent(ctx context.Context, inv otogi.Invocation, a ask, until time.Time) (otogi.Message, []sender, map[string]bool, error) {
+	e := a.msgs[0]
+	if len(a.msgs) == 1 {
+		content, named := m.userContent(ctx, e, inv, a.p, a.parent == 0, until)
+		return content, named, map[string]bool{string(e.SourceID): true}, nil
+	}
+	to, last := e.Destination(), a.msgs[len(a.msgs)-1]
+	at := last.OccurredAt
+	if at.IsZero() {
+		at = m.now()
+	}
+	lines, err := m.store.recent(ctx, to, at.Add(time.Millisecond), batchSpan)
+	if err != nil {
+		return otogi.Message{}, nil, nil, err
+	}
+	if i := slices.IndexFunc(lines, func(l line) bool { return l.SourceID == string(e.SourceID) }); i >= 0 {
+		lines = lines[i:]
+	} else {
+		lines = nil
+	}
+	byID := map[string]otogi.Event{}
+	for _, msg := range a.msgs {
+		byID[string(msg.SourceID)] = msg
+	}
+	var content otogi.Message
+	var named []sender
+	inBatch := map[string]bool{}
+	add := func(msg otogi.Event) {
+		c, n := m.userContent(ctx, msg, inv, a.p, a.parent == 0 && msg.SourceID == e.SourceID, until)
+		content, named = llm.Join(content, c), append(named, n...)
+		inBatch[string(msg.SourceID)] = true
+	}
+	for _, l := range lines {
+		if msg, ok := byID[l.SourceID]; ok {
+			add(msg)
+			continue
+		}
+		who := l.ActorName + " (this account)"
+		if !l.Outgoing {
+			who = m.nameOf(to.Platform, l.ActorID, l.ActorName)
+			named = append(named, sender{l.ActorID, l.ActorName})
+		}
+		content = llm.Join(content, otogi.TextMessage(who+": "+m.lineText(ctx, to, l, a.p.Media != nil)))
+		inBatch[l.SourceID] = true
+	}
+	for _, msg := range a.msgs { // not in the transcript's span, which should not happen
+		if !inBatch[string(msg.SourceID)] {
+			add(msg)
+		}
+	}
+	return content, named, inBatch, nil
+}
+
+// batchSpan bounds how many messages of the chat a batch's user turn covers,
+// from its first message to answer to its last.
+const batchSpan = 50
+
+// answerLead is what comes right before the message to answer: the recent
+// chat, and, for a batch answering several messages, who said what to the
+// agent, since the turn also holds what others said meanwhile.
+func (m *Module) answerLead(a ask, recent string) string {
+	var note string
+	if len(a.msgs) > 1 {
+		var asked []string
+		for _, msg := range a.msgs {
+			text := firstText(msg.Message)
+			if text == "" {
+				text = "[" + mediaWordOf(msg.Message) + "]"
+			}
+			asked = append(asked, m.nameOf(msg.Platform, string(msg.Actor.ID), speaker(msg.Actor))+": "+cut(text))
+		}
+		note = "Answer: " + strings.Join(asked, " / ")
+	}
+	switch {
+	case recent != "" && note != "":
+		return recent + "\n\n" + note + "\n\nThe messages to answer:"
+	case recent != "":
+		return recent + "\n\nThe message to answer:"
+	}
+	return note
+}
+
+// mediaWordOf names a message's first media part, for a message with no text.
+func mediaWordOf(msg otogi.Message) string {
+	for _, p := range msg.Parts {
+		if p.Media != nil {
+			return mediaWord(*p.Media)
+		}
+	}
+	return "message"
 }
 
 // thread is the path to parent, at most maxTurns turns, starting with a
@@ -256,10 +382,11 @@ func (m *Module) mediaPart(ctx context.Context, inv otogi.Invocation, from otogi
 	return otogi.Message{Roots: []otogi.PartID{"m"}, Parts: []otogi.Part{{ID: "m", Kind: otogi.PartMedia, Media: &media}}}
 }
 
-// contextText is the chat's recent messages, leaving out those already in
-// the thread, and the people who sent them, oldest first.
-func (m *Module) contextText(ctx context.Context, e otogi.Event, p *profile, path []storedTurn) (string, []sender, error) {
-	inThread := map[string]bool{string(e.SourceID): true}
+// contextText is the chat's recent messages before e, leaving out those
+// already in the thread or in the turn (inBatch), and the people who sent
+// them, oldest first.
+func (m *Module) contextText(ctx context.Context, e otogi.Event, p *profile, path []storedTurn, inBatch map[string]bool) (string, []sender, error) {
+	inThread := maps.Clone(inBatch)
 	for _, t := range path {
 		inThread[t.SourceID] = true
 		for _, s := range t.Sent {
@@ -292,7 +419,7 @@ func (m *Module) contextText(ctx context.Context, e otogi.Event, p *profile, pat
 		text := m.lineText(ctx, e.Destination(), l, p.Media != nil)
 		kept = append(kept, fmt.Sprintf("[%s] %s: %s", l.At.In(time.Local).Format("15:04"), name, text))
 	}
-	return "Recent messages in this chat, oldest first, for context:\n" + strings.Join(kept, "\n") + "\n\nThe message to answer:", named, nil
+	return "Recent messages in this chat, oldest first, for context:\n" + strings.Join(kept, "\n"), named, nil
 }
 
 // system is the profile's prompt and what the agent needs to know about
@@ -429,8 +556,11 @@ func (m *Module) recordCall(ctx context.Context, e otogi.Event, p *profile, c ll
 	m.host.Record(ctx, otogi.Record{Kind: "chat.tool", Event: e.ID, Platform: e.Platform, Account: e.Account, Conversation: e.Conversation.ID, Outcome: outcome, Duration: c.Duration, Payload: payload})
 }
 
-// record writes the reply's record.
-func (m *Module) record(ctx context.Context, e otogi.Event, p *profile, trigger string, j *judgment, parent int64, ids []int64, out llm.RunResult, refs []otogi.EventRef, sticker *sentSticker, err error, d time.Duration) {
+// record writes the reply's record, about the first message it answers.
+// skipped says why a batch went unanswered: "covered" when the previous
+// reply already did for it.
+func (m *Module) record(ctx context.Context, a ask, ids []int64, out llm.RunResult, refs []otogi.EventRef, sticker *sentSticker, err error, d time.Duration, skipped string) {
+	p, e := a.p, a.msgs[0]
 	rounds := 0
 	for _, t := range out.Turns {
 		if t.Role == llm.RoleModel {
@@ -438,18 +568,28 @@ func (m *Module) record(ctx context.Context, e otogi.Event, p *profile, trigger 
 		}
 	}
 	payload := map[string]any{
-		"profile": p.Name, "provider": p.Provider, "model": p.Model, "trigger": trigger, "parent": parent, "turns": ids, "rounds": rounds,
+		"profile": p.Name, "provider": p.Provider, "model": p.Model, "trigger": a.trigger, "parent": a.parent, "turns": ids, "rounds": rounds,
 		"finish": out.Final.Finish, "reason": out.Final.Reason, "wrapped_up": out.WrappedUp, "usage": out.Usage, "sources": out.Sources, "messages": refs,
 	}
-	if j != nil {
-		payload["judged"] = j
+	if a.j != nil {
+		payload["judged"] = a.j
 	}
 	if sticker != nil {
 		payload["sticker"] = sticker
 	}
+	if b := a.batch; b != nil {
+		batch := map[string]any{"messages": b.messages, "waited_ms": b.waited.Milliseconds()}
+		if len(b.covered) > 0 {
+			batch["covered"] = b.covered
+		}
+		payload["batch"] = batch
+	}
 	outcome := "ok"
-	if err != nil {
+	switch {
+	case err != nil:
 		outcome, payload["error"] = "error", err.Error()
+	case skipped != "":
+		outcome, payload["skipped"] = "skipped", skipped
 	}
 	m.host.Record(ctx, otogi.Record{Kind: "chat.reply", Event: e.ID, Platform: e.Platform, Account: e.Account, Conversation: e.Conversation.ID, Outcome: outcome, Duration: d, Payload: payload})
 }
