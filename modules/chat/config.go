@@ -41,6 +41,12 @@ type ProfileConfig struct {
 	Tools         []string     `json:"tools,omitempty" enum:"web_search,url_context,code_execution" doc:"The model's built-in tools the agent uses everywhere it answers. web_search is the provider's own search: Google Search on Gemini, cited; on DeepSeek, searching and opening pages over several steps. url_context reads the pages the conversation links (Gemini, DeepSeek). code_execution runs code the model writes (Gemini). Modules' tools are offered per chat: see Tools, after the profiles."`
 	MaxToolRounds int          `json:"max_tool_rounds,omitempty" minimum:"1" default:"8" doc:"The most rounds of tool calls in one reply."`
 	Judge         *JudgeConfig `json:"judge,omitempty" doc:"Has the decision service judge, in groups, the messages no keyword, reply, or mention triggers. Needs the decision module."`
+	Media         *MediaConfig `json:"media,omitempty" doc:"Use the media module's descriptions: in the recent messages, the quoted message, and the wake judgment, and, with as_text, in place of the current message's media. Needs the media module, with the agent's chats on its describe list."`
+}
+
+// MediaConfig has an agent read the media module's descriptions.
+type MediaConfig struct {
+	AsText bool `json:"as_text,omitempty" doc:"Give the model descriptions instead of the current and the quoted message's media, for a model that sees images poorly or not at all. Media left undescribed is named by its kind, not shown."`
 }
 
 // JudgeConfig has the decision service judge group messages for an agent.

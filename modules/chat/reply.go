@@ -19,14 +19,15 @@ const cleanupTimeout = 30 * time.Second
 // first says before calling tools goes out as its own message before the
 // tools run, so the chat sees it at once even where nothing streams (QQ
 // groups); the rest of the reply, words before later tools included, follows
-// in one more message. j is the judgment that woke p, if one did.
-func (m *Module) respond(ctx context.Context, e otogi.Event, inv otogi.Invocation, p *profile, parent int64, trigger string, j *judgment) error {
+// in one more message. j is the judgment that woke p, if one did; until is
+// how long the message may wait for its media's descriptions.
+func (m *Module) respond(ctx context.Context, e otogi.Event, inv otogi.Invocation, p *profile, parent int64, trigger string, j *judgment, until time.Time) error {
 	started := m.now()
 	path, err := m.thread(ctx, parent, p.MaxTurns)
 	if err != nil {
 		return err
 	}
-	user := llm.Turn{Role: llm.RoleUser, Content: m.userContent(ctx, e, inv, parent == 0)}
+	user := llm.Turn{Role: llm.RoleUser, Content: m.userContent(ctx, e, inv, p, parent == 0, until)}
 	sent := llm.Turn{Role: llm.RoleUser, Content: user.Content}
 	if p.context > 0 {
 		context, err := m.contextText(ctx, e, p, path)
@@ -113,16 +114,23 @@ func (m *Module) thread(ctx context.Context, parent int64, maxTurns int) ([]stor
 }
 
 // userContent is the message as the model gets it: in groups after its
-// sender's name, with media inline, and, when quote is set, after the
-// message it replies to (a reply continuing a thread quotes the agent's own
-// turn, which the thread has).
-func (m *Module) userContent(ctx context.Context, e otogi.Event, inv otogi.Invocation, quote bool) otogi.Message {
+// sender's name, with media inline, or described for an agent with
+// media.as_text, and, when quote is set, after the message it replies to (a
+// reply continuing a thread quotes the agent's own turn, which the thread
+// has).
+func (m *Module) userContent(ctx context.Context, e otogi.Event, inv otogi.Invocation, p *profile, quote bool, until time.Time) otogi.Message {
+	shown := func(media otogi.Media) otogi.Message {
+		if p.Media != nil && p.Media.AsText {
+			return m.describedPart(ctx, e.Destination(), media, until)
+		}
+		return m.mediaPart(ctx, inv, e.Destination(), media)
+	}
 	var msg otogi.Message
 	if target, ok := replyTarget(e.Message); ok && quote {
-		if quoted, found, err := m.store.message(ctx, e.Destination(), string(target.SourceEvent)); err == nil && found && quoted.Text+mediaList(quoted.Media) != "" {
+		if quoted, found, err := m.store.message(ctx, e.Destination(), string(target.SourceEvent)); err == nil && found && (quoted.Text != "" || len(quoted.Media) > 0) {
 			msg = llm.Join(msg, otogi.TextMessage("Replying to "+quoted.ActorName+":\n"+quoted.Text))
 			for _, media := range quoted.Media {
-				msg = llm.Join(msg, m.mediaPart(ctx, inv, e.Destination(), media))
+				msg = llm.Join(msg, shown(media))
 			}
 		}
 	}
@@ -143,7 +151,7 @@ func (m *Module) userContent(ctx context.Context, e otogi.Event, inv otogi.Invoc
 			prefix = ""
 			msg = llm.Join(msg, text.Message())
 		case part.Media != nil:
-			msg = llm.Join(msg, m.mediaPart(ctx, inv, e.Destination(), *part.Media))
+			msg = llm.Join(msg, shown(*part.Media))
 		default:
 			msg = llm.Join(msg, otogi.TextMessage(describe(part)))
 		}
@@ -186,14 +194,6 @@ func (m *Module) mediaPart(ctx context.Context, inv otogi.Invocation, from otogi
 	return otogi.Message{Roots: []otogi.PartID{"m"}, Parts: []otogi.Part{{ID: "m", Kind: otogi.PartMedia, Media: &media}}}
 }
 
-func mediaList(media []otogi.Media) string {
-	var words []string
-	for _, m := range media {
-		words = append(words, "["+mediaWord(m)+"]")
-	}
-	return strings.Join(words, " ")
-}
-
 // contextText is the chat's recent messages, leaving out those already in
 // the thread.
 func (m *Module) contextText(ctx context.Context, e otogi.Event, p *profile, path []storedTurn) (string, error) {
@@ -221,7 +221,7 @@ func (m *Module) contextText(ctx context.Context, e otogi.Event, p *profile, pat
 		if l.Outgoing {
 			name += " (this account)"
 		}
-		text := strings.TrimSpace(strings.TrimSpace(l.Text) + " " + mediaList(l.Media))
+		text := strings.TrimSpace(strings.TrimSpace(l.Text) + " " + m.mediaText(ctx, e.Destination(), l.Media, p.Media != nil))
 		kept = append(kept, fmt.Sprintf("[%s] %s: %s", l.At.In(time.Local).Format("15:04"), name, text))
 	}
 	if len(kept) > p.context {

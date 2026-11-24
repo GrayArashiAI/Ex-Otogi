@@ -60,8 +60,9 @@ type (
 // and the decision module has recorded why: nobody answers, except an agent
 // whose name the message starts with, as a keyword would have triggered it
 // without the judgment; it comes back with no judgment. Only reading the chat
-// fails Handle.
-func (m *Module) wake(ctx context.Context, e otogi.Event) (*profile, *judgment, error) {
+// fails Handle. When a judged agent reads descriptions, the judgment sees
+// them, waiting until until at most for the message's own.
+func (m *Module) wake(ctx context.Context, e otogi.Event, until time.Time) (*profile, *judgment, error) {
 	if e.Conversation.Kind != otogi.ConversationGroup {
 		return nil, nil, nil
 	}
@@ -77,7 +78,14 @@ func (m *Module) wake(ctx context.Context, e otogi.Event) (*profile, *judgment, 
 	if len(judged) == 0 {
 		return nil, nil, nil
 	}
-	state, msg, err := m.judgeState(ctx, e, present)
+	described := false
+	for _, p := range judged {
+		described = described || p.Media != nil
+	}
+	if described {
+		m.awaitDescriptions(ctx, e.Destination(), e.Message, until)
+	}
+	state, msg, err := m.judgeState(ctx, e, present, described)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -136,8 +144,9 @@ func wakeQuestion(agent, msg string) decision.Question {
 }
 
 // judgeState is the recent chat up to e and the agents present, numbered;
-// msg is e's number.
-func (m *Module) judgeState(ctx context.Context, e otogi.Event, agents []*profile) (state judgeState, msg string, err error) {
+// msg is e's number. With described, media reads as the media module
+// described it, where it has.
+func (m *Module) judgeState(ctx context.Context, e otogi.Event, agents []*profile, described bool) (state judgeState, msg string, err error) {
 	to := e.Destination()
 	at := e.OccurredAt
 	if at.IsZero() {
@@ -165,14 +174,14 @@ func (m *Module) judgeState(ctx context.Context, e otogi.Event, agents []*profil
 	}
 	for _, l := range lines {
 		judged := l.SourceID == string(e.SourceID)
-		jl := judgeLine{ID: msgIDs[l.SourceID], Text: strings.TrimSpace(strings.TrimSpace(l.Text) + " " + mediaList(l.Media))}
+		jl := judgeLine{ID: msgIDs[l.SourceID], Text: strings.TrimSpace(strings.TrimSpace(l.Text) + " " + m.mediaText(ctx, to, l.Media, described))}
 		if !judged {
 			jl.Text = cut(jl.Text)
 		}
 		if jl.From, err = m.lineFrom(ctx, to, l, ids, people); err != nil {
 			return judgeState{}, "", err
 		}
-		if jl.ReplyTo, jl.ReplyingTo, err = m.replyOf(ctx, to, l, msgIDs); err != nil {
+		if jl.ReplyTo, jl.ReplyingTo, err = m.replyOf(ctx, to, l, msgIDs, described); err != nil {
 			return judgeState{}, "", err
 		}
 		state.History = append(state.History, jl)
@@ -186,7 +195,7 @@ func (m *Module) judgeState(ctx context.Context, e otogi.Event, agents []*profil
 
 // replyOf is what a message replies to: its number when it is in history,
 // or else, when the transcript keeps it, who wrote it and what it says.
-func (m *Module) replyOf(ctx context.Context, to otogi.Destination, l line, msgIDs map[string]string) (id, quote string, err error) {
+func (m *Module) replyOf(ctx context.Context, to otogi.Destination, l line, msgIDs map[string]string, described bool) (id, quote string, err error) {
 	if l.ReplyTo == "" {
 		return "", "", nil
 	}
@@ -197,7 +206,7 @@ func (m *Module) replyOf(ctx context.Context, to otogi.Destination, l line, msgI
 	if err != nil || !found {
 		return "", "", err
 	}
-	return "", quoted.ActorName + ": " + cut(strings.TrimSpace(strings.TrimSpace(quoted.Text)+" "+mediaList(quoted.Media))), nil
+	return "", quoted.ActorName + ": " + cut(strings.TrimSpace(strings.TrimSpace(quoted.Text)+" "+m.mediaText(ctx, to, quoted.Media, described))), nil
 }
 
 // lineFrom names a message's sender: a person as uN and their name, an
