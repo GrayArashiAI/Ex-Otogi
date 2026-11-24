@@ -675,32 +675,40 @@ func TestRunningShowsDeliveriesInProgress(t *testing.T) {
 
 // A sent picture or video is recorded by its size and SHA-256, not its
 // bytes, which the platform message keeps; the driver still gets the bytes.
+// A medium that already names its SHA-256 is recorded with that one only.
 func TestEffectRecordsKeepMediaByHash(t *testing.T) {
 	video := []byte("an mp4 of many megabytes")
-	sending := module("sender", func(ctx context.Context, e otogi.Event, inv otogi.Invocation) error {
-		msg := otogi.Message{Roots: []otogi.PartID{"v"}, Parts: []otogi.Part{{ID: "v", Kind: otogi.PartMedia,
-			Media: &otogi.Media{Role: otogi.MediaVideo, MediaType: "video/mp4", Source: otogi.MediaSource{Kind: otogi.MediaSourceInline, Inline: video}}}}}
-		_, err := inv.Send(ctx, "video", msg)
-		return err
-	})
-	rec, sent := &recorder{}, &messenger{}
-	k := start(t, Config{Recorder: rec}, []otogi.Module{sending}, nil, sent)
-	await(t, submit(t, k, event("c", "hi")))
-	if got := sent.sent[0].Message.Parts[0].Media.Source.Inline; string(got) != string(video) {
-		t.Fatalf("the driver got %q", got)
+	sum := sha256.Sum256(video)
+	for name, hashes := range map[string][]otogi.MediaHash{
+		"no hash": nil,
+		"its own": {{Algorithm: "sha256", Value: sum[:]}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			sending := module("sender", func(ctx context.Context, e otogi.Event, inv otogi.Invocation) error {
+				msg := otogi.Message{Roots: []otogi.PartID{"v"}, Parts: []otogi.Part{{ID: "v", Kind: otogi.PartMedia,
+					Media: &otogi.Media{Role: otogi.MediaVideo, MediaType: "video/mp4", Hashes: hashes, Source: otogi.MediaSource{Kind: otogi.MediaSourceInline, Inline: video}}}}}
+				_, err := inv.Send(ctx, "video", msg)
+				return err
+			})
+			rec, sent := &recorder{}, &messenger{}
+			k := start(t, Config{Recorder: rec}, []otogi.Module{sending}, nil, sent)
+			await(t, submit(t, k, event("c", "hi")))
+			if got := sent.sent[0].Message.Parts[0].Media.Source.Inline; string(got) != string(video) {
+				t.Fatalf("the driver got %q", got)
+			}
+			rec.mu.Lock()
+			defer rec.mu.Unlock()
+			for _, r := range rec.records {
+				if r.Kind != "effect.applied" {
+					continue
+				}
+				m := r.Payload.(map[string]any)["effect"].(otogi.Effect).Message.Parts[0].Media
+				if m.Source.Inline != nil || m.ByteSize != int64(len(video)) || len(m.Hashes) != 1 || m.Hashes[0].Algorithm != "sha256" || !bytes.Equal(m.Hashes[0].Value, sum[:]) {
+					t.Fatalf("recorded media %+v", m)
+				}
+				return
+			}
+			t.Fatal("no effect record")
+		})
 	}
-	rec.mu.Lock()
-	defer rec.mu.Unlock()
-	for _, r := range rec.records {
-		if r.Kind != "effect.applied" {
-			continue
-		}
-		m := r.Payload.(map[string]any)["effect"].(otogi.Effect).Message.Parts[0].Media
-		sum := sha256.Sum256(video)
-		if m.Source.Inline != nil || m.ByteSize != int64(len(video)) || len(m.Hashes) != 1 || m.Hashes[0].Algorithm != "sha256" || !bytes.Equal(m.Hashes[0].Value, sum[:]) {
-			t.Fatalf("recorded media %+v", m)
-		}
-		return
-	}
-	t.Fatal("no effect record")
 }
