@@ -142,6 +142,11 @@ func (s *moduleSettings) save(ctx context.Context, id otogi.ModuleID, base int64
 		return modulestore.SettingsRevision{}, err
 	}
 	var restarted []otogi.ModuleID
+	if isSection && sec.change != nil {
+		if err := sec.change(cur.Settings, compact.Bytes()); err != nil {
+			return modulestore.SettingsRevision{}, err
+		}
+	}
 	if isSection {
 		restarted, err = s.applySection(ctx, id, sec, compact.Bytes(), env)
 	} else {

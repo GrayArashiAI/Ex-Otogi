@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"path/filepath"
 	"strings"
@@ -240,5 +241,68 @@ func TestAccountsOfAFileNotYetImported(t *testing.T) {
 	}
 	if cur, _ := s.current(ctx, accountsSection); cur.Revision != 0 || storedSecrets(t, storage) != "" {
 		t.Fatalf("reading the accounts stored %+v, secrets %q", cur, storedSecrets(t, storage))
+	}
+}
+
+func TestAnAccountsNameCannotBeChanged(t *testing.T) {
+	ctx := context.Background()
+	t.Setenv("OTOGI_TEST_APP_HASH", "value-from-environment")
+	s, _, _ := sectionsHarness(t, openStore(t), fileConfig(t, "data_dir: "+t.TempDir()+"\n"), slog.New(slog.DiscardHandler))
+	telegram := func(name string, threads int) string {
+		return fmt.Sprintf(`{"account": %q, "app_id": 7, "app_hash": "${OTOGI_TEST_APP_HASH}", "upload_threads": %d}`, name, threads)
+	}
+	qq := func(name string) string {
+		return fmt.Sprintf(`{"account": %q, "app_id": "1", "app_secret": "${OTOGI_TEST_APP_HASH}"}`, name)
+	}
+	save := func(base int64, telegrams, qqs string) error {
+		t.Helper()
+		_, err := s.save(ctx, accountsSection, base, nil, json.RawMessage(`{"telegram": [`+telegrams+`], "qq": [`+qqs+`]}`), "Tundra")
+		return err
+	}
+	revision := func() int64 {
+		t.Helper()
+		cur, err := s.current(ctx, accountsSection)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return cur.Revision
+	}
+	if err := save(0, telegram("main", 8), qq("otogi")); err != nil {
+		t.Fatal(err)
+	}
+
+	// The names an operator typed over: each platform loses an account and
+	// gains one in the same save.
+	for name, renamed := range map[string][2]string{
+		"both":     {telegram("FUSHI", 8), qq("Mizuki")},
+		"telegram": {telegram("FUSHI", 8), qq("otogi")},
+		"qq":       {telegram("main", 8), qq("Mizuki")},
+	} {
+		err := save(1, renamed[0], renamed[1])
+		if !errors.Is(err, otogi.ErrInvalid) || !strings.Contains(err.Error(), "cannot be changed") {
+			t.Fatalf("%s renamed: %v, want ErrInvalid saying the name cannot be changed", name, err)
+		}
+		if got := revision(); got != 1 {
+			t.Fatalf("%s renamed: revision %d, want 1 still", name, got)
+		}
+	}
+
+	// What is not a change of name: another field, an account more, an
+	// account fewer, and one platform's account going while another's comes.
+	if err := save(1, telegram("main", 4), qq("otogi")); err != nil {
+		t.Fatalf("another field changed: %v", err)
+	}
+	if err := save(2, telegram("main", 4)+","+telegram("second", 8), qq("otogi")); err != nil {
+		t.Fatalf("an account added: %v", err)
+	}
+	if err := save(3, telegram("main", 4)+","+telegram("second", 8)+","+telegram("third", 8), ""); err != nil {
+		t.Fatalf("a QQ account removed and a Telegram one added: %v", err)
+	}
+	// Replacing an account takes two saves: the old one goes, then the new one comes.
+	if err := save(4, telegram("main", 4), ""); err != nil {
+		t.Fatalf("accounts removed: %v", err)
+	}
+	if err := save(5, telegram("main", 4)+","+telegram("FUSHI", 8), ""); err != nil {
+		t.Fatalf("an account added after the removal: %v", err)
 	}
 }

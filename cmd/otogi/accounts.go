@@ -8,6 +8,7 @@ import (
 	"maps"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/TundraWork/Ex-Otogi/pkg/otogi"
@@ -25,7 +26,7 @@ type accountsSettings struct {
 }
 
 type telegramSettings struct {
-	Account       string       `json:"account" minLength:"1" doc:"The name the bot knows the account by: in events, the event log, and the paths of its files. Changing it starts a new account."`
+	Account       string       `json:"account" minLength:"1" doc:"The name the bot knows the account by: its login, its events and chats, and what modules keep for it are all under this name, so it cannot be changed once saved. To replace an account, remove it in one save and add the other in the next."`
 	AppID         int          `json:"app_id" minimum:"1" doc:"The application's api_id, from my.telegram.org."`
 	AppHash       otogi.Secret `json:"app_hash" doc:"The application's api_hash."`
 	Session       string       `json:"session,omitempty" doc:"The session file; unset is telegram/<account>/session.json in the data directory."`
@@ -34,7 +35,7 @@ type telegramSettings struct {
 }
 
 type qqSettings struct {
-	Account   string       `json:"account" minLength:"1" doc:"The name the bot knows the account by: in events, the event log, and the paths of its files. Changing it starts a new account."`
+	Account   string       `json:"account" minLength:"1" doc:"The name the bot knows the account by: its login, its events and chats, and what modules keep for it are all under this name, so it cannot be changed once saved. To replace an account, remove it in one save and add the other in the next."`
 	AppID     string       `json:"app_id" minLength:"1" doc:"The bot's AppID."`
 	AppSecret otogi.Secret `json:"app_secret" doc:"The bot's AppSecret."`
 	Database  string       `json:"database,omitempty" doc:"The driver's database; unset is qq/<account>/state.sqlite in the data directory."`
@@ -105,6 +106,54 @@ func (c accountsSettings) resolve(dataDir string, secret func(name string) (stri
 		})
 	}
 	return telegram, qq, nil
+}
+
+// keepingNames makes a section of accounts refuse a save in which a platform
+// both loses an account and gains one: the list has nothing but the name to
+// tell its entries apart, so that is what a changed name looks like, and a
+// changed name is an account with no login and none of the old one's data.
+// An operator renamed two accounts on a deployment that way, and the bot
+// did not start again until the settings were reverted on the server.
+func keepingNames(sec section) section {
+	sec.change = func(was, now []byte) error {
+		// Settings that do not decode are refused where they are checked.
+		before, _ := decodeSettings[accountsSettings](was)
+		after, _ := decodeSettings[accountsSettings](now)
+		return errors.Join(
+			renamed("telegram", names(before.Telegram, func(a telegramSettings) string { return a.Account }), names(after.Telegram, func(a telegramSettings) string { return a.Account })),
+			renamed("qq", names(before.QQ, func(a qqSettings) string { return a.Account }), names(after.QQ, func(a qqSettings) string { return a.Account })),
+		)
+	}
+	return sec
+}
+
+func names[T any](accounts []T, name func(T) string) []string {
+	out := make([]string, len(accounts))
+	for i, a := range accounts {
+		out[i] = name(a)
+	}
+	return out
+}
+
+// renamed is the error for a platform whose accounts lose a name and gain
+// another in one save.
+func renamed(platform string, before, after []string) error {
+	var gone, come []string
+	for _, name := range before {
+		if !slices.Contains(after, name) {
+			gone = append(gone, name)
+		}
+	}
+	for _, name := range after {
+		if !slices.Contains(before, name) {
+			come = append(come, name)
+		}
+	}
+	if len(gone) == 0 || len(come) == 0 {
+		return nil
+	}
+	return fmt.Errorf("%s: an account's name cannot be changed, and this save has %s for %s: its login, events, chats, and what modules keep for it are under the name, so another name is another account, which has none of them. To replace an account, remove it in one save and add the other in the next: %w",
+		platform, strings.Join(come, ", "), strings.Join(gone, ", "), otogi.ErrInvalid)
 }
 
 // checkAccounts refuses accounts a start could not build the drivers from.

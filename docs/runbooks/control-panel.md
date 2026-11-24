@@ -104,13 +104,18 @@ The service's log names what failed, such as `system:accounts, settings revision
 
 ```sh
 systemctl stop otogi                           # or however it is supervised
-otogi -config otogi.yaml settings revert system:accounts
+sudo -u <service user> otogi -config otogi.yaml settings revert system:accounts
+systemctl reset-failed otogi                   # systemd: forget the failed starts
 systemctl start otogi
 ```
+
+Run the command as the user the service runs as, with the service's environment where the config file refers to it: run as root, it leaves files in the data directory that the service cannot write.
 
 The ID is a section (`system:accounts`, `system:process`, `system:general`, `system:llm`) or a module's ID (`chat`). The command stores the revision before the current one again, as the latest, which is what restoring it in the panel does: the history is kept, the new revision is saved by `otogi settings revert` and recorded as `system.reconfigured` or `module.reconfigured`, and the command prints the revision it was at and the one it stored. Run again, it goes one revision further back each time. When there is no earlier revision (the change was the first ever saved), it stores empty settings, the state before anything was saved: no accounts for `system:accounts`, and for a module, off. The bot then starts, the panel opens, and the change can be made again there.
 
 Run it only while the bot is stopped: the running process would keep what it started with, and the command does not check.
+
+An account's name is where the bot keeps it: its login and state are under `<data_dir>/telegram/<account>/` or `qq/<account>/`, its driver's database is bound to the name, and its events, chats, and what modules keep for it carry the name. So the name of a saved account cannot be changed: a save in which a platform's accounts lose one name and gain another is refused. To replace an account, remove it in one save and add the other in the next; the new one starts with no login and none of the old one's data.
 
 For a new Telegram account the cause is usually the order: `otogi login <account>` works while the bot is down, so logging in and starting again fixes it without reverting.
 

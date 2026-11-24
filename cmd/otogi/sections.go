@@ -55,12 +55,15 @@ type section struct {
 	// onRestart marks settings the process reads when it starts: apply only
 	// validates them, and a saved revision waits for the next start.
 	onRestart bool
+	// change refuses what settings may not become from what they are, when
+	// that depends on both; nil when any valid settings may follow any.
+	change func(was, now []byte) error
 }
 
 var sections = map[otogi.ModuleID]section{
 	generalSection:  sectionOf(generalFromFile, (*system).applyGeneral, nil),
 	llmSection:      sectionOf(llmFromFile, (*system).applyLLM, (*moduleSettings).builtWithProvider),
-	accountsSection: onRestart(sectionOf(accountsFromFile, checkAccounts, nil)),
+	accountsSection: keepingNames(onRestart(sectionOf(accountsFromFile, checkAccounts, nil))),
 	processSection:  onRestart(sectionOf(processFromFile, checkProcess, nil)),
 }
 
