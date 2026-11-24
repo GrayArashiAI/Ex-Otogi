@@ -188,14 +188,28 @@ func (x *effects) sendOne(ctx context.Context, key, origin string, conversation 
 			return ref, err
 		}
 	}
-	if strings.HasPrefix(string(conversation), "user:") {
-		// QQ echoes the bot's group messages but not its C2C ones; the
-		// driver reports those itself, so modules see both sides.
-		if err := x.echo(ctx, conversation, resp.ID, resp.ExtInfo.RefIdx, out.text); err != nil {
-			return ref, err
-		}
+	// QQ pushes none of the bot's own messages, in groups or C2C; the driver
+	// reports them itself, so modules see both sides.
+	if err := x.echo(ctx, conversation, resp.ID, resp.ExtInfo.RefIdx, out.text, sentAt(resp.Timestamp, x.now())); err != nil {
+		return ref, err
 	}
 	return ref, nil
+}
+
+// sentAt is when QQ says it created a message: its answer's timestamp, an
+// RFC 3339 string or Unix seconds, or else, without one, sent.
+func sentAt(timestamp any, sent time.Time) time.Time {
+	switch v := timestamp.(type) {
+	case string:
+		if t, err := time.Parse(time.RFC3339, v); err == nil {
+			return t
+		}
+	case float64:
+		if v > 0 {
+			return time.Unix(int64(v), 0)
+		}
+	}
+	return sent
 }
 
 // release forgets a send QQ refused, so it is not mistaken for one that may
@@ -258,10 +272,17 @@ func classify(err error) error {
 	return err
 }
 
-// echo queues the event for a C2C message the bot sent.
-func (x *effects) echo(ctx context.Context, conversation otogi.ConversationID, id, refIdx, text string) error {
+// echo queues the event for a message the bot sent at at. It is keyed as QQ
+// would key the message, so were QQ to push it too, it would be kept once.
+func (x *effects) echo(ctx context.Context, conversation otogi.ConversationID, id, refIdx, text string, at time.Time) error {
 	self, name := x.self()
-	d, err := json.Marshal(sentMessage{ID: id, Content: text, Timestamp: x.now().UTC().Format(time.RFC3339), Peer: strings.TrimPrefix(string(conversation), "user:"), RefIdx: refIdx, Self: self, SelfName: name})
+	s := sentMessage{ID: id, Content: text, Timestamp: at.UTC().Format(time.RFC3339), RefIdx: refIdx, Self: self, SelfName: name}
+	if group, ok := strings.CutPrefix(string(conversation), "group:"); ok {
+		s.Group = group
+	} else {
+		s.Peer = strings.TrimPrefix(string(conversation), "user:")
+	}
+	d, err := json.Marshal(s)
 	if err != nil {
 		return fmt.Errorf("qq: encode sent message: %w", err)
 	}

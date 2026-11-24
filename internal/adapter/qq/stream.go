@@ -129,7 +129,7 @@ func (s *c2cStream) Close(ctx context.Context, msg otogi.Message) ([]otogi.Event
 			if err := s.x.store.CompleteSend(ctx, s.key, s.id); err != nil {
 				return nil, err
 			}
-			if err := s.x.echo(ctx, s.to, s.id, "", first.text); err != nil {
+			if err := s.x.echo(ctx, s.to, s.id, "", first.text, s.x.now()); err != nil {
 				return nil, err
 			}
 			refs = append(refs, otogi.EventRef{Platform: Platform, Account: s.x.account, Conversation: s.to, SourceEvent: otogi.SourceEventID(s.id)})
