@@ -93,7 +93,8 @@ func kind[C any](build func(C, moduleEnv) (otogi.Module, error)) moduleKind {
 }
 
 // instance validates settings against the schema and builds the module from
-// them. It does no I/O: starting the module is the kernel's.
+// them. Building starts nothing, which is the kernel's, so a constructor
+// that fails has refused the settings: the error is otogi.ErrInvalid.
 func (k moduleKind) instance(settings []byte, env moduleEnv) (otogi.Module, error) {
 	var v any
 	if err := json.Unmarshal(settings, &v); err != nil {
@@ -111,7 +112,11 @@ func (k moduleKind) instance(settings []byte, env moduleEnv) (otogi.Module, erro
 		}
 		return nil, &invalidSettings{details: res.Errors}
 	}
-	return k.build(settings, env)
+	m, err := k.build(settings, env)
+	if err != nil && !errors.Is(err, otogi.ErrInvalid) {
+		err = fmt.Errorf("%w: %w", err, otogi.ErrInvalid)
+	}
+	return m, err
 }
 
 // schemaDocument is the settings' JSON Schema with the types it refers to

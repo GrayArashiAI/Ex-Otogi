@@ -160,6 +160,12 @@ func TestModuleSettingsValidation(t *testing.T) {
 			t.Errorf("%s: %v", module, err)
 		}
 	}
+	// What the schema cannot say, the module's constructor refuses: these
+	// are the settings' fault as well.
+	twice := `{"profiles": [{"name": "Luna", "keywords": ["luna"], "provider": "gemini", "model": "m"}, {"name": "Luna", "keywords": ["moon"], "provider": "gemini", "model": "m"}]}`
+	if _, err := s.save(ctx, "chat", 0, nil, json.RawMessage(twice), "x"); !errors.Is(err, otogi.ErrInvalid) || !strings.Contains(err.Error(), "used twice") {
+		t.Fatalf("two profiles of one name: %v, want invalid", err)
+	}
 	if running(s) != nil {
 		t.Fatal("a module with invalid settings runs")
 	}
