@@ -1,6 +1,7 @@
 import {
   AlarmClock,
   Bot,
+  ImageIcon,
   KanbanSquare,
   MessageSquare,
   NotebookPen,
@@ -95,6 +96,12 @@ const modules: Record<string, ModuleMeta> = {
     about: "Yes/no judgments about a conversation, by TypeSafe Jev, for other modules to ask.",
     icon: Scale,
     tone: "violet",
+  },
+  media: {
+    title: "Media descriptions",
+    about: "Describes the images, animations, and videos sent in the chats on its list, for chat agents to read.",
+    icon: ImageIcon,
+    tone: "orange",
   },
   bilibili: {
     title: "Bilibili cards",
