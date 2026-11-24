@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -404,12 +405,18 @@ type model struct {
 	reply    string
 	replies  map[string]string
 	err      error
+	errs     map[string]error // by the start of the text, like replies
 	requests []llm.Request
 }
 
 func (m *model) Generate(_ context.Context, req llm.Request, _ func(otogi.Message) error) (llm.Response, error) {
 	m.requests = append(m.requests, req)
 	input := req.Turns[0].Content.PlainText()
+	for start, err := range m.errs {
+		if strings.HasPrefix(input, start) {
+			return llm.Response{}, err
+		}
+	}
 	for start, reply := range m.replies {
 		if strings.HasPrefix(input, start) {
 			return llm.Response{Markdown: reply}, m.err
@@ -441,8 +448,30 @@ func TestTranslationLeavesOutWhatWasNotTranslated(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := (translation{Language: "中文", ParentQuote: "早上好", Echoed: "parent"}); got != want || !needed {
+	if want := (translation{Language: "中文", ParentQuote: "早上好", Echoed: "parent"}); !reflect.DeepEqual(got, want) || !needed {
 		t.Fatalf("got %+v, needed %v", got, needed)
+	}
+}
+
+// A part whose request fails has no translation, and the parts that were
+// translated keep theirs; only when every request fails is it an error.
+func TestATranslationThatFailsLeavesTheOthers(t *testing.T) {
+	t.Parallel()
+	lm := &model{
+		replies: map[string]string{"Forking": "<language>英语</language><chinese>Fork 没问题。</chinese>"},
+		errs:    map[string]error{"おはよう": errors.New("HTTP 503: high demand")},
+	}
+	tr := &translator{provider: lm}
+	got, needed, err := tr.translate(context.Background(), tweet{Text: "Forking is fine.", Quote: &tweet{Text: "おはよう"}})
+	if err != nil || !needed || got.Post != "Fork 没问题。" || got.Quote != "" || got.Language != "英语" {
+		t.Fatalf("got %+v, needed %v, %v", got, needed, err)
+	}
+	if len(got.Failed) != 1 || !strings.Contains(got.Failed["quote"], "high demand") {
+		t.Fatalf("failed parts %v", got.Failed)
+	}
+	lm.errs = map[string]error{"": errors.New("HTTP 503: high demand")}
+	if _, _, err := tr.translate(context.Background(), tweet{Text: "Forking is fine.", Quote: &tweet{Text: "おはよう"}}); err == nil || !strings.Contains(err.Error(), "high demand") {
+		t.Fatalf("every request failing: %v", err)
 	}
 }
 
@@ -462,9 +491,13 @@ func TestTranslatedCards(t *testing.T) {
 		{"chinese", map[string]string{"": "<language>中文</language>"}, false, ""},
 		{"the quote given back as it came", map[string]string{"Our Q3": "<language>中文</language>", "Watch live": "<language>英语</language><chinese>Watch live as SpaceX discusses our Q3 2026 earnings at 3:30pm CT today → https://x.com/i/broadcasts/1PKqrNbLZbPGb</chinese>"}, false, "degraded"},
 		{"out of form", map[string]string{"": "Sure! Here is the translation."}, false, "error"},
+		{"the quote failing", map[string]string{"Our Q3": "<language>英语</language><chinese>我们 2026 年第三季度的财报现已公开 → https://ir.spacex.com/x @ElonMusk</chinese>", "Watch live": "fail"}, false, "degraded"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			lm := &model{replies: c.replies}
+			if c.replies["Watch live"] == "fail" {
+				lm.errs = map[string]error{"Watch live": errors.New("HTTP 503: high demand")}
+			}
 			m, err := New(Config{Chrome: chrome(t), Translate: &Translate{Provider: "gemini", Model: "gemini-4-argon", Thinking: "low"}},
 				func(string) (llm.Provider, error) { return lm, nil })
 			if err != nil {
@@ -490,11 +523,16 @@ func TestTranslatedCards(t *testing.T) {
 			if strings.HasPrefix(card.Text[0].Text, "我们") || strings.HasPrefix(card.Quote.Text[0].Text, "观看") {
 				t.Fatalf("the original text was replaced: %+v", card.Text)
 			}
-			if c.translated {
+			switch {
+			case c.name == "the quote failing":
+				if card.Translation == nil || card.Quote.Translation != nil {
+					t.Fatalf("the post's translation should stay and the quote have none: %+v, %+v", card.Translation, card.Quote.Translation)
+				}
+			case c.translated:
 				if tr := card.Translation; tr == nil || tr.By != "由 Gemini 翻译自英语" || tr.Text[0].Text != "我们 2026 年第三季度的财报现已公开 → " || card.Quote.Translation[0].Text != "观看直播" {
 					t.Fatalf("translation on the card %+v, quote %+v", card.Translation, card.Quote.Translation)
 				}
-			} else if card.Translation != nil || card.Quote.Translation != nil {
+			case card.Translation != nil || card.Quote.Translation != nil:
 				t.Fatalf("an untranslated card shows %+v", card.Translation)
 			}
 			var got string
@@ -511,8 +549,9 @@ func TestTranslatedCards(t *testing.T) {
 				if r.Kind != "twitter.card" {
 					continue
 				}
-				failed := c.record == "error"
-				if (r.Outcome == "degraded") != failed || (r.Payload.(map[string]any)["translation_error"] != nil) != failed {
+				failed, partly := c.record == "error", c.name == "the quote failing"
+				payload := r.Payload.(map[string]any)
+				if (r.Outcome == "degraded") != (failed || partly) || (payload["translation_error"] != nil) != failed || (payload["translation_failed"] != nil) != partly {
 					t.Fatalf("card record %+v with translation %q", r, c.record)
 				}
 			}

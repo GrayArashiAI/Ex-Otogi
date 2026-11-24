@@ -9,7 +9,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -157,8 +159,12 @@ func (m *Module) answer(ctx context.Context, e otogi.Event, inv otogi.Invocation
 	}
 	c := newCard(t, pics, m.zone, m.text)
 	if m.translator != nil {
-		if err := m.translate(ctx, t, &c); err != nil {
+		failed, err := m.translate(ctx, t, &c)
+		switch {
+		case err != nil:
 			payload["translation_error"] = err.Error()
+		case failed != "":
+			payload["translation_failed"] = failed
 		}
 	}
 	drawing := m.now()
@@ -175,7 +181,7 @@ func (m *Module) answer(ctx context.Context, e otogi.Event, inv otogi.Invocation
 		return err
 	}
 	outcome := "ok"
-	if payload["render_error"] != nil || payload["refused"] != nil || payload["translation_error"] != nil || payload["parent_error"] != nil {
+	if payload["render_error"] != nil || payload["refused"] != nil || payload["translation_error"] != nil || payload["translation_failed"] != nil || payload["parent_error"] != nil {
 		outcome = "degraded"
 	}
 	m.host.Record(ctx, otogi.Record{Kind: "twitter.card", Outcome: outcome, Duration: m.now().Sub(started), Payload: payload})
@@ -290,8 +296,10 @@ func (m *Module) message(ctx context.Context, e otogi.Event, t tweet, c card, pa
 // so its quote, the post it replies to, and that post's quote: each unless
 // it is in Chinese already. A failed translation is recorded and returned,
 // and the card goes out without it. A part the model gave back as it came
-// gets no translation, and the record is degraded and names it in echoed.
-func (m *Module) translate(ctx context.Context, t tweet, c *card) error {
+// gets no translation, and the record is degraded and names it in echoed;
+// so does a part whose request failed, named with why in failed, which is
+// also returned, the parts comma-separated, for the card's record.
+func (m *Module) translate(ctx context.Context, t tweet, c *card) (failed string, err error) {
 	started := m.now()
 	tr, needed, err := m.translator.translate(ctx, t)
 	payload := map[string]any{"post": t.ID, "model": m.translator.cfg.Model, "took": m.now().Sub(started).String()}
@@ -300,10 +308,10 @@ func (m *Module) translate(ctx context.Context, t tweet, c *card) error {
 		m.host.Logger().Warn("twitter: translation failed", "post", t.ID, "error", err)
 		payload["error"] = err.Error()
 		m.host.Record(ctx, otogi.Record{Kind: "twitter.translation", Outcome: "error", Payload: payload})
-		return err
+		return "", err
 	case !needed:
 		m.host.Logger().Debug("twitter: post is in Chinese; no translation", "post", t.ID)
-		return nil
+		return "", nil
 	}
 	if tr.Post != "" {
 		payload["language"] = tr.Language
@@ -329,8 +337,13 @@ func (m *Module) translate(ctx context.Context, t tweet, c *card) error {
 		m.host.Logger().Warn("twitter: the model gave parts back untranslated", "post", t.ID, "parts", tr.Echoed)
 		payload["echoed"], outcome = tr.Echoed, "degraded"
 	}
+	if len(tr.Failed) > 0 {
+		m.host.Logger().Warn("twitter: parts not translated", "post", t.ID, "failed", tr.Failed)
+		payload["failed"], outcome = tr.Failed, "degraded"
+		failed = strings.Join(slices.Sorted(maps.Keys(tr.Failed)), ",")
+	}
 	m.host.Record(ctx, otogi.Record{Kind: "twitter.translation", Outcome: outcome, Duration: m.now().Sub(started), Payload: payload})
-	return nil
+	return failed, nil
 }
 
 // providerName is a provider as a card names it: gemini is Gemini.

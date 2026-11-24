@@ -33,6 +33,9 @@ type translation struct {
 	// Echoed names the parts, comma-separated, the model gave back as
 	// they came instead of translating: they have no translation.
 	Echoed string
+	// Failed is the parts whose request failed, each with why: they have
+	// no translation, and the others keep theirs.
+	Failed map[string]string
 }
 
 const translatePrompt = `You translate a post from X into Simplified Chinese.
@@ -53,12 +56,16 @@ var (
 // translate returns what of the post, its quote, the post it replies to,
 // and that post's quote is not in Chinese, in Chinese: false when all of it
 // is in Chinese already, or none of them has text; true also when the
-// model gave a part back untranslated, to have that recorded. Each part is
-// its own request: asked for parts in different languages at once,
-// gemini-3.5-flash-lite gave one back as it came about one time in three.
+// model gave a part back untranslated, or a part's request failed, to have
+// that recorded. Each part is its own request: asked for parts in different
+// languages at once, gemini-3.5-flash-lite gave one back as it came about
+// one time in three. A part whose request fails is left out and named in
+// Failed; only when every request fails is that the error returned.
 func (tr *translator) translate(ctx context.Context, t tweet) (translation, bool, error) {
 	var out translation
 	var echoed []string
+	var asked int
+	var last error
 	for _, p := range []struct {
 		name string
 		of   *tweet
@@ -67,9 +74,14 @@ func (tr *translator) translate(ctx context.Context, t tweet) (translation, bool
 		if p.of == nil || strings.TrimSpace(p.of.Text) == "" {
 			continue
 		}
+		asked++
 		language, text, err := tr.one(ctx, p.of.Text)
 		if err != nil {
-			return translation{}, false, err
+			if out.Failed == nil {
+				out.Failed = map[string]string{}
+			}
+			out.Failed[p.name], last = err.Error(), err
+			continue
 		}
 		if p.name == "post" {
 			out.Language = language
@@ -80,8 +92,12 @@ func (tr *translator) translate(ctx context.Context, t tweet) (translation, bool
 		}
 		*p.into = text
 	}
+	if asked > 0 && len(out.Failed) == asked {
+		return translation{}, false, last
+	}
 	out.Echoed = strings.Join(echoed, ",")
-	return out, out != translation{Language: out.Language}, nil
+	needed := out.Post != "" || out.Quote != "" || out.Parent != "" || out.ParentQuote != "" || out.Echoed != "" || len(out.Failed) > 0
+	return out, needed, nil
 }
 
 // one returns the language of text and, unless that is Chinese, text in
