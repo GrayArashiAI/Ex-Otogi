@@ -3,6 +3,7 @@ package qq
 import (
 	"context"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"regexp"
@@ -339,6 +340,9 @@ func attachmentPart(a attachment) otogi.Part {
 		if a.ContentType == "image/gif" {
 			media.Role = otogi.MediaAnimation
 		}
+		if sum := filenameMD5(a.Filename); sum != nil {
+			media.Hashes = []otogi.MediaHash{{Algorithm: "md5", Value: sum}}
+		}
 	case strings.HasPrefix(a.ContentType, "video/"):
 		media.Role = otogi.MediaVideo
 	case a.ContentType == "voice" || strings.HasPrefix(a.ContentType, "audio/"):
@@ -352,6 +356,24 @@ func attachmentPart(a attachment) otogi.Part {
 		kind, media.Role, media.MediaType = otogi.PartFile, otogi.MediaDocument, ""
 	}
 	return otogi.Part{Kind: kind, Media: media}
+}
+
+// filenameMD5 reads an image attachment's file name as the MD5 of its
+// content: QQ names images by it, in either case, with an extension that
+// need not match the format (a ".jpg" can be a PNG). It returns nil for a
+// name that is not 32 hex digits. QQ does not re-encode images, so a
+// forwarded or saved and resent picture keeps it. Videos are named the same
+// way, but that was never checked against their content.
+func filenameMD5(name string) []byte {
+	base, _, _ := strings.Cut(name, ".")
+	if len(base) != 32 {
+		return nil
+	}
+	sum, err := hex.DecodeString(base)
+	if err != nil {
+		return nil
+	}
+	return sum
 }
 
 // service maps a dispatch that is not a message: bot added or removed,

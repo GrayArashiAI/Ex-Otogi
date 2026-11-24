@@ -2,6 +2,7 @@ package qq
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"path/filepath"
 	"reflect"
@@ -102,6 +103,32 @@ func TestMapAttachments(t *testing.T) {
 	}
 	if parts[2].Kind != otogi.PartFile || parts[2].Media.Filename != "doc.pdf" {
 		t.Fatalf("file = %+v", parts[2])
+	}
+}
+
+// An image named by 32 hex digits carries them as its MD5, in either case
+// and whatever the extension says; other names, videos, and files carry
+// none.
+func TestMapImageMD5(t *testing.T) {
+	m := testMapper(t)
+	e := mapOne(t, m, "C2C_MESSAGE_CREATE", `{"id":"c1","content":"","author":{"user_openid":"U1"},"attachments":[
+		{"url":"https://q/1","filename":"5A5CB11263AA9345A028A296BDCD600E.jpg","content_type":"image/gif"},
+		{"url":"https://q/2","filename":"819d99a1b2c3d4e5f60718293a4b5c6d.jpg","content_type":"image/png"},
+		{"url":"https://q/3","filename":"a.png","content_type":"image/png"},
+		{"url":"https://q/4","filename":"5A5CB11263AA9345A028A296BDCD600Z.png","content_type":"image/png"},
+		{"url":"https://q/5","filename":"6a790e8880cdb73a883591b101eb3b78.mp4","content_type":"video/mp4"},
+		{"url":"https://q/6","filename":"6a790e8880cdb73a883591b101eb3b78.pdf","content_type":"file"}]}`)
+	want := []string{"5a5cb11263aa9345a028a296bdcd600e", "819d99a1b2c3d4e5f60718293a4b5c6d", "", "", "", ""}
+	for i, p := range e.Message.Parts {
+		got := ""
+		if hs := p.Media.Hashes; len(hs) == 1 && hs[0].Algorithm == "md5" {
+			got = hex.EncodeToString(hs[0].Value)
+		} else if len(hs) != 0 {
+			t.Fatalf("part %d hashes = %+v", i, hs)
+		}
+		if got != want[i] {
+			t.Errorf("part %d md5 = %q, want %q", i, got, want[i])
+		}
 	}
 }
 
