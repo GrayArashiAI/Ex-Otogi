@@ -34,23 +34,21 @@ type translation struct {
 
 const translatePrompt = `You translate posts from X into Simplified Chinese.
 
-The input is a <post>, with the <quote> it quotes when it quotes one, the <parent> it replies to when it is a reply, and the <parent_quote> that the parent quotes. A post of only pictures has no <post>. Reply in exactly this form and nothing else:
-<language>the post's language, named in Simplified Chinese, such as 英语 or 日语</language>
-<post>the post in natural Simplified Chinese</post>
-<quote>the quote in natural Simplified Chinese</quote>
-<parent>the parent in natural Simplified Chinese</parent>
-<parent_quote>the parent's quote in natural Simplified Chinese</parent_quote>
+The input has up to four parts: a <post>, the <quote> it quotes, the <parent> it replies to, and the <parent_quote> that the parent quotes. A post of only pictures has no <post>. The parts are separate texts by different people, and each may be in a different language.
 
-Give <language> when the input has a <post>, and each of the others only when the input has that part and it is not already written in Chinese, Simplified or Traditional: a part in Chinese is left out. When the post is in Chinese, <language> is 中文.
+For every part of the input, reply with one element of the same name, in the input's order, and nothing else:
+<post language="英语">the part in natural Simplified Chinese</post>
+
+language is the language that part is written in, named in Simplified Chinese, such as 英语 or 日语. Judge each part on its own, whatever language the other parts are in. A part already written in Chinese, Simplified or Traditional, has language="中文" and an empty element: <quote language="中文"></quote>. Every other part is translated into Simplified Chinese: never give a part back in the language it came in.
 
 Keep URLs, @mentions, #hashtags, emoji, and line breaks exactly as they are. Add no notes or explanations.`
 
+// tagged finds a part in the model's reply: its language and its text.
 var tagged = map[string]*regexp.Regexp{
-	"language": regexp.MustCompile(`(?s)<language>(.*?)</language>`),
-	"post":     regexp.MustCompile(`(?s)<post>(.*?)</post>`),
-	"quote":    regexp.MustCompile(`(?s)<quote>(.*?)</quote>`),
-	"parent":   regexp.MustCompile(`(?s)<parent>(.*?)</parent>`),
-	"pquote":   regexp.MustCompile(`(?s)<parent_quote>(.*?)</parent_quote>`),
+	"post":         regexp.MustCompile(`(?s)<post language="([^"]*)">(.*?)</post>`),
+	"quote":        regexp.MustCompile(`(?s)<quote language="([^"]*)">(.*?)</quote>`),
+	"parent":       regexp.MustCompile(`(?s)<parent language="([^"]*)">(.*?)</parent>`),
+	"parent_quote": regexp.MustCompile(`(?s)<parent_quote language="([^"]*)">(.*?)</parent_quote>`),
 }
 
 // translate returns what of the post, its quote, the post it replies to,
@@ -59,9 +57,11 @@ var tagged = map[string]*regexp.Regexp{
 // language of a post with text; one of only pictures has none to name.
 func (tr *translator) translate(ctx context.Context, t tweet) (translation, bool, error) {
 	var parts []string
+	given := map[string]string{}
 	part := func(tag string, of *tweet) {
 		if of != nil && of.Text != "" {
 			parts = append(parts, "<"+tag+">"+of.Text+"</"+tag+">")
+			given[tag] = strings.TrimSpace(of.Text)
 		}
 	}
 	part("post", &t)
@@ -80,18 +80,29 @@ func (tr *translator) translate(ctx context.Context, t tweet) (translation, bool
 	if err != nil {
 		return translation{}, false, fmt.Errorf("twitter: translate: %w", err)
 	}
-	find := func(tag string) string {
-		if m := tagged[tag].FindStringSubmatch(resp.Markdown); m != nil {
-			return strings.TrimSpace(m[1])
+	// find returns a part's language and its translation: none when the
+	// part is in Chinese, or the model gave it back as it came, which
+	// gemini-3.5-flash-lite did with one part of two in different languages.
+	find := func(tag string) (language, text string) {
+		m := tagged[tag].FindStringSubmatch(resp.Markdown)
+		if m == nil {
+			return "", ""
 		}
-		return ""
+		language, text = strings.TrimSpace(m[1]), strings.TrimSpace(m[2])
+		if language == "中文" || text == given[tag] {
+			text = ""
+		}
+		return language, text
 	}
-	out := translation{Language: find("language"), Post: find("post"), Quote: find("quote"), Parent: find("parent"), ParentQuote: find("pquote")}
+	var out translation
+	out.Language, out.Post = find("post")
+	_, out.Quote = find("quote")
+	_, out.Parent = find("parent")
+	_, out.ParentQuote = find("parent_quote")
 	switch {
 	case t.Text == "":
 		out.Language, out.Post = "", ""
 	case out.Language == "中文":
-		out.Post = "" // a post in Chinese has no translation, whatever the model sent
 	case out.Language == "" || out.Post == "":
 		return translation{}, false, fmt.Errorf("twitter: translate: the model replied out of form: %q", resp.Markdown)
 	}

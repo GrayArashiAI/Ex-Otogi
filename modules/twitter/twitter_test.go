@@ -289,7 +289,7 @@ func TestReplyCards(t *testing.T) {
 		parent       bool // FxTwitter has the post replied to
 		check        func(t *testing.T, c card, payload map[string]any)
 	}{
-		{"in english", "<language>英语</language>\n<post>我怀疑这起不了多大作用</post>\n<parent>既然有些人搞不清楚</parent>", true, func(t *testing.T, c card, payload map[string]any) {
+		{"in english", `<post language="英语">我怀疑这起不了多大作用</post><parent language="英语">既然有些人搞不清楚</parent><parent_quote language="中文"></parent_quote>`, true, func(t *testing.T, c card, payload map[string]any) {
 			p := c.Parent
 			if p == nil || p.Handle != "theo" || p.Date != "11月24日" || p.Avatar == "" || !strings.HasPrefix(p.Text[0].Text, "Since some people") || c.ReplyingTo != "" {
 				t.Fatalf("the post replied to %+v, replying to %q", p, c.ReplyingTo)
@@ -308,12 +308,12 @@ func TestReplyCards(t *testing.T) {
 				t.Fatalf("pictures of the post replied to left uncovered: %+v", p.Quote.Media)
 			}
 		}},
-		{"in chinese, replying to english", "<language>中文</language>\n<parent>既然有些人搞不清楚</parent>", true, func(t *testing.T, c card, _ map[string]any) {
+		{"in chinese, replying to english", `<post language="中文"></post><parent language="英语">既然有些人搞不清楚</parent><parent_quote language="中文"></parent_quote>`, true, func(t *testing.T, c card, _ map[string]any) {
 			if c.Translation != nil || c.Parent == nil || c.Parent.Translation == nil {
 				t.Fatalf("translations %+v, %+v", c.Translation, c.Parent)
 			}
 		}},
-		{"replying to a deleted post", "<language>英语</language>\n<post>我怀疑这起不了多大作用</post>", false, func(t *testing.T, c card, payload map[string]any) {
+		{"replying to a deleted post", `<post language="英语">我怀疑这起不了多大作用</post>`, false, func(t *testing.T, c card, payload map[string]any) {
 			if c.Parent != nil || c.ReplyingTo != "theo" || payload["parent_gone"] != "not found or deleted" {
 				t.Fatalf("card %+v, record %+v", c, payload)
 			}
@@ -365,7 +365,7 @@ func TestReplyCards(t *testing.T) {
 // it replies to is translated all the same.
 func TestTranslatesWhatAReplyOfOnlyPicturesRepliesTo(t *testing.T) {
 	t.Parallel()
-	lm := &model{reply: "<parent>你好</parent>"}
+	lm := &model{reply: `<parent language="英语">你好</parent>`}
 	tr := &translator{cfg: Translate{Model: "m"}, provider: lm}
 	got, needed, err := tr.translate(context.Background(), tweet{Media: []media{{Kind: "photo"}}, Parent: &tweet{Text: "hello"}})
 	if err != nil || !needed || got.Parent != "你好" {
@@ -408,6 +408,23 @@ func (m *model) Generate(_ context.Context, req llm.Request, _ func(otogi.Messag
 	return llm.Response{Markdown: m.reply}, m.err
 }
 
+// A part the model gives back as it came is not a translation, and a part
+// it calls Chinese has none, whatever it sent for it.
+func TestTranslationLeavesOutWhatWasNotTranslated(t *testing.T) {
+	t.Parallel()
+	lm := &model{reply: `<post language="中文">我觉得这没什么用。</post>
+<parent language="英语"> Forking is fine. </parent>
+<parent_quote language="日语">早上好</parent_quote>`}
+	tr := &translator{provider: lm}
+	got, needed, err := tr.translate(context.Background(), tweet{Text: "我觉得这没什么用。", Parent: &tweet{Text: "Forking is fine.", Quote: &tweet{Text: "おはよう"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := (translation{Language: "中文", ParentQuote: "早上好"}); got != want || !needed {
+		t.Fatalf("got %+v, needed %v", got, needed)
+	}
+}
+
 // A post not in Chinese gets its translation on its card, under the
 // original, the quote's under the quote; a post in Chinese gets none; a
 // reply out of form is recorded, and the card goes out without it.
@@ -418,8 +435,8 @@ func TestTranslatedCards(t *testing.T) {
 		translated  bool
 		record      string
 	}{
-		{"english", "<language>英语</language>\n<post>我们 2026 年第三季度的财报现已公开 → https://ir.spacex.com/x @ElonMusk</post>\n<quote>观看直播</quote>", true, "ok"},
-		{"chinese", "<language>中文</language>", false, ""},
+		{"english", `<post language="英语">我们 2026 年第三季度的财报现已公开 → https://ir.spacex.com/x @ElonMusk</post><quote language="英语">观看直播</quote>`, true, "ok"},
+		{"chinese", `<post language="中文"></post><quote language="中文"></quote>`, false, ""},
 		{"out of form", "Sure! Here is the translation.", false, "error"},
 	} {
 		t.Run(c.name, func(t *testing.T) {

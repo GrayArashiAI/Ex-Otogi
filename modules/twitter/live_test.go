@@ -4,13 +4,15 @@ import (
 	"context"
 	"log/slog"
 	"os"
+	"regexp"
 	"testing"
+	"time"
 
 	"github.com/TundraWork/Ex-Otogi/internal/adapter/gemini"
 )
 
 // TestLiveTranslate has Gemini translate posts part by part: what is in
-// Chinese already is left out. It runs only when OTOGI_GEMINI_API_KEY is
+// Chinese already is left out, and the rest comes back in Chinese. It runs only when OTOGI_GEMINI_API_KEY is
 // set, so it is not part of make quality:
 //
 //	OTOGI_GEMINI_API_KEY=... go test -run Live -v ./modules/twitter
@@ -46,14 +48,26 @@ func TestLiveTranslate(t *testing.T) {
 		{"pictures replying to english", tweet{Media: []media{{Kind: "photo"}}, Parent: &tweet{Text: english}}, false, false, true, false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			got, needed, err := tr.translate(context.Background(), c.post)
+			// A request the provider never answers fails its own case.
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+			got, needed, err := tr.translate(ctx, c.post)
 			if err != nil {
 				t.Fatal(err)
 			}
 			t.Logf("needed %v: %+v", needed, got)
-			if (got.Post != "") != c.wantPost || (got.Quote != "") != c.quote || (got.Parent != "") != c.parent || (got.ParentQuote != "") != c.parentQuote {
-				t.Errorf("translated post %v, quote %v, parent %v, parent's quote %v", got.Post != "", got.Quote != "", got.Parent != "", got.ParentQuote != "")
+			for _, p := range []struct {
+				name, got string
+				want      bool
+			}{{"post", got.Post, c.wantPost}, {"quote", got.Quote, c.quote}, {"parent", got.Parent, c.parent}, {"parent's quote", got.ParentQuote, c.parentQuote}} {
+				// A translation is in Chinese; translate itself leaves out
+				// one that is the original given back.
+				if (p.got != "") != p.want || p.want && !han.MatchString(p.got) {
+					t.Errorf("%s: translation %q, want one %v", p.name, p.got, p.want)
+				}
 			}
 		})
 	}
 }
+
+var han = regexp.MustCompile(`\p{Han}`)
