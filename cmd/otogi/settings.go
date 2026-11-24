@@ -330,6 +330,15 @@ func (s *moduleSettings) restart(ctx context.Context, env moduleEnv, use func(ot
 	if err != nil {
 		return nil, err
 	}
+	// What changed may be what a module left out at startup lacked, such
+	// as a secret it refers to: it starts now.
+	waiting, err := s.waiting(ctx, env, set)
+	if err != nil {
+		return nil, err
+	}
+	for _, w := range waiting {
+		set, restart = append(set, w), append(restart, w.Descriptor().ID)
+	}
 	if len(set) > 0 {
 		if err := s.kernel.Reconfigure(ctx, set, nil); err != nil {
 			return nil, err

@@ -232,7 +232,7 @@ func TestLLMSettingsRebuildTheModulesUsingAProvider(t *testing.T) {
 			}
 			return &asker{provider: p, inUse: &inUse}, nil
 		}),
-		"plain": kind(func(struct{}, moduleEnv) (otogi.Module, error) { return &keyed{inUse: new(atomic.Value)}, nil }),
+		"plain": kind(func(struct{}, moduleEnv) (otogi.Module, error) { return plain{}, nil }),
 	}
 	first, firstKeys := modelService(t)
 	second, secondKeys := modelService(t)
@@ -503,3 +503,10 @@ func TestImportMovesAKeyWrittenInTheFileToTheSecrets(t *testing.T) {
 		}
 	}
 }
+
+// plain is a module that uses nothing a section changes.
+type plain struct{}
+
+func (plain) Descriptor() otogi.ModuleDescriptor { return otogi.ModuleDescriptor{ID: "plain"} }
+
+func (plain) Handle(context.Context, otogi.Event, otogi.Invocation) error { return nil }

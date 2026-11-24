@@ -376,6 +376,56 @@ func TestStartRunsTheModulesThatBuild(t *testing.T) {
 	}
 }
 
+// A module left out at startup for a secret no longer set starts when the
+// secret is set in the panel: that is how an operator fixes it.
+func TestAModuleLeftOutForASecretStartsWhenTheSecretIsSet(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	storage, err := modulestore.Open(ctx, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range []modulestore.SettingsRevision{
+		{Module: "notes", Revision: 1, Enabled: true, Settings: json.RawMessage(`{}`)},
+		{Module: "decision", Revision: 1, Enabled: true, Settings: json.RawMessage(`{"jev": {"api_key": "${OTOGI_TEST_GONE_KEY}"}}`)},
+	} {
+		if err := storage.AddSettings(ctx, r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := storage.Close(); err != nil {
+		t.Fatal(err)
+	}
+	p := startRun(t, fileConfig(t, "data_dir: "+dir+"\nmanagement: {addr: \"127.0.0.1:0\"}\n"))
+	defer func() {
+		p.do(t, "POST", "/api/shutdown", "", "", 202)
+		<-p.done
+	}()
+	decision := func() management.Module {
+		t.Helper()
+		var list []management.Module
+		if err := json.Unmarshal([]byte(p.do(t, "GET", "/api/modules", "", "", 200)), &list); err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range list {
+			if m.ID == "decision" {
+				return m
+			}
+		}
+		t.Fatal("no decision module")
+		return management.Module{}
+	}
+	if m := decision(); m.Running || !strings.Contains(m.Problem, "OTOGI_TEST_GONE_KEY") {
+		t.Fatalf("decision at the start: %+v", m)
+	}
+	if body := p.do(t, "PUT", "/api/secrets/OTOGI_TEST_GONE_KEY", "", `{"value": "k"}`, 200); !strings.Contains(body, `"decision"`) {
+		t.Errorf("setting the secret restarted %s, want decision among them", body)
+	}
+	if m := decision(); !m.Running || m.Problem != "" {
+		t.Fatalf("decision after its secret was set: %+v", m)
+	}
+}
+
 // askOnListen asks the process something through its management API as soon
 // as the API says it is listening, which is before the kernel has started.
 type askOnListen struct {
