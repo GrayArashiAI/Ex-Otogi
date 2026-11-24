@@ -345,7 +345,7 @@ func TestReplyCards(t *testing.T) {
 				t.Fatal(err)
 			}
 			// Each part with text is asked about on its own.
-			if texts := asked(lm); len(texts) != len(c.answers) || c.parent && !(strings.HasPrefix(texts[1], "Since some people") && strings.HasPrefix(texts[2], "给没吃上瓜")) {
+			if texts := asked(lm); len(texts) != len(c.answers) || c.parent && (!strings.HasPrefix(texts[1], "Since some people") || !strings.HasPrefix(texts[2], "给没吃上瓜")) {
 				t.Fatalf("asked to translate %q", texts)
 			}
 			for _, r := range h.records {
