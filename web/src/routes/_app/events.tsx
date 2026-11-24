@@ -171,18 +171,19 @@ function Rows<T>({
     overscan: 12,
     getItemKey: (i) => (items[i] === undefined ? i : itemKey(items[i] as T)),
   });
+  // Older items load when the end of the list is near: after scrolling there,
+  // and after any render that leaves it there, as when a page does not fill
+  // a tall window and there is nothing to scroll.
+  const loadOlder = () => {
+    const el = scroller.current;
+    if (!el || !more.has || more.fetching || error) return;
+    if (el.scrollHeight - el.scrollTop - el.clientHeight < 400) more.fetch();
+  };
+  useEffect(loadOlder);
   return (
     <>
       {header}
-      <div
-        ref={scroller}
-        className="min-h-0 flex-1 overflow-y-auto"
-        onScroll={(e) => {
-          const el = e.currentTarget;
-          const near = el.scrollHeight - el.scrollTop - el.clientHeight < 400;
-          if (near && more.has && !more.fetching && !error) more.fetch();
-        }}
-      >
+      <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto" onScroll={loadOlder}>
         {pending && <p className="py-16 text-center text-muted-foreground text-sm">Loading…</p>}
         {error && items.length === 0 && (
           <LoadError className="mx-auto max-w-lg px-4 py-12" what={what} error={error} retry={retry} />

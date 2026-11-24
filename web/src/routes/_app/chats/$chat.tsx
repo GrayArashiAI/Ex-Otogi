@@ -3,7 +3,7 @@ import { createFileRoute, Link, notFound } from "@tanstack/react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { format, isToday, isYesterday } from "date-fns";
 import { ArrowDown, ArrowLeft, Copy, ExternalLink, Pencil, ScrollText, X } from "lucide-react";
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ApiError, api, data, type Schemas } from "@/api/client";
 import { Ago } from "@/components/ago";
 import { LoadError } from "@/components/load-error";
@@ -162,6 +162,15 @@ function Conversation({ chat, people }: { chat: string; people: Record<string, s
     }
     placed.current = { ...before, oldest, height };
   });
+  // Older messages load when the top is near: after scrolling there, and
+  // after any render that leaves it there, as when the first page does not
+  // fill a tall window and there is nothing to scroll.
+  const loadOlder = () => {
+    const el = scroller.current;
+    if (!el || !messages.hasNextPage || messages.isFetchingNextPage || messages.error) return;
+    if (el.scrollTop < 240) void messages.fetchNextPage();
+  };
+  useEffect(loadOlder);
   const labels = Object.fromEntries(
     (modules ?? []).flatMap((m) => m.allowlists.map((l, i) => [`${m.id}/${l.name}`, listMeta(m.id, l, i)])),
   );
@@ -195,9 +204,7 @@ function Conversation({ chat, people }: { chat: string; people: Record<string, s
         className="min-h-0 flex-1 overflow-y-auto px-4 sm:px-6"
         onScroll={(e) => {
           const el = e.currentTarget;
-          if (el.scrollTop < 240 && messages.hasNextPage && !messages.isFetchingNextPage && !messages.error) {
-            void messages.fetchNextPage();
-          }
+          loadOlder();
           const gap = el.scrollHeight - el.scrollTop - el.clientHeight;
           placed.current.atNewest = gap < 8;
           const far = gap > 320;
