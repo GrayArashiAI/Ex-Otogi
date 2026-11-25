@@ -2,6 +2,7 @@ package management
 
 import (
 	"io/fs"
+	"mime"
 	"net/http"
 	"path"
 	"strings"
@@ -19,6 +20,10 @@ func spa(files fs.ReadDirFS) http.Handler {
 	if files == nil {
 		files = emptyFS{}
 	}
+	// statigz types a file by its extension, and Go's own table lacks the
+	// panel's fonts: without a system MIME database they would go out as
+	// application/octet-stream.
+	_ = mime.AddExtensionType(".woff2", "font/woff2") // a valid type cannot fail
 	server := statigz.FileServer(files, brotli.AddEncoding, statigz.OnNotFound(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Del("Cache-Control")
 		http.Error(w, "The control panel is not in this build: build web/ (make web) before the binary.", http.StatusServiceUnavailable)
