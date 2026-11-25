@@ -65,7 +65,7 @@ type ServerConfig struct {
 	// required with PublicURL.
 	CookieKey []byte
 	// Panel is the built control panel, served at every path outside /api/.
-	Panel fs.FS
+	Panel fs.ReadDirFS
 	// Logger receives server errors.
 	Logger *slog.Logger
 }

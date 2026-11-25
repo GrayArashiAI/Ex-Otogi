@@ -4,7 +4,7 @@ The control panel is the bot's own web app: Status, Modules, Chats, and the Even
 
 ## Set it up
 
-1. Build the panel into the binary: `make web` before `go build` (`make deploy` does both). A binary built without it answers the panel's pages with 503.
+1. Build the panel into the binary: `make web` before `go build` (`make deploy` does both). A binary built without it answers the panel's pages with 503. The build also writes each file compressed, with brotli and with gzip, and the bot sends a browser the smallest copy it accepts, so the panel needs no compressing proxy in front.
 2. Set where it is reached, the origin the identity provider sends browsers back to:
 
    ```yaml
@@ -25,9 +25,11 @@ The control panel is the bot's own web app: Status, Modules, Chats, and the Even
        proxy_read_timeout 180s;
        gzip on;
        gzip_proxied any;
-       gzip_types text/css text/javascript application/javascript application/json image/svg+xml;
+       gzip_types application/json;
    }
    ```
+
+   The `gzip` lines compress the API's answers; the panel's files already come compressed.
 
    A request through the proxy needs a panel session; the management token works only for requests made straight to `management.addr`.
 

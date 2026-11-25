@@ -12,7 +12,7 @@ import (
 var dist embed.FS
 
 // Panel returns the built panel's files.
-func Panel() fs.FS {
+func Panel() fs.ReadDirFS {
 	sub, _ := fs.Sub(dist, "dist") // dist is embedded, so this cannot fail
-	return sub
+	return sub.(fs.ReadDirFS)      // as a sub-tree of an embed.FS, it reads directories
 }

@@ -16,6 +16,7 @@ require (
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/sethvargo/go-retry v0.5.0
 	github.com/tats-u/goldmark-cjk-friendly/v2 v2.0.3
+	github.com/vearutop/statigz v1.5.0
 	github.com/yuin/goldmark v1.8.6
 	go.uber.org/goleak v1.3.0
 	go.yaml.in/yaml/v3 v3.0.5
