@@ -107,11 +107,8 @@ func (m *Module) respond(ctx context.Context, inv otogi.Invocation, a ask, until
 	if len(lead) > 0 {
 		sent.Content = llm.Join(otogi.TextMessage(strings.Join(lead, "\n\n")), user.Content)
 	}
-	switch a.trigger {
-	case "follow":
-		sent.Content = llm.Join(sent.Content, otogi.TextMessage(followNote))
-	case "chime":
-		sent.Content = llm.Join(sent.Content, otogi.TextMessage(chimeNote))
+	if note := p.note(a.trigger); note != "" {
+		sent.Content = llm.Join(sent.Content, otogi.TextMessage(note))
 	}
 	if a.lookup == nil && p.lookup > 0 {
 		if _, a.lookup, err = m.briefEvents(ctx, p, a.msgs, func(int) bool { return false }, ""); err != nil {
@@ -129,6 +126,10 @@ func (m *Module) respond(ctx context.Context, inv otogi.Invocation, a ask, until
 	tools := m.toolsIn(e.ChatKey())
 	if picks != nil {
 		tools[stickerTool] = picks.tool()
+	}
+	var silent silence
+	if p.Silent {
+		tools[silentTool] = silent.tool()
 	}
 
 	// The reply is at most two messages, each a stream of its own: "reply",
@@ -185,8 +186,11 @@ func (m *Module) respond(ctx context.Context, inv otogi.Invocation, a ask, until
 	}
 	sends := sticker != nil && runErr == nil
 	held := errors.Is(runErr, errStale)
+	// The agent replied nothing: it called stay_silent, said nothing, and
+	// picked no sticker.
+	quiet := runErr == nil && silent.called && !said && len(out.Last.Parts) == 0 && !sends
 	var final otogi.Message
-	if !held {
+	if !held && !quiet {
 		final = ending(out, said || sends, runErr, p.PlainText)
 		if !said && (len(final.Parts) > 0 || sends) {
 			draft := final.PlainText()
@@ -196,13 +200,17 @@ func (m *Module) respond(ctx context.Context, inv otogi.Invocation, a ask, until
 			held = !passes(cleanup, draft)
 		}
 	}
-	if held {
+	if held || quiet {
 		// Nothing goes out: the stream closes empty, which shows nothing,
 		// and the turn is not kept.
 		if stream != nil {
 			_, _ = stream.Close(cleanup, otogi.Message{})
 		}
-		m.record(cleanup, a, nil, out, nil, nil, nil, m.now().Sub(started), "stale")
+		skipped := "stale"
+		if quiet {
+			skipped = "silent"
+		}
+		m.record(cleanup, a, nil, out, nil, nil, nil, m.now().Sub(started), skipped)
 		return "", nil
 	}
 	var closeErr error
@@ -742,7 +750,7 @@ func (m *Module) recordCall(ctx context.Context, e otogi.Event, p *profile, c ll
 // record writes the reply's record, about the first message it answers.
 // skipped says why a batch went unanswered: "covered" when the previous
 // reply already did for it, "stale" when the check before the reply went out
-// held it back.
+// held it back, "silent" when the agent chose to reply nothing.
 func (m *Module) record(ctx context.Context, a ask, ids []int64, out llm.RunResult, refs []otogi.EventRef, sticker *sentSticker, err error, d time.Duration, skipped string) {
 	p, e := a.p, a.msgs[0]
 	rounds := 0

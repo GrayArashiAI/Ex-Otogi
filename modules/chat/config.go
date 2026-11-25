@@ -85,6 +85,19 @@ type ProfileConfig struct {
 	MaxToolRounds int          `json:"max_tool_rounds,omitempty" minimum:"1" default:"8" doc:"The most rounds of tool calls in one reply."`
 	Judge         *JudgeConfig `json:"judge,omitempty" doc:"Has the decision service judge, in groups, the messages no keyword, reply, or mention triggers. Needs the decision module."`
 	Media         *MediaConfig `json:"media,omitempty" doc:"Use the media module's descriptions: in the recent messages, the quoted message, and the wake judgment, and, with as_text, in place of the current message's media. Needs the media module, with the agent's chats on its describe list."`
+	Notes         *NotesConfig `json:"notes,omitempty" doc:"A note ending each turn the model answers, by what started the turn, in that request only. Unset, a follow-up and a chime have built-in notes and other turns none; set, each turn has the note set here for it, none when empty."`
+	Silent        bool         `json:"silent,omitempty" doc:"The agent may end any turn without replying: it has a tool, stay_silent, to send nothing. When to, or not to, is for its prompt and notes to say: with nothing saying so, the model decides on every turn, when called too."`
+}
+
+// NotesConfig is the note ending a turn, by what started it: the triggers
+// chat.reply records.
+type NotesConfig struct {
+	Mention  string `json:"mention,omitempty" doc:"A message mentioning the account."`
+	Reply    string `json:"reply,omitempty" doc:"A reply to the agent's message."`
+	Keyword  string `json:"keyword,omitempty" doc:"A message starting with the agent's keyword, private chats included."`
+	Decision string `json:"decision,omitempty" doc:"A group message the judgment found addressed to the agent (judge.wake)."`
+	Follow   string `json:"follow,omitempty" doc:"A follow-up (judge.follow)."`
+	Chime    string `json:"chime,omitempty" doc:"Speaking up unasked (judge.chime)."`
 }
 
 // MediaConfig has an agent read the media module's descriptions.
