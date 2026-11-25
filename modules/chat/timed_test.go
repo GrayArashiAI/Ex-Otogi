@@ -54,7 +54,9 @@ func newOffBubble(t *testing.T) *offBubble {
 // ctx's cancellation, whose channels belong to the bubble. Meanwhile the
 // bubble's clock stands still, as a goroutine waiting on a mutex is not
 // durably blocked. Then the clock moves on by the time f took; ctx ending
-// first ends do with its error, as it would have ended the request.
+// first ends do with its error, as it would have ended the request. A
+// request that ran into the deadline ends do with it, whatever the real
+// clock read of the last microseconds outside.
 func (o *offBubble) do(ctx context.Context, f func(context.Context)) error {
 	if o == nil {
 		f(ctx)
@@ -69,16 +71,20 @@ func (o *offBubble) do(ctx context.Context, f func(context.Context)) error {
 	done.Lock()
 	o.calls <- func() {
 		defer done.Unlock()
+		start := time.Now()
 		c, cancel := context.WithoutCancel(ctx), context.CancelFunc(func() {})
 		if limited {
 			c, cancel = context.WithTimeout(c, left)
 		}
 		defer cancel()
-		start := time.Now()
 		f(c)
 		took = time.Since(start)
 	}
 	done.Lock()
+	if limited && took >= left {
+		<-ctx.Done()
+		return ctx.Err()
+	}
 	timer := time.NewTimer(took)
 	defer timer.Stop()
 	select {
