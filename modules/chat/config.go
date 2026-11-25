@@ -102,6 +102,12 @@ type JudgeConfig struct {
 	Wait   *WaitConfig   `json:"wait,omitempty" doc:"In groups, wait until the sender has finished, and answer what was said to the agent meanwhile together. A wait holds one of the process's workers, at most one per agent and group."`
 	Brief  *BriefConfig  `json:"brief,omitempty" doc:"Before each reply, in any chat, ask whether the agent should look things up online before answering; when it should, the turn tells it to. Needs web_search or url_context in its tools."`
 	Chime  *ChimeConfig  `json:"chime,omitempty" doc:"Speak up unasked: in a group where the agent is not in the conversation, a message it would like to add to is answered once the chat pauses, up to 2 minutes later. Needs wait."`
+	Stale  *StaleConfig  `json:"stale,omitempty" doc:"In groups, before a reply's first message goes out, when someone else spoke after the agent started it: ask whether whoever asked took the question back, or someone else already answered it, and if so do not send it. The agent then does not stream in groups, so nothing shows before the check."`
+}
+
+// StaleConfig configures the check before a group reply goes out.
+type StaleConfig struct {
+	Threshold float64 `json:"threshold,omitempty" minimum:"0" maximum:"1" default:"0.8" doc:"How sure the judgment must be, of either question, for the reply not to be sent."`
 }
 
 // ChimeConfig configures speaking up unasked.
@@ -149,6 +155,9 @@ const (
 	// defaultLookup is the lookup threshold of a brief block that sets none:
 	// Eku's, live since 2026-11-18.
 	defaultLookup = 0.7
+	// defaultStale is the threshold of a stale block that sets none: Eku's
+	// (2026-11-26), high so that a reply is rather sent than lost.
+	defaultStale = 0.8
 )
 
 // profile is a validated agent.
@@ -166,6 +175,7 @@ type profile struct {
 	chimeMax time.Duration
 	rules    string  // what else counts as talking to it, for judgments
 	lookup   float64 // how sure a judgment must be that it should look things up first; 0 when not asked
+	stale    float64 // how sure the check before a group reply goes out must be to hold it back; 0 when not checked
 	// waitMin and waitMax bound how long it waits in groups for the sender
 	// to finish; waitMax is 0 when it does not wait.
 	waitMin, waitMax time.Duration
@@ -323,6 +333,9 @@ func (c *Config) profiles(providers func(string) (llm.Provider, error)) ([]*prof
 			}
 			if pc.Judge.Chime != nil {
 				p.chime = cmp.Or(pc.Judge.Chime.Threshold, defaultChime)
+			}
+			if pc.Judge.Stale != nil {
+				p.stale = cmp.Or(pc.Judge.Stale.Threshold, defaultStale)
 			}
 			if pc.Judge.Brief != nil {
 				p.lookup = cmp.Or(pc.Judge.Brief.Lookup, defaultLookup)

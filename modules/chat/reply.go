@@ -38,9 +38,10 @@ type ask struct {
 	msgs    []otogi.Event
 	parent  int64 // the turn the first continues, 0 for a new thread
 	trigger string
-	j       *judgment  // the judgment that woke p for the first, if one did
-	batch   *batchInfo // nil when p did not wait
-	lookup  *briefed   // what the request before the reply said of looking things up; nil when not asked yet
+	j       *judgment   // the judgment that woke p for the first, if one did
+	batch   *batchInfo  // nil when p did not wait
+	lookup  *briefed    // what the request before the reply said of looking things up; nil when not asked yet
+	stale   *staleCheck // what the check before the reply went out said; nil when it asked nothing
 }
 
 // batchInfo is what a reply's record says of its batch.
@@ -134,11 +135,26 @@ func (m *Module) respond(ctx context.Context, inv otogi.Invocation, a ask, until
 	// and "reply-2" for what follows words said before tools. The second is
 	// opened only once it has something to show, so no empty message is
 	// sent or recorded.
+	//
+	// A reply checked before it goes out (stale.go) is checked once, before
+	// its first message, and does not stream, so nothing shows before.
+	hold, checked := checksStale(a), false
+	passes := func(ctx context.Context, draft string) bool {
+		if checked {
+			return true
+		}
+		checked = true
+		if a.stale = m.staleOf(ctx, a, started, draft); a.stale.holds() {
+			a.stale.Draft = draft
+			return false
+		}
+		return true
+	}
 	var refs []otogi.EventRef
 	var shownText []string // what the reply showed, for the next batch's covered
 	stream, said := inv.Stream(ctx, "reply", e.Destination()), false
 	update := func(msg otogi.Message) error {
-		if len(msg.Parts) == 0 {
+		if len(msg.Parts) == 0 || hold {
 			return nil
 		}
 		if stream == nil {
@@ -147,6 +163,9 @@ func (m *Module) respond(ctx context.Context, inv otogi.Invocation, a ask, until
 		return stream.Update(ctx, present(p, last, msg, quote))
 	}
 	say := func(msg otogi.Message) error {
+		if !passes(ctx, msg.PlainText()) {
+			return errStale
+		}
 		sent, err := stream.Close(ctx, present(p, last, msg, quote))
 		refs, stream, said = append(refs, sent...), nil, true
 		shownText = append(shownText, msg.PlainText())
@@ -165,8 +184,29 @@ func (m *Module) respond(ctx context.Context, inv otogi.Invocation, a ask, until
 		sticker = &sentSticker{ID: picks.picked.ID, Text: picks.picked.Text, Listed: picks.listed}
 	}
 	sends := sticker != nil && runErr == nil
+	held := errors.Is(runErr, errStale)
+	var final otogi.Message
+	if !held {
+		final = ending(out, said || sends, runErr, p.PlainText)
+		if !said && (len(final.Parts) > 0 || sends) {
+			draft := final.PlainText()
+			if sends {
+				draft = strings.TrimSpace(draft + "\n[sticker: " + sticker.Text + "]")
+			}
+			held = !passes(cleanup, draft)
+		}
+	}
+	if held {
+		// Nothing goes out: the stream closes empty, which shows nothing,
+		// and the turn is not kept.
+		if stream != nil {
+			_, _ = stream.Close(cleanup, otogi.Message{})
+		}
+		m.record(cleanup, a, nil, out, nil, nil, nil, m.now().Sub(started), "stale")
+		return "", nil
+	}
 	var closeErr error
-	if final := ending(out, said || sends, runErr, p.PlainText); stream != nil || len(final.Parts) > 0 {
+	if stream != nil || len(final.Parts) > 0 {
 		if stream == nil {
 			stream = inv.Stream(cleanup, "reply-2", e.Destination())
 		}
@@ -701,7 +741,8 @@ func (m *Module) recordCall(ctx context.Context, e otogi.Event, p *profile, c ll
 
 // record writes the reply's record, about the first message it answers.
 // skipped says why a batch went unanswered: "covered" when the previous
-// reply already did for it.
+// reply already did for it, "stale" when the check before the reply went out
+// held it back.
 func (m *Module) record(ctx context.Context, a ask, ids []int64, out llm.RunResult, refs []otogi.EventRef, sticker *sentSticker, err error, d time.Duration, skipped string) {
 	p, e := a.p, a.msgs[0]
 	rounds := 0
@@ -719,6 +760,9 @@ func (m *Module) record(ctx context.Context, a ask, ids []int64, out llm.RunResu
 	}
 	if a.lookup != nil {
 		payload["lookup"] = a.lookup
+	}
+	if a.stale != nil {
+		payload["stale"] = a.stale
 	}
 	if sticker != nil {
 		payload["sticker"] = sticker

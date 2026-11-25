@@ -568,22 +568,31 @@ func coveredQuestion() decision.Question {
 // media reads as the media module described it, where it has.
 func (m *Module) judgeState(ctx context.Context, es []otogi.Event, agents []*profile, described bool) (state judgeState, msgs []string, err error) {
 	last := es[len(es)-1]
-	to := last.Destination()
 	at := last.OccurredAt
 	if at.IsZero() {
 		at = m.now()
 	}
+	ls := make([]line, 0, len(es))
+	for _, e := range es {
+		ls = append(ls, transcriptLine(e))
+	}
+	return m.judgeLines(ctx, last.Destination(), at, ls, agents, described)
+}
+
+// judgeLines is judgeState for transcript lines of the chat at to, the
+// recent chat read up to at: msgs are ls's numbers, in order.
+func (m *Module) judgeLines(ctx context.Context, to otogi.Destination, at time.Time, ls []line, agents []*profile, described bool) (state judgeState, msgs []string, err error) {
 	lines, err := m.store.recent(ctx, to, at.Add(time.Millisecond), judgeHistory)
 	if err != nil {
 		return judgeState{}, nil, err
 	}
 	judged := map[string]bool{}
-	for _, e := range es {
-		judged[string(e.SourceID)] = true
+	for _, l := range ls {
+		judged[l.SourceID] = true
 	}
-	for _, e := range es {
-		if !slices.ContainsFunc(lines, func(l line) bool { return l.SourceID == string(e.SourceID) }) {
-			lines = append(lines, transcriptLine(e))
+	for _, j := range ls {
+		if !slices.ContainsFunc(lines, func(l line) bool { return l.SourceID == j.SourceID }) {
+			lines = append(lines, j)
 		}
 	}
 	slices.SortStableFunc(lines, func(a, b line) int { return a.At.Compare(b.At) })
@@ -614,8 +623,8 @@ func (m *Module) judgeState(ctx context.Context, es []otogi.Event, agents []*pro
 		}
 		state.History = append(state.History, jl)
 	}
-	for _, e := range es {
-		msgs = append(msgs, msgIDs[string(e.SourceID)])
+	for _, l := range ls {
+		msgs = append(msgs, msgIDs[l.SourceID])
 	}
 	state.Candidates, state.byID = msgs, msgIDs
 	return state, msgs, nil
