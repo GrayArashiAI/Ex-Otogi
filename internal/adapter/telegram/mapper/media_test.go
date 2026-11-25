@@ -57,3 +57,39 @@ func TestDocumentAndPhotoUseOpaqueRefreshLocators(t *testing.T) {
 		}
 	}
 }
+
+// The attributes are those Telegram sent the test deployment for each kind.
+func TestStickersAndGIFsAreToldFromFiles(t *testing.T) {
+	sticker := &tg.DocumentAttributeSticker{Alt: "😀", Stickerset: &tg.InputStickerSetEmpty{}}
+	square := &tg.DocumentAttributeImageSize{W: 512, H: 512}
+	name := &tg.DocumentAttributeFilename{FileName: "f"}
+	for _, tc := range []struct {
+		name       string
+		mime       string
+		attributes []tg.DocumentAttributeClass
+		video      bool
+		role       otogi.MediaRole
+	}{
+		{"static sticker", "image/webp", []tg.DocumentAttributeClass{square, sticker, name}, false, otogi.MediaSticker},
+		{"animated sticker", "application/x-tgsticker", []tg.DocumentAttributeClass{square, sticker, name}, false, otogi.MediaSticker},
+		{"video sticker", "video/webm", []tg.DocumentAttributeClass{&tg.DocumentAttributeVideo{W: 512, H: 512, Duration: 1}, sticker, name}, false, otogi.MediaSticker},
+		{"GIF", "video/mp4", []tg.DocumentAttributeClass{&tg.DocumentAttributeVideo{W: 180, H: 180, Duration: 4.2, Nosound: true}, &tg.DocumentAttributeAnimated{}, name}, false, otogi.MediaAnimation},
+		{"video", "video/mp4", []tg.DocumentAttributeClass{&tg.DocumentAttributeVideo{W: 1232, H: 880, Duration: 7.2}, name}, true, otogi.MediaVideo},
+		{"picture sent as a file", "image/png", []tg.DocumentAttributeClass{&tg.DocumentAttributeImageSize{W: 2560, H: 1440}, name}, false, otogi.MediaDocument},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			media := &tg.MessageMediaDocument{Video: tc.video}
+			media.SetDocument(&tg.Document{ID: 10, AccessHash: 11, FileReference: []byte{12}, MimeType: tc.mime, Size: 99, DCID: 4, Attributes: tc.attributes})
+			message := &tg.Message{ID: 1, PeerID: &tg.PeerUser{UserID: 2}, Date: 100}
+			message.SetMedia(media)
+			mapped, err := New(testConfig(t)).Map(&tg.UpdateNewMessage{Message: message, Pts: 1, PtsCount: 1})
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := mapped.Events[0].Message.Parts[0].Media
+			if got.Role != tc.role || got.MediaType != tc.mime {
+				t.Fatalf("role=%s type=%s, want %s %s", got.Role, got.MediaType, tc.role, tc.mime)
+			}
+		})
+	}
+}

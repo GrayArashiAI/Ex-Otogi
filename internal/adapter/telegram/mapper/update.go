@@ -296,6 +296,11 @@ func mapMedia(media tg.MessageMediaClass) (otogi.Part, error) {
 		if document, ok := value.Document.(*tg.Document); ok {
 			role := otogi.MediaDocument
 			switch {
+			case hasAttribute[*tg.DocumentAttributeSticker](document):
+				role = otogi.MediaSticker
+			case hasAttribute[*tg.DocumentAttributeAnimated](document):
+				// Telegram keeps a GIF as a silent MP4 with this attribute.
+				role = otogi.MediaAnimation
 			case value.Video:
 				role = otogi.MediaVideo
 			case value.Voice:
@@ -311,6 +316,16 @@ func mapMedia(media tg.MessageMediaClass) (otogi.Part, error) {
 	}
 	part.Kind, part.Opaque = otogi.PartOpaque, &raw
 	return part, nil
+}
+
+// hasAttribute reports whether document carries an attribute of type A.
+func hasAttribute[A tg.DocumentAttributeClass](document *tg.Document) bool {
+	for _, attribute := range document.Attributes {
+		if _, ok := attribute.(A); ok {
+			return true
+		}
+	}
+	return false
 }
 
 func mediaPart(part otogi.Part, role otogi.MediaRole, mediaType string, size int64, locator MediaLocator, raw otogi.Extension) (otogi.Part, error) {
