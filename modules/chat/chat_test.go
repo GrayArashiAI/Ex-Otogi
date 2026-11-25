@@ -202,6 +202,9 @@ func newHarnessConfig(t *testing.T, services map[string]any, c Config) *harness 
 	}
 	for _, p := range c.Profiles {
 		h.llm[p.Provider] = &provider{responses: []llm.Response{answer("hello")}}
+		if p.Memory != nil && p.Memory.Provider != "" {
+			h.llm[p.Memory.Provider] = &provider{responses: []llm.Response{answer("none")}}
+		}
 		h.host.lists[[2]string{p.Name, group}] = "test"
 	}
 	h.m, err = New(c, func(name string) (llm.Provider, error) {
