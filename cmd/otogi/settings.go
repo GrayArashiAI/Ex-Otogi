@@ -268,8 +268,8 @@ func (s *moduleSettings) save(ctx context.Context, id otogi.ModuleID, base int64
 	if id == llmSection {
 		s.forgetModels(ctx)
 	}
-	if !isSection && !enabled {
-		s.notStarted.clear(id)
+	if !isSection {
+		s.notStarted.clear(id) // it runs now, or is off
 	}
 	restarted = append(restarted, s.startAfter(ctx, "settings of "+string(id))...)
 	s.reconfigured(ctx, r, restarted)

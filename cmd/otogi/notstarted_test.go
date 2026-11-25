@@ -157,6 +157,11 @@ func TestAModuleThatFailsToStartStaysOut(t *testing.T) {
 	if got := problems(); got["failing"] != "" || got["dependent"] != "" {
 		t.Fatalf("problems after the fix %v", got)
 	}
+	for _, id := range []otogi.ModuleID{"failing", "dependent"} {
+		if reason, ok := s.notStarted.get(id); ok {
+			t.Fatalf("%s runs and keeps the reason it did not start: %q", id, reason)
+		}
+	}
 }
 
 // Turning a module off while another waits to start leaves it off: the
