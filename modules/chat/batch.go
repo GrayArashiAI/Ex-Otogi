@@ -578,7 +578,9 @@ func askOf(p *profile, entries []entry, info *batchInfo) ask {
 
 // briefState is what the request before a reply is about: the recent chat
 // up to the batch, the agents present, and the batch; reply is the agent's
-// previous reply and the batch's messages that came during it.
+// previous reply and the batch's messages that came during it. The check
+// before a group reply goes out (stale.go) asks about the same, with draft:
+// the reply written and not sent, and the messages that came while it was.
 type (
 	briefState struct {
 		Chat    string       `json:"chat"`
@@ -586,6 +588,7 @@ type (
 		History []judgeLine  `json:"history"`
 		Batch   []string     `json:"batch"`
 		Reply   *briefReply  `json:"reply,omitempty"`
+		Draft   *briefReply  `json:"draft,omitempty"`
 	}
 	briefReply struct {
 		Text   string   `json:"text"`
