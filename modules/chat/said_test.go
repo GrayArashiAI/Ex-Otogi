@@ -124,3 +124,35 @@ func TestAgentLinesInABatch(t *testing.T) {
 		t.Fatalf("user turn %q", got)
 	}
 }
+
+// An agent that writes plain text is asked for it, and its reply goes out as
+// the model wrote it, with no formatting: the label is not bold, and the
+// sources are written out. Back from the platform, the line reads without
+// the label as the agent's.
+func TestPlainTextAgent(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, ProfileConfig{Name: "otogi", Label: "Otogi", Keywords: []string{"otogi"}, Provider: "otogi", Model: "m", PlainText: true})
+	reply := answer("(*/ω＼*) hi")
+	reply.Sources = []llm.Source{{Title: "Docs", URL: "https://example.com/docs"}, {URL: "https://example.com/bare"}}
+	h.llm["otogi"].responses = []llm.Response{reply, answer("ok")}
+	h.mustHandle(h.message("Alice", "otogi hi"))
+	req := h.llm["otogi"].requests[0]
+	if !req.Plain || !strings.Contains(req.System, "Write plain text, not Markdown") || strings.Contains(req.System, "Write in Markdown") {
+		t.Fatalf("plain %v, system %q", req.Plain, req.System)
+	}
+	said := h.streams[0]
+	const want = "Otogi\n(*/ω＼*) hi\n\nSources: Docs (https://example.com/docs), https://example.com/bare"
+	if got := said.final.PlainText(); got != want {
+		t.Fatalf("sent %q, want %q", got, want)
+	}
+	for _, p := range said.final.Parts {
+		if len(p.Annotations) > 0 {
+			t.Fatalf("formatting in %+v", said.final)
+		}
+	}
+	h.echo(said)
+	h.mustHandle(h.message("Bob", "otogi and then?"))
+	if got := lastUserText(h.llm["otogi"].requests[1]); !strings.Contains(got, "Otogi (this account): (*/ω＼*) hi") || strings.Contains(got, "Otogi\n") {
+		t.Fatalf("the recent chat reads %q", got)
+	}
+}

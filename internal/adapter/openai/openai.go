@@ -97,7 +97,7 @@ func (p *Provider) Generate(ctx context.Context, req llm.Request, partial func(o
 	if err != nil {
 		return llm.Response{}, fmt.Errorf("openai %s: encode request: %w", p.name, err)
 	}
-	c := &call{started: started, partial: partial, name: p.name}
+	c := &call{started: started, partial: partial, name: p.name, plain: req.Plain}
 
 	var serverDelay time.Duration
 	base := retry.WithMaxRetries(maxAttempts-1, retry.WithCappedDuration(30*time.Second, retry.WithJitterPercent(20, retry.NewExponential(p.backoff))))

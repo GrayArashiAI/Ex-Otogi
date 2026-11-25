@@ -102,7 +102,7 @@ func (p *Provider) Generate(ctx context.Context, req llm.Request, partial func(o
 	if err != nil {
 		return llm.Response{}, err
 	}
-	c := &call{started: started, partial: partial}
+	c := &call{started: started, partial: partial, plain: req.Plain}
 	ctx = context.WithValue(ctx, exchangesKey{}, &c.exchanges)
 
 	var serverDelay time.Duration

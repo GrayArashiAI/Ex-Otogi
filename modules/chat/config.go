@@ -74,6 +74,7 @@ type ProfileConfig struct {
 	MaxOutput     int          `json:"max_output,omitempty" minimum:"1" doc:"The most tokens a reply may have; unset is the model's default."`
 	Temperature   *float64     `json:"temperature,omitempty" minimum:"0" maximum:"2" doc:"Sampling temperature, 0 to 2; unset is the model's default (1 for Gemini). Higher is livelier, lower more predictable."`
 	System        string       `json:"system,omitempty" format:"markdown" doc:"The system prompt: who the agent is and how it talks, in Markdown."`
+	PlainText     bool         `json:"plain_text,omitempty" doc:"Replies are plain text: the agent is not asked for Markdown, and what the model writes is sent as it is, unformatted, the label too. In QQ private chats a streamed reply is still shown as Markdown."`
 	Context       *int         `json:"context,omitempty" minimum:"0" default:"30" doc:"How many recent chat messages the agent sees; 0 for none."`
 	MaxTurns      int          `json:"max_turns,omitempty" minimum:"1" default:"40" doc:"How many turns of a thread are sent, newest kept."`
 	Tools         []string     `json:"tools,omitempty" enum:"web_search,url_context,code_execution" doc:"Built-in tools the agent uses everywhere: web_search, the provider's search (cited Google Search on Gemini, multi-step on DeepSeek); url_context reads linked pages (Gemini, DeepSeek); code_execution runs code (Gemini). Module tools: Tools, below."`

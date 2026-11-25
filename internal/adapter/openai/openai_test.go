@@ -215,6 +215,32 @@ func TestGenerateText(t *testing.T) {
 	}
 }
 
+// A plain request gets the model's text as it is, trimmed, in the partials
+// and the reply: emoticons and asterisks are not read as Markdown. Without
+// Plain the same text is.
+func TestPlainText(t *testing.T) {
+	const raw, want = "\n(*/ω＼*) 2*3*4\n- a\n", "(*/ω＼*) 2*3*4\n- a"
+	for _, plain := range []bool{true, false} {
+		p, _, _ := setup(t, stream(text(raw[:3]), text(raw[3:]), finished("stop")))
+		var last otogi.Message
+		resp, err := p.Generate(context.Background(), llm.Request{Model: "m", Turns: []llm.Turn{userText("hi")}, Plain: plain}, func(m otogi.Message) error {
+			last = m
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		content := resp.Turn.Content
+		if resp.Markdown != raw {
+			t.Fatalf("plain %v: Markdown %q", plain, resp.Markdown)
+		}
+		asIs := content.PlainText() == want && len(content.Parts[0].Annotations) == 0 && last.PlainText() == want && len(last.Parts[0].Annotations) == 0
+		if asIs != plain {
+			t.Fatalf("plain %v: reply %q %+v, last partial %q", plain, content.PlainText(), content.Parts[0].Annotations, last.PlainText())
+		}
+	}
+}
+
 // A video the model cannot take is sent as a text mark and listed in
 // Withheld; with only text and images, Withheld is empty.
 func TestWithheld(t *testing.T) {

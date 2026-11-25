@@ -113,6 +113,10 @@ type Request struct {
 	// Tools are offered to the model. Run adds the functions of the tools
 	// it runs.
 	Tools []ToolSpec
+	// Plain asks for the reply as plain text: the provider gives the
+	// model's text as it is, trimmed, instead of reading it as Markdown.
+	// Response.Markdown is the same either way.
+	Plain bool
 }
 
 // Role says who a turn is from.

@@ -21,6 +21,7 @@ type call struct {
 	name     string
 	started  time.Time
 	partial  func(otogi.Message) error
+	plain    bool // the request's Plain
 	attempts []*attempt
 
 	// Per attempt; see reset.
@@ -238,17 +239,21 @@ func (c *call) apply(ch chunk) error {
 	if c.partial == nil {
 		return nil
 	}
-	if err := c.partial(reply(c.content.String())); err != nil {
+	if err := c.partial(c.reply(c.content.String())); err != nil {
 		return fmt.Errorf("openai %s: %w: %w", c.name, errStopped, err)
 	}
 	return nil
 }
 
-// reply is Markdown text as a message: one rich text part, or none when the
-// text is blank.
-func reply(md string) otogi.Message {
+// reply is the model's Markdown text as a message: one rich text part, or
+// none when the text is blank. A plain request gets the text as it is,
+// trimmed.
+func (c *call) reply(md string) otogi.Message {
 	if strings.TrimSpace(md) == "" {
 		return otogi.Message{}
+	}
+	if c.plain {
+		return otogi.TextMessage(strings.TrimSpace(md))
 	}
 	rich := markdown.Render(md)
 	return otogi.Message{Roots: []otogi.PartID{"p0"}, Parts: []otogi.Part{{ID: "p0", Kind: otogi.PartText, Text: rich.String(), Annotations: rich.Annotations()}}}
@@ -294,7 +299,7 @@ func (c *call) response() llm.Response {
 		resp.Turn.Calls = append(resp.Turn.Calls, llm.Call{ID: t.ID, Name: t.Name, Args: args})
 	}
 	data, _ := json.Marshal(native)
-	resp.Turn.Role, resp.Turn.Content, resp.Turn.Native = llm.RoleModel, reply(md), &llm.Native{Provider: c.name, Data: data}
+	resp.Turn.Role, resp.Turn.Content, resp.Turn.Native = llm.RoleModel, c.reply(md), &llm.Native{Provider: c.name, Data: data}
 	seen := map[string]bool{}
 	for _, a := range c.annotations {
 		if a.Type != "url_citation" || a.URLCitation.URL == "" || seen[a.URLCitation.URL] {

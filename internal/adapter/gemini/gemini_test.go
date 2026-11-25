@@ -191,6 +191,34 @@ func TestGenerateStreamsRichTextAndImages(t *testing.T) {
 	}
 }
 
+// A plain request gets each run of the model's text as it is, trimmed, in
+// the partials and the reply: emoticons and asterisks are not read as
+// Markdown. Without Plain the same text is.
+func TestGeneratePlainText(t *testing.T) {
+	const raw, want = "\n(*/ω＼*) 2*3*4\n- a\n", "(*/ω＼*) 2*3*4\n- a"
+	for _, plain := range []bool{true, false} {
+		s := &server{responses: []func(http.ResponseWriter, *http.Request){stream(output, text(raw[:3]), text(raw[3:]), completed)}}
+		p, _ := newProvider(t, s)
+		var last otogi.Message
+		resp, err := p.Generate(context.Background(), llm.Request{Model: "gemini-test", Turns: []llm.Turn{userTurn(otogi.Part{Kind: otogi.PartText, Text: "hi"})}, Plain: plain},
+			func(m otogi.Message) error {
+				last = m
+				return nil
+			})
+		if err != nil {
+			t.Fatal(err)
+		}
+		content := resp.Turn.Content
+		if resp.Markdown != raw {
+			t.Fatalf("plain %v: Markdown %q", plain, resp.Markdown)
+		}
+		asIs := content.PlainText() == want && len(content.Parts[0].Annotations) == 0 && last.PlainText() == want && len(last.Parts[0].Annotations) == 0
+		if asIs != plain {
+			t.Fatalf("plain %v: reply %q %+v, last partial %q", plain, content.PlainText(), content.Parts[0].Annotations, last.PlainText())
+		}
+	}
+}
+
 func TestGenerateResendsItsOwnTurnsExactly(t *testing.T) {
 	native := `[{"signature":"c2ln","type":"thought"},{"content":[{"text":"Hello","type":"text"}],"type":"model_output"}]`
 	s := &server{responses: []func(http.ResponseWriter, *http.Request){stream(output, text("ok"), completed)}}

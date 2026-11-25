@@ -22,6 +22,7 @@ import (
 type call struct {
 	started   time.Time
 	partial   func(otogi.Message) error
+	plain     bool // the request's Plain
 	exchanges exchanges
 
 	// Per attempt; see reset.
@@ -272,7 +273,8 @@ func (c *call) stepList() []any {
 }
 
 // reply is the model's output so far as a message, and its Markdown: text
-// runs rendered to rich text, images as media parts, in order.
+// runs rendered to rich text, or as they are, trimmed, for a plain request,
+// and images as media parts, in order.
 func (c *call) reply() (otogi.Message, string) {
 	var msg otogi.Message
 	var all []string
@@ -288,6 +290,11 @@ func (c *call) reply() (otogi.Message, string) {
 			return
 		}
 		all = append(all, run.String())
+		if c.plain {
+			add(otogi.Part{Kind: otogi.PartText, Text: strings.TrimSpace(run.String())})
+			run.Reset()
+			return
+		}
 		rich := markdown.Render(run.String())
 		add(otogi.Part{Kind: otogi.PartText, Text: rich.String(), Annotations: rich.Annotations()})
 		run.Reset()

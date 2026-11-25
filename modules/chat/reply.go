@@ -116,7 +116,7 @@ func (m *Module) respond(ctx context.Context, inv otogi.Invocation, a ask, until
 	if a.lookup.look() {
 		sent.Content = llm.Join(sent.Content, otogi.TextMessage(lookupNote))
 	}
-	req := llm.Request{Model: p.Model, System: m.system(p, e), Thinking: p.Thinking, MaxOutput: p.MaxOutput, Temperature: p.Temperature, Tools: p.builtins}
+	req := llm.Request{Model: p.Model, System: m.system(p, e), Thinking: p.Thinking, MaxOutput: p.MaxOutput, Temperature: p.Temperature, Tools: p.builtins, Plain: p.PlainText}
 	for _, t := range path {
 		req.Turns = append(req.Turns, t.Turn)
 	}
@@ -162,7 +162,7 @@ func (m *Module) respond(ctx context.Context, inv otogi.Invocation, a ask, until
 	}
 	sends := sticker != nil && runErr == nil
 	var closeErr error
-	if final := ending(out, said || sends, runErr); stream != nil || len(final.Parts) > 0 {
+	if final := ending(out, said || sends, runErr, p.PlainText); stream != nil || len(final.Parts) > 0 {
 		if stream == nil {
 			stream = inv.Stream(cleanup, "reply-2", e.Destination())
 		}
@@ -510,8 +510,16 @@ func (m *Module) system(p *profile, e otogi.Event) string {
 	return strings.TrimSpace(p.System) + "\n\n" + fmt.Sprintf(
 		"You are %s, talking in %s on %s. It is %s. People address you by starting a message with your name, by mentioning you, or by replying to you. "+
 			"In group chats each message starts with its sender's name. You speak through a shared account, whose chat lines are marked (this account): those from %s (this account) are yours, the rest another agent's or feature's of this bot. "+
-			"Write in Markdown.%s",
-		p.Name, where, e.Platform, m.now().In(time.Local).Format("Monday, 2 January 2006, 15:04 MST"), p.title(), about)
+			"%s%s",
+		p.Name, where, e.Platform, m.now().In(time.Local).Format("Monday, 2 January 2006, 15:04 MST"), p.title(), writeIn(p), about)
+}
+
+// writeIn is how the system prompt asks the agent to write.
+func writeIn(p *profile) string {
+	if p.PlainText {
+		return "Write plain text, not Markdown: the chat shows what you write as it is."
+	}
+	return "Write in Markdown."
 }
 
 // present is a reply as the chat shows it: after the profile's label, as a
@@ -525,10 +533,12 @@ func present(p *profile, e otogi.Event, msg otogi.Message) otogi.Message {
 }
 
 // label is the profile's label as a reply shows it, on a line of its own
-// before the reply's text.
+// before the reply's text: bold, unless the agent writes plain text.
 func label(p *profile) otogi.Message {
 	msg := otogi.TextMessage(p.Label)
-	msg.Parts[0].Annotations = []otogi.Annotation{{Offset: 0, Length: len(p.Label), Kind: otogi.AnnotationBold}}
+	if !p.PlainText {
+		msg.Parts[0].Annotations = []otogi.Annotation{{Offset: 0, Length: len(p.Label), Kind: otogi.AnnotationBold}}
+	}
 	return msg
 }
 
@@ -552,7 +562,8 @@ func joinLine(a, b otogi.Message) otogi.Message {
 // words before tools went out, saying once how the reply ended when that was
 // not a plain answer. said is whether the reply shows something else: those
 // words, or a sticker after it; then an empty ending is no message at all.
-func ending(out llm.RunResult, said bool, err error) otogi.Message {
+// plain is whether the agent writes plain text, for the sources.
+func ending(out llm.RunResult, said bool, err error, plain bool) otogi.Message {
 	reply := out.Last
 	empty := len(reply.Parts) == 0
 	silent := empty && !said // the reply showed nothing at all
@@ -576,11 +587,12 @@ func ending(out llm.RunResult, said bool, err error) otogi.Message {
 	case silent:
 		return otogi.TextMessage("I have nothing to add.")
 	}
-	return withSources(reply, out.Sources)
+	return withSources(reply, out.Sources, plain)
 }
 
-// withSources ends a grounded reply with links to the pages it cites.
-func withSources(reply otogi.Message, sources []llm.Source) otogi.Message {
+// withSources ends a grounded reply with links to the pages it cites; in
+// plain text, each page's title followed by its address.
+func withSources(reply otogi.Message, sources []llm.Source, plain bool) otogi.Message {
 	if len(sources) == 0 {
 		return reply
 	}
@@ -590,11 +602,14 @@ func withSources(reply otogi.Message, sources []llm.Source) otogi.Message {
 		if i > 0 {
 			list.Write(", ")
 		}
-		title := s.Title
-		if title == "" {
-			title = s.URL
+		switch {
+		case !plain:
+			list.Mark(otogi.AnnotationLink, s.URL, func() { list.Write(cmp.Or(s.Title, s.URL)) })
+		case s.Title != "":
+			list.Write(s.Title + " (" + s.URL + ")")
+		default:
+			list.Write(s.URL)
 		}
-		list.Mark(otogi.AnnotationLink, s.URL, func() { list.Write(title) })
 	}
 	return llm.Join(reply, list.Message())
 }
