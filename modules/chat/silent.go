@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 
@@ -28,19 +29,10 @@ func (s *silence) tool() llm.Tool {
 	})
 }
 
-// note is the note ending a turn trigger started: the notes set for it, or,
-// without notes, the built-in ones of follow-ups and chimes.
+// note is the note ending a turn trigger started: the one set for it, and
+// for follow-ups and chimes left unset, the built-in ones.
 func (p *profile) note(trigger string) string {
-	n := p.Notes
-	if n == nil {
-		switch trigger {
-		case "follow":
-			return followNote
-		case "chime":
-			return chimeNote
-		}
-		return ""
-	}
+	n := cmp.Or(p.Notes, &NotesConfig{})
 	switch trigger {
 	case "mention":
 		return n.Mention
@@ -51,9 +43,17 @@ func (p *profile) note(trigger string) string {
 	case "decision":
 		return n.Decision
 	case "follow":
-		return n.Follow
+		return orDefault(n.Follow, followNote)
 	case "chime":
-		return n.Chime
+		return orDefault(n.Chime, chimeNote)
 	}
 	return ""
+}
+
+// orDefault is *s, or def when s is unset.
+func orDefault(s *string, def string) string {
+	if s == nil {
+		return def
+	}
+	return *s
 }
