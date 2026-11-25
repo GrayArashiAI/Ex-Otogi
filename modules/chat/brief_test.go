@@ -62,6 +62,23 @@ func TestLookupNote(t *testing.T) {
 	}
 }
 
+// Private chats are asked too.
+func TestLookupInPrivate(t *testing.T) {
+	t.Parallel()
+	d := &decider{answer: lookupScore(0.9)}
+	h := newJudged(t, d, lookingProfile("luna"))
+	h.host.lists[[2]string{"luna", "telegram:dm:1"}] = "test"
+	h.mustHandle(h.message("Alice", "luna which Unity version does VRChat use now", func(e *otogi.Event) {
+		e.Conversation = otogi.Conversation{ID: "dm:1", Kind: otogi.ConversationDirect}
+	}))
+	if len(d.requests) != 1 || d.requests[0].Questions[lookupID].Instructions == "" {
+		t.Fatalf("decision requests %+v", d.requests)
+	}
+	if got := lastUserText(h.llm["luna"].requests[0]); !strings.HasSuffix(got, lookupNote) {
+		t.Fatalf("not told to look things up: %q", got)
+	}
+}
+
 // Without judge.brief nothing is asked before a reply.
 func TestNoLookupWithoutBrief(t *testing.T) {
 	t.Parallel()
