@@ -24,6 +24,7 @@ type provider struct {
 	mu        sync.Mutex
 	responses []llm.Response
 	errs      []error
+	errFor    func(llm.Request) error // when set and it returns an error, the request fails with it
 	requests  []llm.Request
 	before    func(n int) // when set, runs before the nth request is answered, and may block it
 }
@@ -38,6 +39,11 @@ func (p *provider) Generate(_ context.Context, req llm.Request, partial func(oto
 	}
 	if n <= len(p.errs) && p.errs[n-1] != nil {
 		return llm.Response{}, p.errs[n-1]
+	}
+	if p.errFor != nil {
+		if err := p.errFor(req); err != nil {
+			return llm.Response{}, err
+		}
 	}
 	resp := p.responses[min(n, len(p.responses))-1]
 	if partial != nil && len(resp.Turn.Content.Parts) > 0 {
