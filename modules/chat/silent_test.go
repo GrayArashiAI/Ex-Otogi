@@ -34,11 +34,11 @@ func mentioned(e *otogi.Event) {
 }
 
 // Each turn ends with the note set for what started it, in that request
-// only; without notes, follow-ups and chimes have the built-in ones and other
+// only; follow-ups and chimes left unset have the built-in ones, and other
 // turns none.
 func TestNotesByTrigger(t *testing.T) {
 	t.Parallel()
-	notes := &NotesConfig{Mention: "(mentioned)", Reply: "(replied to)", Keyword: "(named)", Decision: "(judged)", Follow: "(following)", Chime: "(chiming)"}
+	notes := &NotesConfig{Mention: "(mentioned)", Reply: "(replied to)", Keyword: "(named)", Decision: "(judged)", Follow: ptr("(following)"), Chime: ptr("(chiming)")}
 	with := &profile{ProfileConfig: ProfileConfig{Notes: notes}}
 	without := &profile{}
 	for trigger, want := range map[string][2]string{
@@ -52,8 +52,14 @@ func TestNotesByTrigger(t *testing.T) {
 			t.Errorf("%s without notes: %q", trigger, got)
 		}
 	}
-	if got := (&profile{ProfileConfig: ProfileConfig{Notes: &NotesConfig{Mention: "(mentioned)"}}}).note("follow"); got != "" {
-		t.Errorf("follow with notes that leave it empty: %q", got)
+	// Setting one note leaves the built-in ones; setting one empty removes it.
+	mention := &profile{ProfileConfig: ProfileConfig{Notes: &NotesConfig{Mention: "(mentioned)"}}}
+	if got := [2]string{mention.note("follow"), mention.note("chime")}; got != [2]string{followNote, chimeNote} {
+		t.Errorf("with only mention set: %q", got)
+	}
+	none := &profile{ProfileConfig: ProfileConfig{Notes: &NotesConfig{Follow: ptr(""), Chime: ptr("")}}}
+	if got := none.note("follow") + none.note("chime"); got != "" {
+		t.Errorf("with follow and chime set empty: %q", got)
 	}
 
 	h := newHarness(t, ProfileConfig{Name: "luna", Keywords: []string{"luna"}, Mention: true, Provider: "luna", Model: "m", Notes: notes})
