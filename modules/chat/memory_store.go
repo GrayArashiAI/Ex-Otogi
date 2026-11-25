@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/TundraWork/Ex-Otogi/pkg/otogi"
@@ -136,6 +137,39 @@ func (s *store) newest(ctx context.Context, to otogi.Destination, n int) ([]line
 		to.Platform, to.Account, to.Conversation, n)
 	slices.Reverse(lines)
 	return lines, err
+}
+
+// shownNames is the name each of actors last sent a message to the chat
+// under; one with no message kept there is left out.
+func (s *store) shownNames(ctx context.Context, to otogi.Destination, actors []string) (map[string]string, error) {
+	out := make(map[string]string, len(actors))
+	if len(actors) == 0 {
+		return out, nil
+	}
+	args := []any{to.Platform, to.Account, to.Conversation}
+	for _, a := range actors {
+		args = append(args, a)
+	}
+	// SQLite takes the bare actor_name from the row MAX(at) picks.
+	rows, err := s.db.QueryContext(ctx, `SELECT actor_id, actor_name, MAX(at) FROM transcript
+		WHERE platform = ? AND account = ? AND conversation = ? AND outgoing = 0 AND deleted = 0
+		AND actor_id IN (?`+strings.Repeat(", ?", len(actors)-1)+`) GROUP BY actor_id`, args...)
+	if err != nil {
+		return nil, fmt.Errorf("chat store: read names: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var id, name string
+		var at int64
+		if err := rows.Scan(&id, &name, &at); err != nil {
+			return nil, fmt.Errorf("chat store: read names: %w", err)
+		}
+		out[id] = name
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("chat store: read names: %w", err)
+	}
+	return out, nil
 }
 
 // memoryChange is one change to a book: an entry to insert (ID 0), to

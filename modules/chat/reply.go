@@ -38,10 +38,11 @@ type ask struct {
 	msgs    []otogi.Event
 	parent  int64 // the turn the first continues, 0 for a new thread
 	trigger string
-	j       *judgment   // the judgment that woke p for the first, if one did
-	batch   *batchInfo  // nil when p did not wait
-	lookup  *briefed    // what the request before the reply said of looking things up; nil when not asked yet
-	stale   *staleCheck // what the check before the reply went out said; nil when it asked nothing
+	j       *judgment      // the judgment that woke p for the first, if one did
+	batch   *batchInfo     // nil when p did not wait
+	lookup  *briefed       // what the request before the reply said of looking things up; nil when not asked yet
+	memory  map[string]int // the size of the memory the reply read; nil when p keeps none
+	stale   *staleCheck    // what the check before the reply went out said; nil when it asked nothing
 }
 
 // batchInfo is what a reply's record says of its batch.
@@ -118,7 +119,13 @@ func (m *Module) respond(ctx context.Context, inv otogi.Invocation, a ask, until
 	if a.lookup.look() {
 		sent.Content = llm.Join(sent.Content, otogi.TextMessage(lookupNote))
 	}
-	req := llm.Request{Model: p.Model, System: m.system(p, e), Thinking: p.Thinking, MaxOutput: p.MaxOutput, Temperature: p.Temperature, Tools: p.builtins, Plain: p.PlainText}
+	var memory string
+	if p.memory != nil {
+		if memory, a.memory, err = m.remembered(ctx, p, e.Destination()); err != nil {
+			return "", err
+		}
+	}
+	req := llm.Request{Model: p.Model, System: m.system(p, e, memory), Thinking: p.Thinking, MaxOutput: p.MaxOutput, Temperature: p.Temperature, Tools: p.builtins, Plain: p.PlainText}
 	for _, t := range path {
 		req.Turns = append(req.Turns, t.Turn)
 	}
@@ -539,9 +546,11 @@ func (m *Module) contextText(ctx context.Context, a ask, path []storedTurn, inBa
 	return strings.Join(parts, "\n\n"), named, nil
 }
 
-// system is the profile's prompt and what the agent needs to know about
-// where it is.
-func (m *Module) system(p *profile, e otogi.Event) string {
+// system is the profile's prompt, what the agent remembers of the chat, if
+// anything, and what it needs to know about where it is. The memory comes
+// before the time, which changes every minute, so the start of the prompt
+// stays the same while the memory does.
+func (m *Module) system(p *profile, e otogi.Event, memory string) string {
 	where := "a private chat"
 	switch e.Conversation.Kind {
 	case otogi.ConversationGroup:
@@ -559,7 +568,11 @@ func (m *Module) system(p *profile, e otogi.Event) string {
 	if d := strings.TrimSpace(e.Conversation.Description); d != "" {
 		about = " The chat describes itself as: " + d
 	}
-	return strings.TrimSpace(p.System) + "\n\n" + fmt.Sprintf(
+	prompt := strings.TrimSpace(p.System) + "\n\n"
+	if memory != "" {
+		prompt += memory + "\n\n"
+	}
+	return prompt + fmt.Sprintf(
 		"You are %s, talking in %s on %s. It is %s. People address you by starting a message with your name, by mentioning you, or by replying to you. "+
 			"In group chats each message starts with its sender's name. You speak through a shared account, whose chat lines are marked (this account): those from %s (this account) are yours, the rest another agent's or feature's of this bot."+
 			"%s%s%s",
@@ -774,6 +787,9 @@ func (m *Module) record(ctx context.Context, a ask, ids []int64, out llm.RunResu
 	}
 	if sticker != nil {
 		payload["sticker"] = sticker
+	}
+	if a.memory != nil {
+		payload["memory"] = a.memory
 	}
 	if b := a.batch; b != nil {
 		batch := map[string]any{"messages": b.messages, "waited_ms": b.waited.Milliseconds()}

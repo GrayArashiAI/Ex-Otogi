@@ -87,7 +87,7 @@ type ProfileConfig struct {
 	Media         *MediaConfig  `json:"media,omitempty" doc:"Use the media module's descriptions: in the recent messages, the quoted message, and the wake judgment, and, with as_text, in place of the current message's media. Needs the media module, with the agent's chats on its describe list."`
 	Notes         *NotesConfig  `json:"notes,omitempty" doc:"A note ending each turn the model answers, by what started the turn, in that request only. A follow-up and a chime have one by default; other turns none."`
 	Silent        bool          `json:"silent,omitempty" doc:"The agent may end any turn without replying: it has a tool, stay_silent, to send nothing. When to, or not to, is for its prompt and notes to say: with nothing saying so, the model decides on every turn, when called too."`
-	Memory        *MemoryConfig `json:"memory,omitempty" doc:"Keep a memory of each chat on the agent's allowlist: messages it no longer sees are taken into it in batches by a model, and a memory over its size is shortened. Kept past the retention, until removed from the database."`
+	Memory        *MemoryConfig `json:"memory,omitempty" doc:"Keep a memory of each chat on the agent's allowlist: messages it no longer sees are taken into it in batches by a model, and a memory over its size is shortened. The agent reads the whole memory of a chat in each of its replies there. Kept past the retention, until removed from the database."`
 }
 
 // NotesConfig is the note ending a turn, by what started it: the triggers
