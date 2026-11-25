@@ -38,13 +38,14 @@ type ask struct {
 	msgs    []otogi.Event
 	parent  int64 // the turn the first continues, 0 for a new thread
 	trigger string
-	j       *judgment    // the judgment that woke p for the first, if one did
-	batch   *batchInfo   // nil when p did not wait
-	lookup  *briefed     // what the request before the reply said of looking things up; nil when not asked yet
-	stale   *staleCheck  // what the check before the reply went out said; nil when it asked nothing
-	hidden  int          // how many stickers the agent is given past its list
-	resent  *sentPicture // the picture of the chat the reply sent again; nil when it sent none
-	after   *afterFailed // what the agent was asked once its picture or sticker did not go; nil when it went
+	j       *judgment      // the judgment that woke p for the first, if one did
+	batch   *batchInfo     // nil when p did not wait
+	lookup  *briefed       // what the request before the reply said of looking things up; nil when not asked yet
+	memory  map[string]int // the size of the memory the reply read; nil when p keeps none
+	stale   *staleCheck    // what the check before the reply went out said; nil when it asked nothing
+	hidden  int            // how many stickers the agent is given past its list
+	resent  *sentPicture   // the picture of the chat the reply sent again; nil when it sent none
+	after   *afterFailed   // what the agent was asked once its picture or sticker did not go; nil when it went
 }
 
 // batchInfo is what a reply's record says of its batch.
@@ -123,7 +124,13 @@ func (m *Module) respond(ctx context.Context, inv otogi.Invocation, a ask, until
 		sent.Content = llm.Join(sent.Content, otogi.TextMessage(lookupNote))
 	}
 	marked := hasRoleMark(sent.Content) || slices.ContainsFunc(path, func(t storedTurn) bool { return hasRoleMark(t.Turn.Content) })
-	req := llm.Request{Model: p.Model, System: m.system(p, e, stickerList, marked), Thinking: p.Thinking, MaxOutput: p.MaxOutput, Temperature: p.Temperature, Tools: p.builtins, Plain: p.PlainText}
+	var memory string
+	if p.memory != nil {
+		if memory, a.memory, err = m.remembered(ctx, p, e.Destination()); err != nil {
+			return "", err
+		}
+	}
+	req := llm.Request{Model: p.Model, System: m.system(p, e, stickerList, memory, marked), Thinking: p.Thinking, MaxOutput: p.MaxOutput, Temperature: p.Temperature, Tools: p.builtins, Plain: p.PlainText}
 	for _, t := range path {
 		req.Turns = append(req.Turns, t.Turn)
 	}
@@ -601,10 +608,12 @@ func (m *Module) contextText(ctx context.Context, a ask, path []storedTurn, inBa
 	return strings.Join(parts, "\n\n"), named, nil
 }
 
-// system is the profile's prompt, the stickers it may send (empty for none),
-// and what the agent needs to know about where it is; marked says the turns
-// name a group's owner or an admin, whose marks it then explains.
-func (m *Module) system(p *profile, e otogi.Event, stickers string, marked bool) string {
+// system is the profile's prompt, the stickers it may send (empty for
+// none), what the agent remembers of the chat, if anything, and what it
+// needs to know about where it is; marked says the turns name a group's
+// owner or an admin, whose marks it then explains. What changes least comes
+// first, so the start of the prompt stays the same.
+func (m *Module) system(p *profile, e otogi.Event, stickers, memory string, marked bool) string {
 	where := "a private chat"
 	switch e.Conversation.Kind {
 	case otogi.ConversationGroup:
@@ -625,13 +634,13 @@ func (m *Module) system(p *profile, e otogi.Event, stickers string, marked bool)
 	if d := strings.TrimSpace(e.Conversation.Description); d != "" {
 		about += " The chat describes itself as: " + d
 	}
-	// What follows the stickers changes with the chat, its members, and the
-	// minute, so they come first, cached with the persona.
-	persona := strings.TrimSpace(p.System)
-	if stickers != "" {
-		persona = strings.TrimSpace(persona + "\n\n" + stickers)
+	prompt := strings.TrimSpace(p.System)
+	for _, part := range []string{stickers, memory} {
+		if part != "" {
+			prompt = strings.TrimSpace(prompt + "\n\n" + part)
+		}
 	}
-	return persona + "\n\n" + fmt.Sprintf(
+	return prompt + "\n\n" + fmt.Sprintf(
 		"You are %s, talking in %s on %s. It is %s. People address you by starting a message with your name, by mentioning you, or by replying to you. "+
 			"In group chats each message starts with its sender's name. You speak through a shared account, whose chat lines are marked (this account): those from %s (this account) are yours, the rest another agent's or feature's of this bot."+
 			"%s%s%s",
@@ -871,6 +880,9 @@ func (m *Module) record(ctx context.Context, a ask, ids []int64, out llm.RunResu
 	}
 	if a.after != nil {
 		payload["after_failure"] = a.after
+	}
+	if a.memory != nil {
+		payload["memory"] = a.memory
 	}
 	if a.hidden > 0 {
 		payload["stickers_hidden"] = a.hidden
