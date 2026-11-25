@@ -74,9 +74,11 @@ type batch struct {
 	// latest the longest it waits.
 	score  float64
 	latest time.Time
-	// gaveUp is the score of the judgment that the agent no longer means to
-	// speak up, when one did: the batch is not answered.
-	gaveUp *float64
+	// gaveUp is whether the agent no longer means to speak up: the batch is
+	// not answered. still is the judgment's score when one said so; nil
+	// when the message it meant to add to left the recent chat.
+	gaveUp bool
+	still  *float64
 }
 
 // entry is a message in a batch.
@@ -327,8 +329,10 @@ func (m *Module) enter(p *profile, en entry, done float64, known bool, r time.Du
 	if b := w.open; b != nil {
 		if b.chime {
 			// Called while waiting to speak up: from here, a batch the
-			// agent was called for, waited for from this message.
-			b.chime, b.first = false, en.at
+			// agent was called for, waited for from this message. A
+			// message judged with this one may have just had the agent
+			// give up; the call is answered all the same.
+			b.chime, b.first, b.gaveUp, b.still = false, en.at, false, nil
 		}
 		// Messages judged together reach here in no particular order.
 		b.entries = append(b.entries, en)
@@ -369,9 +373,11 @@ func (m *Module) heard(p *profile, chat string, at time.Time, s stillAnswer, r t
 	}
 	b := w.open
 	switch {
-	case s.gone || s.known && s.score < stillThreshold:
+	case s.gone:
+		b.gaveUp = true
+	case s.known && s.score < stillThreshold:
 		score := s.score
-		b.gaveUp = &score
+		b.gaveUp, b.still = true, &score
 	case s.known:
 		b.deadline = minTime(at.Add(chimeHold(b.score, r)), b.latest)
 	default:
@@ -427,7 +433,7 @@ func (m *Module) run(ctx context.Context, inv otogi.Invocation, b *batch) error 
 	}
 	for {
 		m.mu.Lock()
-		due, gaveUp := b.deadline, b.gaveUp != nil
+		due, gaveUp := b.deadline, b.gaveUp
 		m.mu.Unlock()
 		if gaveUp {
 			return m.giveUp(ctx, b)
@@ -451,7 +457,7 @@ func (m *Module) run(ctx context.Context, inv otogi.Invocation, b *batch) error 
 			continue
 		}
 		m.mu.Lock()
-		if time.Now().Before(b.deadline) || b.gaveUp != nil { // a message joined meanwhile, or the agent gave up
+		if time.Now().Before(b.deadline) || b.gaveUp { // a message joined meanwhile, or the agent gave up
 			m.mu.Unlock()
 			continue
 		}
@@ -490,7 +496,7 @@ func (m *Module) run(ctx context.Context, inv otogi.Invocation, b *batch) error 
 func (m *Module) giveUp(ctx context.Context, b *batch) error {
 	m.drop(b)
 	m.mu.Lock()
-	info := &batchInfo{waited: time.Since(b.first), still: b.gaveUp}
+	info := &batchInfo{waited: time.Since(b.first), still: b.still}
 	entries := slices.Clone(b.entries)
 	m.mu.Unlock()
 	for _, en := range entries {
