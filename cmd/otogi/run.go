@@ -107,17 +107,13 @@ func run(ctx context.Context, cfg Config, newLog func(format string) *slog.Logge
 		stopPruning()
 		background.Wait()
 	}()
-	modules, err := settings.enabled(ctx)
-	if err != nil {
-		return false, err
-	}
 	routes := router{}
 	kernelConfig := kernel.Config{
 		Workers: limits.Workers, MaxInFlight: limits.MaxInFlight, HandlerTimeout: time.Duration(limits.HandlerTimeout),
 		Recorder: events, Storage: storage,
 	}
 	middleware := []otogi.Middleware{namesMiddleware{events: events, log: log}, kernel.CommandParser(&sys.prefixes)}
-	k, err = kernel.New(kernelConfig, modules, middleware, routes, log)
+	k, err = kernel.New(kernelConfig, nil, middleware, routes, log) // the modules join once it runs
 	if err != nil {
 		return false, err
 	}
@@ -243,6 +239,13 @@ func run(ctx context.Context, cfg Config, newLog func(format string) *slog.Logge
 	// the kernel and the drivers are. Whatever fails to start then stops the
 	// rest the same way, so the exit says a stop or a restart was asked for.
 	failure = k.Start(ctx)
+	if failure == nil {
+		// Each module that is on joins on its own, so one that fails to
+		// start stays out instead of stopping the process.
+		settings.mu.Lock()
+		_, failure = settings.startWaiting(ctx)
+		settings.mu.Unlock()
+	}
 	var running []driver
 	for _, d := range drivers {
 		if failure != nil {
@@ -253,7 +256,7 @@ func run(ctx context.Context, cfg Config, newLog func(format string) *slog.Logge
 		}
 	}
 	if failure == nil {
-		log.Info("otogi: running", "modules", len(modules), "drivers", len(running))
+		log.Info("otogi: running", "modules", len(k.Descriptors()), "drivers", len(running))
 		process("running", nil)
 		failure = waitForStop(ctx, running)
 	}

@@ -39,20 +39,12 @@ func sectionsHarness(t *testing.T, storage *modulestore.Storage, cfg Config, log
 	if err := s.loadSections(ctx, cfg); err != nil {
 		t.Fatal(err)
 	}
-	modules, err := s.enabled(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
 	sent := capture.New()
-	k, err := kernel.New(kernel.Config{Storage: storage}, modules, []otogi.Middleware{kernel.CommandParser(&sys.prefixes)}, sent, log)
+	k, err := kernel.New(kernel.Config{Storage: storage}, nil, []otogi.Middleware{kernel.CommandParser(&sys.prefixes)}, sent, log)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := k.Start(ctx); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = k.Stop(ctx) })
-	s.kernel = k
+	startModules(t, s, k)
 	return s, rec, sent
 }
 

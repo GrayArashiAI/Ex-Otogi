@@ -45,20 +45,40 @@ func settingsHarness(t *testing.T, storage *modulestore.Storage) (*moduleSetting
 	s := &moduleSettings{store: storage, kinds: moduleKinds, recorder: rec, log: slog.New(slog.DiscardHandler), env: moduleEnv{
 		llm: func(string) (llm.Provider, error) { return silentModel{}, nil },
 	}}
-	modules, err := s.enabled(context.Background())
+	k, err := kernel.New(kernel.Config{Storage: storage}, nil, nil, capture.New(), slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatal(err)
 	}
-	k, err := kernel.New(kernel.Config{Storage: storage}, modules, nil, capture.New(), slog.New(slog.DiscardHandler))
-	if err != nil {
-		t.Fatal(err)
-	}
+	startModules(t, s, k)
+	return s, rec
+}
+
+// startModules starts k, and the modules that are on in it, as run does.
+func startModules(t *testing.T, s *moduleSettings, k *kernel.Kernel) {
+	t.Helper()
 	if err := k.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = k.Stop(context.Background()) })
 	s.kernel = k
-	return s, rec
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, err := s.startWaiting(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// nextStart returns the modules a process starting now from storage runs,
+// with s's kinds and environment.
+func nextStart(t *testing.T, s *moduleSettings) []otogi.ModuleID {
+	t.Helper()
+	k, err := kernel.New(kernel.Config{Storage: s.store}, nil, nil, capture.New(), slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := &moduleSettings{store: s.store, kinds: s.kinds, env: s.env, recorder: &records{}, log: slog.New(slog.DiscardHandler)}
+	startModules(t, next, k)
+	return running(next)
 }
 
 func running(s *moduleSettings) []otogi.ModuleID {
@@ -116,9 +136,8 @@ func TestModuleSettingsRevisions(t *testing.T) {
 		t.Fatalf("running %v", got)
 	}
 
-	modules, err := s.enabled(ctx)
-	if err != nil || len(modules) != 1 || modules[0].Descriptor().ID != "notes" {
-		t.Fatalf("enabled after restart: %v, %v", modules, err)
+	if got := nextStart(t, s); !slices.Equal(got, []otogi.ModuleID{"notes"}) {
+		t.Fatalf("running after restart: %v", got)
 	}
 	if revs, _ := storage.SettingsRevisions(ctx, "notes", 3, 10); len(revs) != 2 || revs[0].Revision != 2 || revs[0].By != "x" || time.Since(revs[0].At) > time.Minute {
 		t.Fatalf("history %+v", revs)

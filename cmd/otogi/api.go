@@ -117,6 +117,9 @@ func (a moduleAPI) Modules(ctx context.Context) ([]management.Module, error) {
 					m.Problem = missingService(d, provided)
 				}
 			}
+			if reason, ok := s.notStarted.get(id); ok && r.Enabled {
+				m.Problem = reason // why it last did not start, such as its Start's error
+			}
 		}
 		for _, l := range d.Allowlists {
 			m.Allowlists = append(m.Allowlists, management.Allowlist{Name: l.Name, Title: l.Title, Description: l.Description, About: string(l.About), Chats: chats[[2]string{string(id), l.Name}]})

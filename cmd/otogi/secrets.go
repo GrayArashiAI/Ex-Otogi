@@ -190,6 +190,7 @@ func (s *moduleSettings) changeSecret(ctx context.Context, name string, value *s
 	if err != nil {
 		return nil, err
 	}
+	restart = append(restart, s.startAfter(ctx, "secret "+name)...)
 	s.secretChanged(ctx, now, name, action, by, restart)
 	return restart, nil
 }

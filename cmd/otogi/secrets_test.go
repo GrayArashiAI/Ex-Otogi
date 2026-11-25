@@ -130,8 +130,9 @@ func TestSecrets(t *testing.T) {
 		t.Fatalf("secrets %s", got)
 	}
 	// The next start builds from the stored value.
-	if modules, err := s.enabled(ctx); err != nil || len(modules) != 1 || modules[0].(*keyed).key != "value-replaced" {
-		t.Fatalf("enabled: %v, %v", modules, err)
+	inUse.Store("")
+	if got := nextStart(t, s); !slices.Equal(got, []otogi.ModuleID{"keyed"}) || inUse.Load() != "value-replaced" {
+		t.Fatalf("next start: running %v, in use %v", got, inUse.Load())
 	}
 
 	// Deleting falls back to the environment while it has the name, and is
