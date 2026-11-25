@@ -284,14 +284,14 @@ func sliceOf[T, U any](in []T, f func(T) U) []U {
 func TestJudgedRequiresDecision(t *testing.T) {
 	t.Parallel()
 	providers := func(string) (llm.Provider, error) { return &provider{}, nil }
-	plain, err := New(Config{Profiles: []ProfileConfig{{Name: "luna", Keywords: []string{"luna"}, Provider: "p", Model: "m"}}}, providers)
+	plain, err := New(Config{Profiles: []ProfileConfig{{Name: "luna", Keywords: []string{"luna"}, Provider: "p", Model: "m"}}}, providers, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if slices.Contains(plain.Descriptor().Requires, decision.Service) {
 		t.Fatal("an unjudged chat requires the decision service")
 	}
-	judged, err := New(Config{Profiles: []ProfileConfig{{Name: "luna", Keywords: []string{"luna"}, Provider: "p", Model: "m", Judge: &JudgeConfig{Wake: &WakeConfig{}}}}}, providers)
+	judged, err := New(Config{Profiles: []ProfileConfig{{Name: "luna", Keywords: []string{"luna"}, Provider: "p", Model: "m", Judge: &JudgeConfig{Wake: &WakeConfig{}}}}}, providers, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

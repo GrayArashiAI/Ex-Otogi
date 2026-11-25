@@ -124,13 +124,13 @@ func TestBriefNeedsAWebTool(t *testing.T) {
 	t.Parallel()
 	p := lookingProfile("luna")
 	p.Tools = nil
-	_, err := New(Config{Profiles: []ProfileConfig{p}}, func(string) (llm.Provider, error) { return &provider{}, nil })
+	_, err := New(Config{Profiles: []ProfileConfig{p}}, func(string) (llm.Provider, error) { return &provider{}, nil }, nil)
 	var se *otogi.SettingError
 	if !errors.As(err, &se) || se.Path != "profiles[0].judge.brief" {
 		t.Fatalf("err %v, want a refusal at profiles[0].judge.brief", err)
 	}
 	p.Tools = []string{llm.BuiltinURLContext}
-	if _, err := New(Config{Profiles: []ProfileConfig{p}}, func(string) (llm.Provider, error) { return &provider{}, nil }); err != nil {
+	if _, err := New(Config{Profiles: []ProfileConfig{p}}, func(string) (llm.Provider, error) { return &provider{}, nil }, nil); err != nil {
 		t.Fatalf("url_context: %v", err)
 	}
 }

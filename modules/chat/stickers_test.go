@@ -267,7 +267,7 @@ func TestStickerAfterOtherTools(t *testing.T) {
 	}}, llm: map[string]*provider{}, now: time.Date(2026, 10, 31, 12, 0, 0, 0, time.UTC)}
 	call := llm.Response{Turn: llm.Turn{Role: llm.RoleModel, Content: otogi.TextMessage("Let me shout."), Calls: []llm.Call{{ID: "c1", Name: "shout", Args: json.RawMessage(`"hi"`)}}}, Finish: llm.FinishToolCalls}
 	p := &provider{responses: []llm.Response{call, picks("Shouted.", 1)}}
-	if h.m, err = New(Config{Tools: []string{"fun"}, Profiles: []ProfileConfig{stickerProfile()}}, func(string) (llm.Provider, error) { return p, nil }); err != nil {
+	if h.m, err = New(Config{Tools: []string{"fun"}, Profiles: []ProfileConfig{stickerProfile()}}, func(string) (llm.Provider, error) { return p, nil }, nil); err != nil {
 		t.Fatal(err)
 	}
 	h.m.now = h.clock

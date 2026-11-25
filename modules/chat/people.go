@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/TundraWork/Ex-Otogi/pkg/otogi"
@@ -16,21 +17,46 @@ func (m *Module) known(platform otogi.PlatformID, actor string) (person, bool) {
 	return p, ok
 }
 
+// operatorMark follows the names of the bot's operators wherever a model is
+// told who said what, so that nobody passes for one by taking their name:
+// the module adds it by account, and takes it out of every name a platform
+// gives (EXO-43).
+const operatorMark = "⟦operator⟧"
+
+// withoutOperatorMark is s with no operator mark in it, nor half of one:
+// what a name a platform gives, or anything else people wrote that goes
+// where the mark is explained, must be before a model reads it.
+func withoutOperatorMark(s string) string {
+	s = strings.ReplaceAll(s, operatorMark, "")
+	return strings.TrimSpace(strings.NewReplacer("⟦", "", "⟧", "").Replace(s))
+}
+
+// isOperator reports whether actor on platform is one of the bot's operators.
+func (m *Module) isOperator(platform otogi.PlatformID, actor string) bool {
+	return m.operators != nil && slices.Contains(m.operators(), string(platform)+":"+actor)
+}
+
 // nameOf is how a model is told who sent a message: the name the people list
 // gives them, then the name the platform shows where it differs, since
-// others mention them by it. The transcript keeps the platform's names, so
-// a changed list applies at once to the recent messages and judgments, which
-// are read from it each time; a thread's turns keep the names they were sent
-// with.
+// others mention them by it, and the operator mark for an operator. The
+// transcript keeps the platform's names, so a changed list applies at once
+// to the recent messages and judgments, which are read from it each time; a
+// thread's turns keep the names they were sent with.
 func (m *Module) nameOf(platform otogi.PlatformID, actor, shown string) string {
-	p, ok := m.known(platform, actor)
-	switch {
-	case !ok || p.name == "" || p.name == shown:
-		return shown
-	case shown == "" || shown == actor: // the platform gives no name
-		return p.name
+	if shown = withoutOperatorMark(shown); shown == "" {
+		shown = actor
 	}
-	return p.name + " (" + shown + ")"
+	name := shown
+	if p, ok := m.known(platform, actor); ok && p.name != "" && p.name != shown {
+		name = p.name
+		if shown != actor { // the platform gives a name
+			name += " (" + shown + ")"
+		}
+	}
+	if m.isOperator(platform, actor) {
+		name += " " + operatorMark
+	}
+	return name
 }
 
 // factor multiplies the judgment thresholds of actor's messages.

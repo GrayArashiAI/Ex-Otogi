@@ -480,13 +480,13 @@ func TestWaitConfig(t *testing.T) {
 		"negative":                 {0, -time.Second, 0, "profiles[0].judge.wait.min", "must not be negative"},
 	} {
 		p := waitingProfile("luna", c.least, c.most)
-		_, err := New(Config{Timeout: otogi.Duration(c.timeout), Profiles: []ProfileConfig{p}}, providers)
+		_, err := New(Config{Timeout: otogi.Duration(c.timeout), Profiles: []ProfileConfig{p}}, providers, nil)
 		var se *otogi.SettingError
 		if !errors.As(err, &se) || se.Path != c.path || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: err %v, want %q at %s", name, err, c.want, c.path)
 		}
 	}
-	if _, err := New(Config{Profiles: []ProfileConfig{waitingProfile("luna", 0, 0)}}, providers); err != nil {
+	if _, err := New(Config{Profiles: []ProfileConfig{waitingProfile("luna", 0, 0)}}, providers, nil); err != nil {
 		t.Fatalf("defaults: %v", err)
 	}
 }

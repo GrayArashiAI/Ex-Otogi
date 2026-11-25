@@ -33,6 +33,7 @@ type Module struct {
 	decider     decision.Decider   // set in Start when an agent is judged
 	describer   mediasvc.Describer // set in Start when an agent reads descriptions
 	stickers    mediasvc.Stickers  // set in Start when an agent sends stickers
+	operators   func() []string    // the bot's operators now, as platform:actor IDs
 	now         func() time.Time
 
 	// Waiting for senders to finish (see batch). Waits are timed on the
@@ -45,15 +46,16 @@ type Module struct {
 }
 
 // New validates the configuration; providers finds the providers profiles
-// name.
-func New(cfg Config, providers func(string) (llm.Provider, error)) (*Module, error) {
+// name, and operators returns the bot's operators, as platform:actor IDs,
+// whose names models see marked.
+func New(cfg Config, providers func(string) (llm.Provider, error), operators func() []string) (*Module, error) {
 	profiles, err := cfg.profiles(providers)
 	toolModules, toolsErr := cfg.toolModules()
 	people, peopleErr := cfg.people()
 	if err := errors.Join(err, toolsErr, peopleErr); err != nil {
 		return nil, err
 	}
-	m := &Module{cfg: cfg, profiles: profiles, byName: map[string]*profile{}, people: people, toolModules: toolModules, now: time.Now,
+	m := &Module{cfg: cfg, profiles: profiles, byName: map[string]*profile{}, people: people, toolModules: toolModules, operators: operators, now: time.Now,
 		waits: map[string]*waiting{}, inflight: map[string][]*inflight{}, together: map[string]*judgeGroup{}, replied: map[string][]time.Time{}}
 	for _, p := range profiles {
 		m.byName[p.Name] = p

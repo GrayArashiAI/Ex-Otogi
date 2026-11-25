@@ -45,7 +45,7 @@ var moduleKinds = map[otogi.ModuleID]moduleKind{
 	"bilibili": kind(func(c bilibili.Config, _ moduleEnv) (otogi.Module, error) { return built(bilibili.New(c)) }),
 	"booth":    kind(func(c booth.Config, _ moduleEnv) (otogi.Module, error) { return built(booth.New(c)) }),
 	"chat": kind(func(c chat.Config, env moduleEnv) (otogi.Module, error) {
-		return built(chat.New(c, env.llm))
+		return built(chat.New(c, env.llm, env.operators))
 	}).keeping(profileNames),
 	"decision": kind(func(c decision.Config, env moduleEnv) (otogi.Module, error) {
 		return built(decision.New(c, env.secret))

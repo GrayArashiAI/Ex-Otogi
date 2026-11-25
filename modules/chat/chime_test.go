@@ -67,13 +67,13 @@ func waitingToChime(h *harness) bool {
 func TestChimeNeedsWait(t *testing.T) {
 	t.Parallel()
 	p := ProfileConfig{Name: "luna", Keywords: []string{"luna"}, Provider: "luna", Model: "m", Judge: &JudgeConfig{Chime: &ChimeConfig{}}}
-	_, err := New(Config{Profiles: []ProfileConfig{p}}, func(string) (llm.Provider, error) { return &provider{}, nil })
+	_, err := New(Config{Profiles: []ProfileConfig{p}}, func(string) (llm.Provider, error) { return &provider{}, nil }, nil)
 	var se *otogi.SettingError
 	if !errors.As(err, &se) || se.Path != "profiles[0].judge.chime" {
 		t.Fatalf("err %v, want a refusal at profiles[0].judge.chime", err)
 	}
 	p = chimeProfile("luna", 0)
-	if _, err := New(Config{Profiles: []ProfileConfig{p}}, func(string) (llm.Provider, error) { return &provider{}, nil }); err != nil {
+	if _, err := New(Config{Profiles: []ProfileConfig{p}}, func(string) (llm.Provider, error) { return &provider{}, nil }, nil); err != nil {
 		t.Fatalf("with judge.wait: %v", err)
 	}
 }

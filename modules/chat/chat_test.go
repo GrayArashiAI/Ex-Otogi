@@ -203,7 +203,7 @@ func newHarnessConfig(t *testing.T, services map[string]any, c Config) *harness 
 			return p, nil
 		}
 		return nil, fmt.Errorf("provider %q: %w", name, otogi.ErrInvalid)
-	})
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -448,12 +448,12 @@ func TestConfigErrors(t *testing.T) {
 		"hot":                           {[]ProfileConfig{{Name: "a", Keywords: []string{"a"}, Provider: "gemini", Model: "m", Temperature: ptr(2.5)}}, "temperature: 2.5: want 0 to 2"},
 		"sticker number 0":              {[]ProfileConfig{{Name: "a", Keywords: []string{"a"}, Provider: "gemini", Model: "m", Media: &MediaConfig{Stickers: []int{1, 0}}}}, "media.stickers[1]: 0: want a sticker's number"},
 	} {
-		if _, err := New(Config{Profiles: c.profiles}, providers); err == nil || !strings.Contains(err.Error(), c.want) {
+		if _, err := New(Config{Profiles: c.profiles}, providers, nil); err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: err %v, want %q", name, err, c.want)
 		}
 	}
 	for tools, want := range map[string]string{"web_search": "a built-in tool: set it on the profiles", "a b": "want a module ID", "todou,todou": "listed twice"} {
-		if _, err := New(Config{Profiles: []ProfileConfig{base}, Tools: strings.Split(tools, ",")}, providers); err == nil || !strings.Contains(err.Error(), want) {
+		if _, err := New(Config{Profiles: []ProfileConfig{base}, Tools: strings.Split(tools, ",")}, providers, nil); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("tools %s: err %v, want %q", tools, err, want)
 		}
 	}
@@ -509,7 +509,7 @@ func TestToolsPerChat(t *testing.T) {
 	}}
 	h.llm["p"] = p
 	h.m, err = New(Config{Tools: []string{"fun"}, Profiles: []ProfileConfig{{Name: "otogi", Keywords: []string{"otogi"}, Provider: "p", Model: "m", Tools: []string{"web_search"}}}},
-		func(string) (llm.Provider, error) { return p, nil })
+		func(string) (llm.Provider, error) { return p, nil }, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -572,7 +572,7 @@ func TestWordsBeforeToolsGoOutFirst(t *testing.T) {
 	call := llm.Response{Turn: llm.Turn{Role: llm.RoleModel, Content: otogi.TextMessage("Let me shout."), Calls: []llm.Call{{ID: "c1", Name: "shout", Args: json.RawMessage(`"hi"`)}}}, Finish: llm.FinishToolCalls}
 	p := &provider{responses: []llm.Response{call, answer("Shouted.")}}
 	h.llm["otogi"] = p
-	if h.m, err = New(Config{Tools: []string{"fun"}, Profiles: []ProfileConfig{{Name: "otogi", Keywords: []string{"otogi"}, Provider: "otogi", Model: "m"}}}, func(string) (llm.Provider, error) { return p, nil }); err != nil {
+	if h.m, err = New(Config{Tools: []string{"fun"}, Profiles: []ProfileConfig{{Name: "otogi", Keywords: []string{"otogi"}, Provider: "otogi", Model: "m"}}}, func(string) (llm.Provider, error) { return p, nil }, nil); err != nil {
 		t.Fatal(err)
 	}
 	h.m.now = h.clock
