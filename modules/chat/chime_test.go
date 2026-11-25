@@ -206,7 +206,8 @@ func TestChimeCalledDuringTheWait(t *testing.T) {
 	}
 }
 
-// The pause is 2 to 6 rhythms, the surer the chime the shorter.
+// The pause is 2 to 6 rhythms for scores from 1 to 0, the surer the chime
+// the shorter: 2 to 3.8 past the default threshold of 0.55.
 func TestChimeHold(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -259,10 +260,41 @@ func TestHeardMovesThePause(t *testing.T) {
 	}
 	h.m.heard(p, group, t0.Add(60*time.Second), stillAnswer{gone: true}, time.Second)
 	h.m.mu.Lock()
-	gaveUp := b.gaveUp != nil
+	gaveUp, still := b.gaveUp, b.still
 	h.m.mu.Unlock()
-	if !gaveUp {
-		t.Fatal("did not give up on a message gone from the recent chat")
+	if !gaveUp || still != nil {
+		t.Fatalf("gave up %v, still %v: want given up with no score, the message gone from the recent chat", gaveUp, still)
+	}
+	// Its record has no still: no judgment gave a score.
+	if err := h.m.giveUp(t.Context(), b); err != nil {
+		t.Fatal(err)
+	}
+	if rec := lastReply(h); rec["skipped"] != "still" || batchOf(t, rec)["still"] != nil {
+		t.Fatalf("record %+v", rec)
+	}
+}
+
+// A call that comes just as a message judged with it has the agent give up
+// is answered: the batch becomes one the agent was called for.
+func TestChimeCalledAsItGivesUp(t *testing.T) {
+	t.Parallel()
+	h := newChiming(t, &decider{answer: chiming(0.9, 0.2)}, chimeProfile("luna", 0.7))
+	p := h.m.profiles[0]
+	now := time.Now()
+	b := h.m.enter(p, entry{e: h.message("Alice", "anyone tried the new Unity?"), at: now, trigger: "chime", j: &judgment{Score: 0.9, Threshold: 0.55}}, 1, true, 3*time.Second, false)
+	if b == nil {
+		t.Fatal("the chime opened no batch")
+	}
+	h.m.heard(p, group, now, stillAnswer{score: 0.2, known: true}, 3*time.Second)
+	if joined := h.m.enter(p, entry{e: h.message("Bob", "luna what do you think"), at: now, trigger: "decision", j: &judgment{Score: 0.9, Threshold: 0.7}}, 1, true, 3*time.Second, false); joined != nil {
+		t.Fatal("the call opened a batch of its own")
+	}
+	if err := h.m.run(t.Context(), invocation{h: h}, b); err != nil {
+		t.Fatal(err)
+	}
+	rec := lastReply(h)
+	if n := h.llm["luna"].count(); n != 1 || rec["skipped"] != nil || rec["trigger"] != "decision" || !slices.Equal(batchOf(t, rec)["messages"].([]string), []string{"m1", "m2"}) {
+		t.Fatalf("%d replies, record %+v", n, rec)
 	}
 }
 
