@@ -21,6 +21,10 @@ const cleanupTimeout = 30 * time.Second
 // the system prompt let replies grow from 31 to 60 characters on average.
 const followNote = "(Nobody named you: someone is carrying on the exchange with you. Keep it short.)"
 
+// chimeNote tells the model why it speaks when it chimes in, as followNote
+// does on a follow-up.
+const chimeNote = "(Nobody asked you; you chose to join in. Keep it short.)"
+
 // lookupNote ends a turn judged to need looking up: answered from memory,
 // such questions came out wrong on Eku. It goes in the turn, not the system
 // prompt, where Eku kept to such notes far less.
@@ -43,6 +47,10 @@ type batchInfo struct {
 	messages []string // the source IDs of the messages it answers
 	waited   time.Duration
 	covered  []string // those left out as the previous reply did for them
+	// still is, for a wait to speak up the agent gave up, how sure the
+	// judgment was that it still meant to; nil for a gave-up wait whose
+	// message left the recent chat, and for every other batch.
+	still *float64
 }
 
 // respond has a.p answer a.msgs, continuing from turn a.parent (0 for a new
@@ -93,8 +101,11 @@ func (m *Module) respond(ctx context.Context, inv otogi.Invocation, a ask, until
 	if len(lead) > 0 {
 		sent.Content = llm.Join(otogi.TextMessage(strings.Join(lead, "\n\n")), user.Content)
 	}
-	if a.trigger == "follow" {
+	switch a.trigger {
+	case "follow":
 		sent.Content = llm.Join(sent.Content, otogi.TextMessage(followNote))
+	case "chime":
+		sent.Content = llm.Join(sent.Content, otogi.TextMessage(chimeNote))
 	}
 	if a.lookup == nil && p.lookup > 0 {
 		if _, a.lookup, err = m.briefEvents(ctx, p, a.msgs, func(int) bool { return false }, ""); err != nil {
@@ -606,6 +617,9 @@ func (m *Module) record(ctx context.Context, a ask, ids []int64, out llm.RunResu
 		batch := map[string]any{"messages": b.messages, "waited_ms": b.waited.Milliseconds()}
 		if len(b.covered) > 0 {
 			batch["covered"] = b.covered
+		}
+		if b.still != nil {
+			batch["still"] = *b.still
 		}
 		payload["batch"] = batch
 	}

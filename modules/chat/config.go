@@ -96,6 +96,12 @@ type JudgeConfig struct {
 	Follow *FollowConfig `json:"follow,omitempty" doc:"Keep up an exchange the agent is in: a group message carrying on what the agent said in the last ten messages is answered, though nobody names it. Reactions that need no reply are not."`
 	Wait   *WaitConfig   `json:"wait,omitempty" doc:"In groups, wait until the sender has finished, and answer what was said to the agent meanwhile together. A wait holds one of the process's workers, at most one per agent and group."`
 	Brief  *BriefConfig  `json:"brief,omitempty" doc:"Before each reply, in any chat, ask whether the agent should look things up online before answering; when it should, the turn tells it to. Needs web_search or url_context in its tools."`
+	Chime  *ChimeConfig  `json:"chime,omitempty" doc:"Speak up unasked: in a group where the agent is not in the conversation, a message it would like to add to is answered once the chat pauses, up to 2 minutes later. Needs wait."`
+}
+
+// ChimeConfig configures speaking up unasked.
+type ChimeConfig struct {
+	Threshold float64 `json:"threshold,omitempty" minimum:"0" maximum:"1" default:"0.55" doc:"How sure the judgment must be that the agent would like to add to a message. It rises with how often the agent has spoken up unasked, as judge.follow's does."`
 }
 
 // BriefConfig configures the judgment asked before each reply.
@@ -132,6 +138,9 @@ const (
 	defaultWake = 0.7
 	// defaultFollow is the follow threshold of a follow block that sets none.
 	defaultFollow = 0.6
+	// defaultChime is the chime threshold of a chime block that sets none:
+	// Eku's live value (2026-11-25).
+	defaultChime = 0.55
 	// defaultLookup is the lookup threshold of a brief block that sets none:
 	// Eku's, live since 2026-11-18.
 	defaultLookup = 0.7
@@ -146,6 +155,10 @@ type profile struct {
 	provider llm.Provider
 	wake     float64 // how sure a judgment must be to wake it; 0 when it is not judged
 	follow   float64 // how sure a judgment must be that a message carries on its exchange; 0 when not judged
+	chime    float64 // how sure a judgment must be that it would like to speak up; 0 when not judged
+	// chimeMax is the longest it waits for a chat to pause before speaking
+	// up: chimeHoldMax, or half of timeout, which also bounds the reply.
+	chimeMax time.Duration
 	rules    string  // what else counts as talking to it, for judgments
 	lookup   float64 // how sure a judgment must be that it should look things up first; 0 when not asked
 	// waitMin and waitMax bound how long it waits in groups for the sender
@@ -275,6 +288,9 @@ func (c *Config) profiles(providers func(string) (llm.Provider, error)) ([]*prof
 			if pc.Judge.Follow != nil {
 				p.follow = cmp.Or(pc.Judge.Follow.Threshold, defaultFollow)
 			}
+			if pc.Judge.Chime != nil {
+				p.chime = cmp.Or(pc.Judge.Chime.Threshold, defaultChime)
+			}
 			if pc.Judge.Brief != nil {
 				p.lookup = cmp.Or(pc.Judge.Brief.Lookup, defaultLookup)
 				if !slices.ContainsFunc(p.builtins, func(t llm.ToolSpec) bool {
@@ -294,6 +310,12 @@ func (c *Config) profiles(providers func(string) (llm.Provider, error)) ([]*prof
 					refuse(".judge.wait.min", fmt.Errorf("%s is longer than max (%s)", p.waitMin, p.waitMax))
 				case p.waitMax > time.Duration(c.Timeout)/2:
 					refuse(".judge.wait.max", fmt.Errorf("%s: at most half of timeout (%s), which also bounds the reply", p.waitMax, time.Duration(c.Timeout)))
+				}
+			}
+			if p.chime > 0 {
+				p.chimeMax = min(chimeHoldMax, time.Duration(c.Timeout)/2)
+				if p.waitMax == 0 {
+					refuse(".judge.chime", errors.New("needs judge.wait, to wait for the chat to pause"))
 				}
 			}
 		}

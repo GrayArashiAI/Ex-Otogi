@@ -19,6 +19,29 @@ import (
 // by once it runs.
 const coveredThreshold = 0.7
 
+// Speaking up unasked waits for the chat to pause (EXO-2, section 6): Eku's
+// rules, which its live logs of 2026-11-23 to 25 bear out. Of 61 waits, about
+// 52 ended in speaking, some 20 seconds after the message, and 9 in giving up
+// as the chat moved on.
+const (
+	// chimePace times the sender's rhythm is the shortest silence that
+	// counts as a pause, for a chime judged certain; one judged less sure
+	// waits longer, 3.8 times the rhythm at the default threshold of 0.55.
+	chimePace = 2
+	// chimeHoldMax is the longest an agent waits to speak up, from the
+	// message it means to add to.
+	chimeHoldMax = 2 * time.Minute
+	// stillThreshold is how sure the judgment must be, when another message
+	// comes during the wait, that the agent still means to speak up.
+	stillThreshold = 0.5
+)
+
+// chimeHold is how long a chat must stay quiet after a message, from a sender
+// typing at rhythm r, for an agent to speak up on a chime judged at score.
+func chimeHold(score float64, r time.Duration) time.Duration {
+	return time.Duration(chimePace * (1 + 2*(1-min(1, max(0, score)))) * float64(r))
+}
+
 // A batch is what an agent waiting for senders to finish answers together
 // in a group: the messages to it from the first on, while more may come. At
 // most one batch per agent and chat waits at a time; messages to the agent
@@ -26,6 +49,10 @@ const coveredThreshold = 0.7
 // message that opens a batch waits in its own Handle and answers from it, so
 // the answer is a reply to a message being handled (a passive reply on QQ),
 // and a restart handles that message again; messages that join return.
+//
+// A message the agent would like to chime in on opens a batch too, which
+// waits for the chat to pause; a message calling the agent meanwhile joins
+// it, and from then on it is a batch the agent was called for.
 type batch struct {
 	key     string
 	p       *profile
@@ -33,12 +60,23 @@ type batch struct {
 	first   time.Time // when the first message arrived
 	// deadline is when to answer: after the latest message, by how sure it
 	// is that its sender has finished, but no later than p.waitMax after the
-	// first.
+	// first. For a chime, after the latest message by the pause its sender's
+	// rhythm makes, no later than latest.
 	deadline time.Time
 	changed  chan struct{} // signalled when a message joins
 	// after is the reply running when the batch opened: it waits for it to
 	// end. Nil when none was.
 	after chan struct{}
+	// chime is whether the batch waits to speak up unasked: nobody has
+	// called the agent since it opened.
+	chime bool
+	// score is the chime's, which sets how long a pause it waits for, and
+	// latest the longest it waits.
+	score  float64
+	latest time.Time
+	// gaveUp is the score of the judgment that the agent no longer means to
+	// speak up, when one did: the batch is not answered.
+	gaveUp *float64
 }
 
 // entry is a message in a batch.
@@ -273,7 +311,25 @@ func (m *Module) enter(p *profile, en entry, done float64, known bool, r time.Du
 		w = &waiting{}
 		m.waits[key] = w
 	}
+	if en.trigger == "chime" {
+		// A chime is asked only while the agent neither gathers a batch
+		// nor replies; one that comes back after either started, or after
+		// another chime of the same request opened its batch, is let go.
+		if w.open != nil || w.replying != nil {
+			return nil
+		}
+		latest := en.at.Add(p.chimeMax)
+		b := &batch{key: key, p: p, entries: []entry{en}, first: en.at, deadline: minTime(en.at.Add(chimeHold(en.j.Score, r)), latest),
+			changed: make(chan struct{}, 1), chime: true, score: en.j.Score, latest: latest}
+		w.open = b
+		return b
+	}
 	if b := w.open; b != nil {
+		if b.chime {
+			// Called while waiting to speak up: from here, a batch the
+			// agent was called for, waited for from this message.
+			b.chime, b.first = false, en.at
+		}
 		// Messages judged together reach here in no particular order.
 		b.entries = append(b.entries, en)
 		if en.at.Before(b.first) {
@@ -289,6 +345,59 @@ func (m *Module) enter(p *profile, en entry, done float64, known bool, r time.Du
 	b := &batch{key: key, p: p, entries: []entry{en}, first: en.at, deadline: minTime(due, en.at.Add(p.waitMax)), changed: make(chan struct{}, 1), after: w.replying}
 	w.open = b
 	return b
+}
+
+// stillAnswer is what a judgment said of an agent waiting to speak up, when
+// another message came: whether it still means to (score, when known), or
+// that the message it meant to add to has left the recent chat (gone).
+type stillAnswer struct {
+	score       float64
+	known, gone bool
+}
+
+// heard is what a message of chat that did not call p, arriving at at from a
+// sender typing at rhythm r, does to p's wait to speak up: the agent gives
+// up when the judgment says it no longer means to, or when the message it
+// meant to add to has left the recent chat; otherwise the pause is waited
+// for from this message. A failed judgment changes nothing.
+func (m *Module) heard(p *profile, chat string, at time.Time, s stillAnswer, r time.Duration) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	w := m.waits[p.Name+"\x00"+chat]
+	if w == nil || w.open == nil || !w.open.chime {
+		return
+	}
+	b := w.open
+	switch {
+	case s.gone || s.known && s.score < stillThreshold:
+		score := s.score
+		b.gaveUp = &score
+	case s.known:
+		b.deadline = minTime(at.Add(chimeHold(b.score, r)), b.latest)
+	default:
+		return
+	}
+	select {
+	case b.changed <- struct{}{}:
+	default:
+	}
+}
+
+// chimeOf is the message p waits to speak up on in chat, if it does, and
+// whether it is busy otherwise: gathering a batch it was called for, or
+// replying.
+func (m *Module) chimeOf(p *profile, chat string) (source string, waiting, busy bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	w := m.waits[p.Name+"\x00"+chat]
+	switch {
+	case w == nil:
+		return "", false, false
+	case w.open != nil && w.open.chime:
+		return string(w.open.entries[0].e.SourceID), true, false
+	default:
+		return "", false, w.open != nil || w.replying != nil
+	}
 }
 
 func minTime(a, b time.Time) time.Time {
@@ -318,8 +427,11 @@ func (m *Module) run(ctx context.Context, inv otogi.Invocation, b *batch) error 
 	}
 	for {
 		m.mu.Lock()
-		due := b.deadline
+		due, gaveUp := b.deadline, b.gaveUp != nil
 		m.mu.Unlock()
+		if gaveUp {
+			return m.giveUp(ctx, b)
+		}
 		if wait := time.Until(due); wait > 0 {
 			timer := time.NewTimer(wait)
 			select {
@@ -339,7 +451,7 @@ func (m *Module) run(ctx context.Context, inv otogi.Invocation, b *batch) error 
 			continue
 		}
 		m.mu.Lock()
-		if time.Now().Before(b.deadline) { // a message joined meanwhile
+		if time.Now().Before(b.deadline) || b.gaveUp != nil { // a message joined meanwhile, or the agent gave up
 			m.mu.Unlock()
 			continue
 		}
@@ -370,6 +482,22 @@ func (m *Module) run(ctx context.Context, inv otogi.Invocation, b *batch) error 
 	var err error
 	text, err = m.answerBatch(ctx, inv, b.p, entries, previous, waited)
 	return err
+}
+
+// giveUp closes b, a wait to speak up the agent gave up, unanswered, and
+// records it as a chat.reply skipped for that: the chat moved on, or someone
+// said what the agent meant to.
+func (m *Module) giveUp(ctx context.Context, b *batch) error {
+	m.drop(b)
+	m.mu.Lock()
+	info := &batchInfo{waited: time.Since(b.first), still: b.gaveUp}
+	entries := slices.Clone(b.entries)
+	m.mu.Unlock()
+	for _, en := range entries {
+		info.messages = append(info.messages, string(en.e.SourceID))
+	}
+	m.record(ctx, askOf(b.p, entries, info), nil, llm.RunResult{}, nil, nil, nil, 0, "still")
+	return nil
 }
 
 // drop forgets b if it is still open: the Handle running it ended before it
@@ -420,13 +548,17 @@ func (m *Module) answerBatch(ctx context.Context, inv otogi.Invocation, p *profi
 	return m.respond(ctx, inv, a, until)
 }
 
+// unasked reports whether trigger has an agent speak though nobody called
+// it: a follow-up, or a chime.
+func unasked(trigger string) bool { return trigger == "follow" || trigger == "chime" }
+
 // askOf is what p answers in a batch of entries: the first's thread, and the
 // trigger and judgment of the first that called the agent, or of the first
-// when all only carried on its exchange. A batch in which anyone called it
-// was asked for, and is no follow-up.
+// when nobody did. A batch in which anyone called it was asked for, and is
+// no follow-up or chime.
 func askOf(p *profile, entries []entry, info *batchInfo) ask {
 	lead := entries[0]
-	if i := slices.IndexFunc(entries, func(en entry) bool { return en.trigger != "follow" }); i >= 0 {
+	if i := slices.IndexFunc(entries, func(en entry) bool { return !unasked(en.trigger) }); i >= 0 {
 		lead = entries[i]
 	}
 	a := ask{p: p, parent: entries[0].parent, trigger: lead.trigger, j: lead.j, batch: info}

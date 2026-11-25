@@ -80,9 +80,10 @@ func TestReplayWake(t *testing.T) {
 		t.Fatal(err)
 	}
 	name := cmp.Or(os.Getenv("OTOGI_CHAT_REPLAY_AGENT"), "luna")
-	// A threshold no score reaches: every message is judged, none answered,
+	// A threshold of 1, which scores fall short of (above 1 the agent would not
+	// be asked at all): every message is judged, none answered,
 	// so the chat goes on as it did.
-	agent := ProfileConfig{Name: name, Keywords: []string{name}, Provider: "replay", Model: "m", Judge: &JudgeConfig{Rules: os.Getenv("OTOGI_CHAT_REPLAY_RULES"), Wake: &WakeConfig{Threshold: 1.01}}}
+	agent := ProfileConfig{Name: name, Keywords: []string{name}, Provider: "replay", Model: "m", Judge: &JudgeConfig{Rules: os.Getenv("OTOGI_CHAT_REPLAY_RULES"), Wake: &WakeConfig{Threshold: 1}}}
 	h := newHarnessWith(t, dh.services, agent)
 	h.llm["replay"].responses = []llm.Response{answer("…")}
 
@@ -160,10 +161,11 @@ func TestReplayFollow(t *testing.T) {
 		t.Fatal(err)
 	}
 	name := cmp.Or(os.Getenv("OTOGI_CHAT_REPLAY_AGENT"), "luna")
-	// A threshold no score reaches: every candidate is judged, none
+	// A threshold of 1, which scores fall short of (above 1 the agent would not
+	// be asked at all): every candidate is judged, none
 	// answered, so the chat and the agent's share go on as they did.
 	agent := ProfileConfig{Name: name, Keywords: []string{name}, Provider: "replay", Model: "m",
-		Judge: &JudgeConfig{Rules: os.Getenv("OTOGI_CHAT_REPLAY_RULES"), Follow: &FollowConfig{Threshold: 1.01}}}
+		Judge: &JudgeConfig{Rules: os.Getenv("OTOGI_CHAT_REPLAY_RULES"), Follow: &FollowConfig{Threshold: 1}}}
 	h := newHarnessWith(t, dh.services, agent)
 	h.llm["replay"].responses = []llm.Response{answer("…")}
 	p := h.m.profiles[0]
@@ -208,7 +210,7 @@ func TestReplayFollow(t *testing.T) {
 		var pass, held, passAnswered, heldAnswered int
 		for _, g := range got {
 			switch {
-			case g.score >= followThreshold(base, g.share):
+			case g.score >= shareThreshold(base, g.share):
 				pass++
 				if g.answered {
 					passAnswered++
@@ -222,6 +224,108 @@ func TestReplayFollow(t *testing.T) {
 		}
 		t.Logf("base %.1f: %d candidates, %d answered (%d of them answered in the chat), %d held back by the share (%d of them answered in the chat)",
 			base, len(got), pass, passAnswered, held, heldAnswered)
+	}
+}
+
+// TestReplayChime replays a real group chat through judge.chime with the real
+// decision service. For each message the agent is out of the conversation
+// for, it prints the chime score and the agent's share; then, per base
+// threshold, how many would pass, how many chimes there would be once each
+// puts the agent in the conversation, how many of those the agent did chime
+// in on in the real chat, and how many the share held back. Like
+// TestReplayWake, it runs only with OTOGI_CHAT_REPLAY and
+// OTOGI_TYPESAFE_API_KEY.
+func TestReplayChime(t *testing.T) {
+	file := os.Getenv("OTOGI_CHAT_REPLAY")
+	if file == "" || os.Getenv("OTOGI_TYPESAFE_API_KEY") == "" {
+		t.Skip("OTOGI_CHAT_REPLAY or OTOGI_TYPESAFE_API_KEY is not set")
+	}
+	lines := readReplay(t, file)
+	dm, err := decisionmodule.New(decisionmodule.Config{Jev: &decisionmodule.JevConfig{APIKey: "${OTOGI_TYPESAFE_API_KEY}", Timeout: otogi.Duration(30 * time.Second)}}, os.LookupEnv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dh := &decisionHost{services: map[string]any{}}
+	if err := dm.Start(context.Background(), dh); err != nil {
+		t.Fatal(err)
+	}
+	name := cmp.Or(os.Getenv("OTOGI_CHAT_REPLAY_AGENT"), "luna")
+	// A threshold of 1, which scores fall short of (above 1 the agent would not
+	// be asked at all): every candidate is judged, none
+	// answered, so the chat and the agent's share go on as they did.
+	agent := ProfileConfig{Name: name, Keywords: []string{name}, Provider: "replay", Model: "m",
+		Judge: &JudgeConfig{Rules: os.Getenv("OTOGI_CHAT_REPLAY_RULES"), Chime: &ChimeConfig{Threshold: 1}}}
+	h := newHarnessWith(t, dh.services, agent)
+	h.llm["replay"].responses = []llm.Response{answer("…")}
+	p := h.m.profiles[0]
+
+	type scored struct {
+		line         int // its index in the replay
+		score, share float64
+		chimed       bool // the agent spoke up unasked next in the real chat
+	}
+	var got []scored
+	for i, l := range lines {
+		h.replayAt(l)
+		if l.Agent {
+			h.replayAgent(t, name, replayCause(l), l.Text, i)
+			continue
+		}
+		before := len(dh.records)
+		e := h.message(l.From, l.Text)
+		h.mustHandle(e)
+		if len(dh.records) == before || (l.Addressed != nil && *l.Addressed) {
+			continue // triggered, a mention, or not judged
+		}
+		answers, _ := dh.records[len(dh.records)-1].Payload.(map[string]any)["answers"].(decision.Answers)
+		s, found := 0.0, false
+		for id, v := range answers {
+			if strings.HasPrefix(id, "chime.") {
+				s, found = v, true
+			}
+		}
+		if !found {
+			continue // the agent is in the conversation: a follow-up's to judge
+		}
+		share, err := h.m.share(context.Background(), e, p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		chimed := i+1 < len(lines) && lines[i+1].Agent && lines[i+1].Kind == "chime"
+		got = append(got, scored{line: i, score: s, share: share, chimed: chimed})
+		mark := map[bool]string{true: "*", false: " "}[chimed]
+		t.Logf("%s %4d %.2f share %.2f: %s: %s", mark, i, s, share, l.From, oneLine(l.Text))
+	}
+	var chimed int
+	for _, g := range got {
+		if g.chimed {
+			chimed++
+		}
+	}
+	t.Logf("%d candidates, the agent chimed in on %d", len(got), chimed)
+	// A chime puts the agent in the conversation: the next judgeHistory
+	// lines are follow-ups' to judge, not chimes'. The replay does not
+	// speak, so this counts the chimes there would be.
+	for _, base := range []float64{0.5, 0.55, 0.6, 0.65} {
+		var pass, spoke, spokeChimed, held int
+		last := -judgeHistory - 1
+		for _, g := range got {
+			switch {
+			case g.score >= shareThreshold(base, g.share):
+				pass++
+				if g.line > last+judgeHistory {
+					spoke++
+					last = g.line
+					if g.chimed {
+						spokeChimed++
+					}
+				}
+			case g.score >= base:
+				held++
+			}
+		}
+		t.Logf("base %.2f: %d pass, %d chimes once each puts the agent in the conversation (%d where it chimed in in the chat), %d held back by the share",
+			base, pass, spoke, spokeChimed, held)
 	}
 }
 

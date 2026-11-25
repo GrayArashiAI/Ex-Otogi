@@ -223,8 +223,8 @@ func TestFollowThreshold(t *testing.T) {
 		{0.5, 9, 0.8},
 		{0.85, 9, 0.85}, // a base above the cap stays
 	} {
-		if got := followThreshold(c.base, c.share); math.Abs(got-c.want) > 1e-9 {
-			t.Errorf("followThreshold(%v, %v) = %v, want %v", c.base, c.share, got, c.want)
+		if got := shareThreshold(c.base, c.share); math.Abs(got-c.want) > 1e-9 {
+			t.Errorf("shareThreshold(%v, %v) = %v, want %v", c.base, c.share, got, c.want)
 		}
 	}
 }

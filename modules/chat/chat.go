@@ -147,7 +147,7 @@ func (m *Module) Start(ctx context.Context, host otogi.Host) error {
 // have finished, or whether it should look things up before answering.
 func (m *Module) judged() bool {
 	for _, p := range m.profiles {
-		if p.wake > 0 || p.follow > 0 || p.waitMax > 0 || p.lookup > 0 {
+		if p.wake > 0 || p.follow > 0 || p.chime > 0 || p.waitMax > 0 || p.lookup > 0 {
 			return true
 		}
 	}
@@ -204,8 +204,24 @@ func (m *Module) Handle(ctx context.Context, e otogi.Event, inv otogi.Invocation
 		defer release()
 	}
 	v, err := m.judgeTogether(ctx, e, until, window)
-	if err != nil || v.p == nil {
+	if err != nil {
 		return err
+	}
+	// A message that does not call an agent waiting to speak up tells it
+	// whether to go on waiting, before this message stops being judged:
+	// the wait, when due, waits for that.
+	for p, s := range v.still {
+		if p == v.p {
+			continue // it calls the agent: it joins the batch
+		}
+		r, _, err := m.rhythmOf(ctx, e)
+		if err != nil {
+			return err
+		}
+		m.heard(p, e.ChatKey(), at, s, r)
+	}
+	if v.p == nil {
+		return nil
 	}
 	if !waits(v.p, e) {
 		release()
