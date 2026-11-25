@@ -16,14 +16,15 @@ import (
 
 // Config is the module's settings.
 type Config struct {
-	Retention    otogi.Duration  `json:"retention,omitempty" default:"720h" doc:"How long threads and the chat transcript are kept."`
-	Timeout      otogi.Duration  `json:"timeout,omitempty" default:"5m" doc:"The longest one reply may take, tool calls included."`
-	ToolReserve  *float64        `json:"tool_reserve,omitempty" minimum:"0" default:"2" doc:"When less of a reply's time is left than this many of its slowest model rounds, the agent stops calling tools and answers with what it has found. 0 calls tools until the time is up."`
-	MaxMediaMB   int             `json:"max_media_mb,omitempty" minimum:"1" default:"20" unit:"MB" doc:"The largest picture or file the agent is shown, in megabytes; a larger one is named instead."`
-	DescribeWait DescribeWait    `json:"describe_wait,omitzero" doc:"How long a message waits for the media module to describe its media, for agents that read descriptions. Only a limit: a message waits no longer than its descriptions take, and one without media does not wait."`
-	Profiles     []ProfileConfig `json:"profiles" minItems:"1" ordered:"true" doc:"The agents. Each answers in the chats on its allowlist."`
-	Tools        []string        `json:"tools,omitempty" format:"tool-module" doc:"Modules whose tools agents may use. Each gets a list of the chats where agents are offered its tools; a chat on none of them gets none."`
-	People       []PersonConfig  `json:"people,omitempty" doc:"People agents know by more than the name the platform gives them. Everyone else is called by that name, has no note, and a threshold factor of 1."`
+	Retention     otogi.Duration  `json:"retention,omitempty" default:"720h" doc:"How long threads and the chat transcript are kept."`
+	Timeout       otogi.Duration  `json:"timeout,omitempty" default:"5m" doc:"The longest one reply may take, tool calls included."`
+	ToolReserve   *float64        `json:"tool_reserve,omitempty" minimum:"0" default:"2" doc:"When less of a reply's time is left than this many of its slowest model rounds, the agent stops calling tools and answers with what it has found. 0 calls tools until the time is up."`
+	MaxMediaMB    int             `json:"max_media_mb,omitempty" minimum:"1" default:"20" unit:"MB" doc:"The largest picture or file the agent is shown, in megabytes; a larger one is named instead."`
+	DescribedText int             `json:"described_text,omitempty" minimum:"1" default:"1000" unit:"characters" doc:"How many characters of a picture's or video's text the recent chat, quotes, and judgments keep; with as_text, the message being answered gets it all."`
+	DescribeWait  DescribeWait    `json:"describe_wait,omitzero" doc:"How long a message waits for the media module to describe its media, for agents that read descriptions. Only a limit: a message waits no longer than its descriptions take, and one without media does not wait."`
+	Profiles      []ProfileConfig `json:"profiles" minItems:"1" ordered:"true" doc:"The agents. Each answers in the chats on its allowlist."`
+	Tools         []string        `json:"tools,omitempty" format:"tool-module" doc:"Modules whose tools agents may use. Each gets a list of the chats where agents are offered its tools; a chat on none of them gets none."`
+	People        []PersonConfig  `json:"people,omitempty" doc:"People agents know by more than the name the platform gives them. Everyone else is called by that name, has no note, and a threshold factor of 1."`
 }
 
 // PersonConfig is what agents know about one person.
@@ -220,6 +221,9 @@ func (c *Config) profiles(providers func(string) (llm.Provider, error)) ([]*prof
 	}
 	if c.MaxMediaMB == 0 {
 		c.MaxMediaMB = 20
+	}
+	if c.DescribedText == 0 {
+		c.DescribedText = 1000
 	}
 	if c.DescribeWait.Judge == 0 {
 		c.DescribeWait.Judge = otogi.Duration(15 * time.Second)

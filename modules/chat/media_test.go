@@ -270,15 +270,15 @@ func TestDescriptionText(t *testing.T) {
 		limit int
 		want  string
 	}{
-		{d: cat, limit: describedText, want: "[sticker: a cat eating watermelon, content]"},
-		{d: mediasvc.Description{Kind: mediasvc.KindScreenshot, Summary: "a post", Text: "line one\nline  two"}, limit: describedText, want: `[screenshot: a post Text: "line one line two"]`},
+		{d: cat, limit: 300, want: "[sticker: a cat eating watermelon, content]"},
+		{d: mediasvc.Description{Kind: mediasvc.KindScreenshot, Summary: "a post", Text: "line one\nline  two"}, limit: 300, want: `[screenshot: a post Text: "line one line two"]`},
 		{d: mediasvc.Description{Kind: mediasvc.KindScreenshot, Summary: "a post", Text: "line one\nline  two"}, want: "[screenshot: a post Text: \"line one\nline  two\"]"},
-		{d: mediasvc.Description{Kind: mediasvc.KindMeme, Summary: "s", Text: long}, limit: describedText, want: `[meme: s Text: "` + strings.Repeat("字", 300) + `…"]`},
-		{md: otogi.Media{Duration: 72 * time.Second}, d: mediasvc.Description{Kind: mediasvc.KindVideo, Summary: "a song", Text: "la la"}, limit: describedText, want: `[video 1:12: a song Said: "la la"]`},
+		{d: mediasvc.Description{Kind: mediasvc.KindMeme, Summary: "s", Text: long}, limit: 300, want: `[meme: s Text: "` + strings.Repeat("字", 300) + `…"]`},
+		{md: otogi.Media{Duration: 72 * time.Second}, d: mediasvc.Description{Kind: mediasvc.KindVideo, Summary: "a song", Text: "la la"}, limit: 300, want: `[video 1:12: a song Said: "la la"]`},
 		{d: mediasvc.Description{Kind: mediasvc.KindVideo, Summary: "a song"}, want: "[video: a song]"},
 		// A kept sticker reads as its number, whatever its kind.
-		{d: mediasvc.Description{Kind: mediasvc.KindMeme, Summary: "Eku喵喵叫", Sticker: 3}, limit: describedText, want: "[sticker 3: Eku喵喵叫]"},
-		{d: mediasvc.Description{Kind: mediasvc.KindScreenshot, Summary: "s", Text: "哈哈", Sticker: 3}, limit: describedText, want: `[sticker 3: s Text: "哈哈"]`},
+		{d: mediasvc.Description{Kind: mediasvc.KindMeme, Summary: "Eku喵喵叫", Sticker: 3}, limit: 300, want: "[sticker 3: Eku喵喵叫]"},
+		{d: mediasvc.Description{Kind: mediasvc.KindScreenshot, Summary: "s", Text: "哈哈", Sticker: 3}, limit: 300, want: `[sticker 3: s Text: "哈哈"]`},
 	} {
 		if got := descriptionText(c.md, c.d, c.limit); got != c.want {
 			t.Errorf("descriptionText = %q, want %q", got, c.want)
@@ -329,4 +329,21 @@ func judgedThenAnswered(t *testing.T, batched bool) {
 			t.Fatalf("answered without the description:\n%s", got)
 		}
 	})
+}
+
+// The recent chat keeps described_text characters of a picture's text:
+// 1000 unless set.
+func TestDescribedTextInTheRecentChat(t *testing.T) {
+	text := strings.Repeat("字", 1200)
+	for _, c := range []struct{ set, kept int }{{0, 1000}, {50, 50}} {
+		d := newDescriber()
+		d.kept["shot"] = mediasvc.Description{Kind: mediasvc.KindScreenshot, Summary: "a long post", Text: text}
+		h := newHarnessConfig(t, map[string]any{mediasvc.Service: d}, Config{DescribedText: c.set, Profiles: []ProfileConfig{mediaProfile(false)}})
+		h.mustHandle(h.message("Bob", "", withParts("", photo("shot"))))
+		h.mustHandle(h.message("Alice", "otogi what did it say"))
+		want := `[screenshot: a long post Text: "` + strings.Repeat("字", c.kept) + `…"]`
+		if got := lastUserText(h.llm["otogi"].requests[0]); !strings.Contains(got, want) || strings.Contains(got, strings.Repeat("字", c.kept+1)) {
+			t.Errorf("described_text %d: the recent chat reads %d characters of it, want %d", c.set, strings.Count(got, "字"), c.kept)
+		}
+	}
 }

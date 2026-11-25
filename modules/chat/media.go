@@ -11,11 +11,6 @@ import (
 	"github.com/TundraWork/Ex-Otogi/pkg/otogi"
 )
 
-// describedText is how much of a description's text, in characters, is kept
-// where it shares a line with other messages: the transcript, a quote, the
-// judgment. as_text gives it all.
-const describedText = 300
-
 // describes reports whether any agent reads the media module's descriptions.
 func (m *Module) describes() bool {
 	for _, p := range m.profiles {
@@ -27,8 +22,9 @@ func (m *Module) describes() bool {
 }
 
 // mediaText is how media reads in the transcript, a quote, and the
-// judgment: as the media module described it, when described is set and a
-// description is kept, or else by its kind. It does not wait.
+// judgment: as the media module described it, its text cut to
+// described_text, when described is set and a description is kept, or else
+// by its kind. It does not wait.
 func (m *Module) mediaText(ctx context.Context, from otogi.Destination, media []otogi.Media, described bool) string {
 	words := make([]string, 0, len(media))
 	for _, md := range media {
@@ -38,7 +34,7 @@ func (m *Module) mediaText(ctx context.Context, from otogi.Destination, media []
 				m.host.Logger().WarnContext(ctx, "chat: reading a media description", "error", err)
 			}
 			if ok {
-				words = append(words, descriptionText(md, d, describedText))
+				words = append(words, descriptionText(md, d, m.cfg.DescribedText))
 				continue
 			}
 		}

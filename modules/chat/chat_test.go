@@ -733,7 +733,7 @@ func TestSchemaDefaultsAreTheDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if unset.Retention != typed.Retention || unset.Timeout != typed.Timeout || *unset.ToolReserve != *typed.ToolReserve || unset.MaxMediaMB != typed.MaxMediaMB || unset.DescribeWait != typed.DescribeWait ||
+	if unset.Retention != typed.Retention || unset.Timeout != typed.Timeout || *unset.ToolReserve != *typed.ToolReserve || unset.MaxMediaMB != typed.MaxMediaMB || unset.DescribeWait != typed.DescribeWait || unset.DescribedText != typed.DescribedText ||
 		a[0].MaxTurns != b[0].MaxTurns || a[0].MaxToolRounds != b[0].MaxToolRounds || a[0].context != b[0].context || a[1].wake != b[1].wake {
 		t.Fatalf("schema defaults give %+v %+v wake %v, unset fields %+v %+v wake %v", typed, b[0], b[1].wake, unset, a[0], a[1].wake)
 	}
