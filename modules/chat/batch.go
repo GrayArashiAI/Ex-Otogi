@@ -390,11 +390,13 @@ func (m *Module) answerBatch(ctx context.Context, inv otogi.Invocation, p *profi
 	slices.SortStableFunc(entries, func(a, b entry) int { return a.at.Compare(b.at) })
 	info := &batchInfo{waited: waited}
 	during := func(en entry) bool { return previous.during(en.at) }
+	var lookup *briefed
 	if slices.ContainsFunc(entries, during) {
-		covered, err := m.covered(ctx, p, entries, previous.text, during)
+		covered, l, err := m.brief(ctx, p, entries, previous.text, during)
 		if err != nil {
 			return "", err
 		}
+		lookup = l
 		if covered {
 			for _, en := range entries {
 				if during(en) {
@@ -413,7 +415,9 @@ func (m *Module) answerBatch(ctx context.Context, inv otogi.Invocation, p *profi
 		info.messages = append(info.messages, string(en.e.SourceID))
 	}
 	until := entries[len(entries)-1].at.Add(describeWait)
-	return m.respond(ctx, inv, askOf(p, entries, info), until)
+	a := askOf(p, entries, info)
+	a.lookup = lookup
+	return m.respond(ctx, inv, a, until)
 }
 
 // askOf is what p answers in a batch of entries: the first's thread, and the
@@ -449,14 +453,33 @@ type (
 	}
 )
 
-// covered asks whether p's previous reply already did for the messages of
-// entries that came during it. A failed request is no decision: they are
-// answered.
-func (m *Module) covered(ctx context.Context, p *profile, entries []entry, previous string, during func(entry) bool) (bool, error) {
+// briefed is what the request before a reply said of looking things up:
+// the score, or the error that left it unknown.
+type briefed struct {
+	Score     *float64 `json:"score,omitempty"`
+	Threshold float64  `json:"threshold"`
+	Error     string   `json:"error,omitempty"`
+}
+
+// look reports whether the agent is to be told to look things up.
+func (b *briefed) look() bool { return b != nil && b.Score != nil && *b.Score >= b.Threshold }
+
+// brief is the request before p answers entries, its questions in one
+// request: whether p's previous reply already did for the messages that
+// came during it, and, when p is asked so, whether it should look things
+// up first (nil when it is not). A failed request is no decision: the
+// messages are answered, and nothing is looked up.
+func (m *Module) brief(ctx context.Context, p *profile, entries []entry, previous string, during func(entry) bool) (bool, *briefed, error) {
 	es := make([]otogi.Event, 0, len(entries))
 	for _, en := range entries {
 		es = append(es, en.e)
 	}
+	return m.briefEvents(ctx, p, es, func(i int) bool { return during(entries[i]) }, previous)
+}
+
+// briefEvents is brief for events; during(i) says whether es[i] came
+// during the previous reply.
+func (m *Module) briefEvents(ctx context.Context, p *profile, es []otogi.Event, during func(int) bool, previous string) (bool, *briefed, error) {
 	var present []*profile
 	for _, q := range m.profiles {
 		if m.answers(q, es[0].ChatKey()) {
@@ -465,17 +488,37 @@ func (m *Module) covered(ctx context.Context, p *profile, entries []entry, previ
 	}
 	state, msgs, err := m.judgeState(ctx, es, present, p.Media != nil)
 	if err != nil {
-		return false, err
+		return false, nil, err
 	}
-	brief := briefState{Chat: state.Chat, Agents: state.Agents, History: state.History, Batch: msgs, Reply: &briefReply{Text: previous}}
-	for i, en := range entries {
-		if during(en) {
+	brief := briefState{Chat: state.Chat, Agents: state.Agents, History: state.History, Batch: msgs}
+	questions := map[string]decision.Question{}
+	for i := range es {
+		if during(i) {
+			if brief.Reply == nil {
+				brief.Reply = &briefReply{Text: previous}
+				questions[coveredID] = coveredQuestion()
+			}
 			brief.Reply.During = append(brief.Reply.During, msgs[i])
 		}
 	}
-	answers, err := m.decider.Decide(ctx, decision.Request{State: brief, Questions: map[string]decision.Question{coveredID: coveredQuestion()}})
-	if err != nil {
-		return false, nil
+	var lookup *briefed
+	if p.lookup > 0 {
+		lookup = &briefed{Threshold: p.lookup}
+		questions[lookupID] = lookupQuestion()
 	}
-	return answers[coveredID] >= coveredThreshold, nil
+	if len(questions) == 0 {
+		return false, nil, nil
+	}
+	answers, err := m.decider.Decide(ctx, decision.Request{State: brief, Questions: questions})
+	if err != nil {
+		if lookup != nil {
+			lookup.Error = err.Error()
+		}
+		return false, lookup, nil
+	}
+	if s, ok := answers[lookupID]; ok && lookup != nil {
+		lookup.Score = &s
+	}
+	covered, ok := answers[coveredID]
+	return ok && covered >= coveredThreshold, lookup, nil
 }

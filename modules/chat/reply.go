@@ -21,6 +21,11 @@ const cleanupTimeout = 30 * time.Second
 // the system prompt let replies grow from 31 to 60 characters on average.
 const followNote = "(Nobody named you: someone is carrying on the exchange with you. Keep it short.)"
 
+// lookupNote ends a turn judged to need looking up: answered from memory,
+// such questions came out wrong on Eku. It goes in the turn, not the system
+// prompt, where Eku kept to such notes far less.
+const lookupNote = "(Look this up online before answering.)"
+
 // ask is what an agent answers: a message, or the batch of messages to it
 // it waited for (see batch), in the order they arrived.
 type ask struct {
@@ -30,6 +35,7 @@ type ask struct {
 	trigger string
 	j       *judgment  // the judgment that woke p for the first, if one did
 	batch   *batchInfo // nil when p did not wait
+	lookup  *briefed   // what the request before the reply said of looking things up; nil when not asked yet
 }
 
 // batchInfo is what a reply's record says of its batch.
@@ -89,6 +95,14 @@ func (m *Module) respond(ctx context.Context, inv otogi.Invocation, a ask, until
 	}
 	if a.trigger == "follow" {
 		sent.Content = llm.Join(sent.Content, otogi.TextMessage(followNote))
+	}
+	if a.lookup == nil && p.lookup > 0 {
+		if _, a.lookup, err = m.briefEvents(ctx, p, a.msgs, func(int) bool { return false }, ""); err != nil {
+			return "", err
+		}
+	}
+	if a.lookup.look() {
+		sent.Content = llm.Join(sent.Content, otogi.TextMessage(lookupNote))
 	}
 	req := llm.Request{Model: p.Model, System: m.system(p, e), Thinking: p.Thinking, MaxOutput: p.MaxOutput, Temperature: p.Temperature, Tools: p.builtins}
 	for _, t := range path {
@@ -581,6 +595,9 @@ func (m *Module) record(ctx context.Context, a ask, ids []int64, out llm.RunResu
 	}
 	if a.j != nil {
 		payload["judged"] = a.j
+	}
+	if a.lookup != nil {
+		payload["lookup"] = a.lookup
 	}
 	if sticker != nil {
 		payload["sticker"] = sticker
