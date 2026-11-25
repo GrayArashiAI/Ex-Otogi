@@ -178,21 +178,22 @@ func (m *Module) Handle(ctx context.Context, e otogi.Event, inv otogi.Invocation
 	if e.Action != otogi.ActionMessageCreated || e.Direction != otogi.DirectionIncoming || e.Command != nil || e.Actor.Bot {
 		return nil
 	}
-	// The judgment and the reply wait for this message's descriptions until
-	// one deadline, together; see describeWait.
+	// The judgment and then the reply wait for this message's descriptions
+	// until a deadline each, the media of the message together; see
+	// DescribeWait.
 	at := time.Now()
-	until := at.Add(describeWait)
+	judgeUntil, replyUntil := at.Add(time.Duration(m.cfg.DescribeWait.Judge)), at.Add(time.Duration(m.cfg.DescribeWait.Reply))
 	p, parent, trigger, elsewhere, err := m.route(ctx, e)
 	if err != nil || p == nil && elsewhere {
 		return err
 	}
 	if p != nil {
 		if !waits(p, e) {
-			return m.answer(ctx, inv, ask{p: p, msgs: []otogi.Event{e}, parent: parent, trigger: trigger}, until)
+			return m.answer(ctx, inv, ask{p: p, msgs: []otogi.Event{e}, parent: parent, trigger: trigger}, replyUntil)
 		}
 		release := m.judging(e.ChatKey(), at)
 		defer release() // however this ends, a panic included
-		done, known, err := m.doneOf(ctx, e, p, until)
+		done, known, err := m.doneOf(ctx, e, p, judgeUntil)
 		if err != nil {
 			return err
 		}
@@ -204,7 +205,7 @@ func (m *Module) Handle(ctx context.Context, e otogi.Event, inv otogi.Invocation
 		release = m.judging(e.ChatKey(), at)
 		defer release()
 	}
-	v, err := m.judgeTogether(ctx, e, until, window)
+	v, err := m.judgeTogether(ctx, e, judgeUntil, window)
 	if err != nil {
 		return err
 	}
@@ -226,7 +227,7 @@ func (m *Module) Handle(ctx context.Context, e otogi.Event, inv otogi.Invocation
 	}
 	if !waits(v.p, e) {
 		release()
-		return m.answer(ctx, inv, ask{p: v.p, msgs: []otogi.Event{e}, trigger: v.trigger, j: v.j}, until)
+		return m.answer(ctx, inv, ask{p: v.p, msgs: []otogi.Event{e}, trigger: v.trigger, j: v.j}, replyUntil)
 	}
 	return m.join(ctx, inv, v.p, entry{e: e, at: at, trigger: v.trigger, j: v.j}, v.done, v.doneKnown, release)
 }

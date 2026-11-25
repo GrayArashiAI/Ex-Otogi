@@ -16,13 +16,14 @@ import (
 
 // Config is the module's settings.
 type Config struct {
-	Retention   otogi.Duration  `json:"retention,omitempty" default:"720h" doc:"How long threads and the chat transcript are kept."`
-	Timeout     otogi.Duration  `json:"timeout,omitempty" default:"5m" doc:"The longest one reply may take, tool calls included."`
-	ToolReserve *float64        `json:"tool_reserve,omitempty" minimum:"0" default:"2" doc:"When less of a reply's time is left than this many of its slowest model rounds, the agent stops calling tools and answers with what it has found. 0 calls tools until the time is up."`
-	MaxMediaMB  int             `json:"max_media_mb,omitempty" minimum:"1" default:"20" unit:"MB" doc:"The largest picture or file the agent is shown, in megabytes; a larger one is named instead."`
-	Profiles    []ProfileConfig `json:"profiles" minItems:"1" ordered:"true" doc:"The agents. Each answers in the chats on its allowlist."`
-	Tools       []string        `json:"tools,omitempty" format:"tool-module" doc:"Modules whose tools agents may use. Each gets a list of the chats where agents are offered its tools; a chat on none of them gets none."`
-	People      []PersonConfig  `json:"people,omitempty" doc:"People agents know by more than the name the platform gives them. Everyone else is called by that name, has no note, and a threshold factor of 1."`
+	Retention    otogi.Duration  `json:"retention,omitempty" default:"720h" doc:"How long threads and the chat transcript are kept."`
+	Timeout      otogi.Duration  `json:"timeout,omitempty" default:"5m" doc:"The longest one reply may take, tool calls included."`
+	ToolReserve  *float64        `json:"tool_reserve,omitempty" minimum:"0" default:"2" doc:"When less of a reply's time is left than this many of its slowest model rounds, the agent stops calling tools and answers with what it has found. 0 calls tools until the time is up."`
+	MaxMediaMB   int             `json:"max_media_mb,omitempty" minimum:"1" default:"20" unit:"MB" doc:"The largest picture or file the agent is shown, in megabytes; a larger one is named instead."`
+	DescribeWait DescribeWait    `json:"describe_wait,omitzero" doc:"How long a message waits for the media module to describe its media, for agents that read descriptions. Only a limit: a message waits no longer than its descriptions take, and one without media does not wait."`
+	Profiles     []ProfileConfig `json:"profiles" minItems:"1" ordered:"true" doc:"The agents. Each answers in the chats on its allowlist."`
+	Tools        []string        `json:"tools,omitempty" format:"tool-module" doc:"Modules whose tools agents may use. Each gets a list of the chats where agents are offered its tools; a chat on none of them gets none."`
+	People       []PersonConfig  `json:"people,omitempty" doc:"People agents know by more than the name the platform gives them. Everyone else is called by that name, has no note, and a threshold factor of 1."`
 }
 
 // PersonConfig is what agents know about one person.
@@ -195,6 +196,12 @@ func (c *Config) toolModules() ([]otogi.ModuleID, error) {
 	return out, errors.Join(errs...)
 }
 
+// DescribeWait is how long a message waits for its media's descriptions.
+type DescribeWait struct {
+	Judge otogi.Duration `json:"judge,omitempty" default:"15s" doc:"Before it is judged, at most, from its arrival. Then it is judged with what is described."`
+	Reply otogi.Duration `json:"reply,omitempty" default:"30s" doc:"Before an agent answers it, at most, from its arrival; unset, 30s or half of timeout, whichever is less. At most half of timeout, which also bounds the reply."`
+}
+
 var builtinTools = []string{llm.BuiltinWebSearch, llm.BuiltinURLContext, llm.BuiltinCodeExecution}
 
 // profiles validates the configuration and resolves providers.
@@ -212,9 +219,25 @@ func (c *Config) profiles(providers func(string) (llm.Provider, error)) ([]*prof
 	if c.MaxMediaMB == 0 {
 		c.MaxMediaMB = 20
 	}
+	if c.DescribeWait.Judge == 0 {
+		c.DescribeWait.Judge = otogi.Duration(15 * time.Second)
+	}
+	if c.DescribeWait.Reply == 0 {
+		// Within the check below, so that settings saved before it, with a
+		// short timeout, still hold.
+		c.DescribeWait.Reply = min(otogi.Duration(30*time.Second), c.Timeout/2)
+	}
 	var errs []error
 	if c.Retention < 0 || c.Timeout < 0 {
 		errs = append(errs, errors.New("retention and timeout must not be negative"))
+	}
+	switch {
+	case c.DescribeWait.Judge < 0:
+		errs = append(errs, &otogi.SettingError{Path: "describe_wait.judge", Err: errors.New("must not be negative")})
+	case c.DescribeWait.Reply < 0:
+		errs = append(errs, &otogi.SettingError{Path: "describe_wait.reply", Err: errors.New("must not be negative")})
+	case c.DescribeWait.Reply > c.Timeout/2:
+		errs = append(errs, &otogi.SettingError{Path: "describe_wait.reply", Err: fmt.Errorf("%s: at most half of timeout (%s), which also bounds the reply", time.Duration(c.DescribeWait.Reply), time.Duration(c.Timeout))})
 	}
 	if len(c.Profiles) == 0 {
 		errs = append(errs, &otogi.SettingError{Path: "profiles", Err: errors.New("at least one is required")})

@@ -5,6 +5,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/TundraWork/Ex-Otogi/pkg/decision"
@@ -22,6 +23,10 @@ type describer struct {
 	err   error
 	block bool
 	asked []string
+	// late, when set, is described at lateAt: Describe waits for it until
+	// then, or until its context ends.
+	late   map[string]mediasvc.Description
+	lateAt time.Time
 }
 
 func (d *describer) Describe(ctx context.Context, _ otogi.Destination, md otogi.Media) (mediasvc.Description, error) {
@@ -30,10 +35,20 @@ func (d *describer) Describe(ctx context.Context, _ otogi.Destination, md otogi.
 	d.asked = append(d.asked, name)
 	desc, ok := d.kept[name]
 	block, err := d.block, d.err
+	late, isLate := d.late[name]
 	d.mu.Unlock()
 	switch {
 	case ok:
 		return desc, nil
+	case isLate:
+		timer := time.NewTimer(time.Until(d.lateAt))
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+			return late, nil
+		case <-ctx.Done():
+			return mediasvc.Description{}, ctx.Err()
+		}
 	case block:
 		<-ctx.Done()
 		return mediasvc.Description{}, ctx.Err()
@@ -177,7 +192,7 @@ func TestAsTextQuoteDoesNotWait(t *testing.T) {
 	start := time.Now()
 	h.mustHandle(h.message("Alice", "otogi, what is this?", replyingTo("m1")))
 	h.mustHandle(h.message("Alice", "otogi, and this?", replyingTo("m2")))
-	if took := time.Since(start); took > describeWait/2 {
+	if took := time.Since(start); took > time.Duration(h.m.cfg.DescribeWait.Judge)/2 {
 		t.Fatalf("replies quoting older media took %v", took)
 	}
 	if len(d.asked) != 0 {
@@ -269,4 +284,49 @@ func TestDescriptionText(t *testing.T) {
 			t.Errorf("descriptionText = %q, want %q", got, c.want)
 		}
 	}
+}
+
+// A message waits for its media's descriptions until describe_wait.judge
+// before it is judged, and until describe_wait.reply, both from its
+// arrival, before the agent answers it, alone or in a batch: a picture
+// described in between is judged unseen and answered seen.
+func TestJudgmentAndReplyWaitUntilTheirOwnDeadlines(t *testing.T) {
+	for _, batched := range []bool{false, true} {
+		t.Run(map[bool]string{false: "alone", true: "batch"}[batched], func(t *testing.T) { judgedThenAnswered(t, batched) })
+	}
+}
+
+func judgedThenAnswered(t *testing.T, batched bool) {
+	synctest.Test(t, func(t *testing.T) {
+		d := newDescriber()
+		var judgedAt time.Time
+		judge := &decider{scores: map[string]float64{"a1": 0.9}, answer: finished(), before: func(decision.Request) {
+			if judgedAt.IsZero() {
+				judgedAt = time.Now()
+			}
+		}}
+		p := mediaProfile(true)
+		p.Judge = &JudgeConfig{Wake: &WakeConfig{}}
+		if batched {
+			p.Judge.Wait = &WaitConfig{}
+		}
+		h := newHarnessWith(t, map[string]any{mediasvc.Service: d, decision.Service: judge}, p)
+		start := time.Now()
+		d.late = map[string]mediasvc.Description{"chart": {Kind: mediasvc.KindScreenshot, Summary: "a chart of sales by month"}}
+		d.lateAt = start.Add(20 * time.Second)
+		h.mustHandle(h.message("Alice", "", withParts("what do you make of this", photo("chart"))))
+		if took := time.Since(start); took != 20*time.Second {
+			t.Fatalf("answered after %v, want the 20s the description took", took)
+		}
+		if waited := judgedAt.Sub(start); waited != 15*time.Second {
+			t.Fatalf("judged after %v, want describe_wait.judge's 15s", waited)
+		}
+		history := judge.requests[0].State.(judgeState).History
+		if judged := history[len(history)-1].Text; strings.Contains(judged, "sales") {
+			t.Fatalf("judged with the description %q, which came after 15s", judged)
+		}
+		if got := lastUserText(h.llm["otogi"].requests[0]); !strings.Contains(got, "a chart of sales by month") {
+			t.Fatalf("answered without the description:\n%s", got)
+		}
+	})
 }

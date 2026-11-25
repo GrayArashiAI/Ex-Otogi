@@ -550,7 +550,7 @@ func (m *Module) answerBatch(ctx context.Context, inv otogi.Invocation, p *profi
 	for _, en := range entries {
 		info.messages = append(info.messages, string(en.e.SourceID))
 	}
-	until := entries[len(entries)-1].at.Add(describeWait)
+	until := entries[len(entries)-1].at.Add(time.Duration(m.cfg.DescribeWait.Reply))
 	a := askOf(p, entries, info)
 	a.lookup = lookup
 	return m.respond(ctx, inv, a, until)

@@ -685,6 +685,37 @@ func TestSystemPromptAndTemperature(t *testing.T) {
 	}
 }
 
+// describe_wait.reply is at most half of timeout. Unset, it is 30s, or less
+// with a timeout under a minute, so that settings saved before it still hold.
+func TestDescribeWaitWithinTimeout(t *testing.T) {
+	t.Parallel()
+	providers := func(string) (llm.Provider, error) { return &provider{}, nil }
+	profiles := []ProfileConfig{{Name: "luna", Keywords: []string{"luna"}, Provider: "p", Model: "m"}}
+	for name, c := range map[string]struct {
+		timeout, judge, reply time.Duration
+		wantJudge, wantReply  time.Duration
+		refused               string
+	}{
+		"defaults":                 {0, 0, 0, 15 * time.Second, 30 * time.Second, ""},
+		"short timeout, unset":     {40 * time.Second, 0, 0, 15 * time.Second, 20 * time.Second, ""},
+		"set within":               {time.Minute, 5 * time.Second, 30 * time.Second, 5 * time.Second, 30 * time.Second, ""},
+		"set past half of timeout": {40 * time.Second, 0, 30 * time.Second, 0, 0, "describe_wait.reply"},
+		"negative judge":           {0, -time.Second, 0, 0, 0, "describe_wait.judge"},
+	} {
+		cfg := Config{Timeout: otogi.Duration(c.timeout), DescribeWait: DescribeWait{Judge: otogi.Duration(c.judge), Reply: otogi.Duration(c.reply)}, Profiles: profiles}
+		m, err := New(cfg, providers, nil)
+		var se *otogi.SettingError
+		switch {
+		case c.refused != "" && (!errors.As(err, &se) || se.Path != c.refused):
+			t.Errorf("%s: err %v, want a refusal at %s", name, err, c.refused)
+		case c.refused == "" && err != nil:
+			t.Errorf("%s: %v", name, err)
+		case c.refused == "" && (time.Duration(m.cfg.DescribeWait.Judge) != c.wantJudge || time.Duration(m.cfg.DescribeWait.Reply) != c.wantReply):
+			t.Errorf("%s: waits %+v", name, m.cfg.DescribeWait)
+		}
+	}
+}
+
 // The defaults the settings form shows are the ones an unset field gets.
 func TestSchemaDefaultsAreTheDefaults(t *testing.T) {
 	t.Parallel()
@@ -702,7 +733,7 @@ func TestSchemaDefaultsAreTheDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if unset.Retention != typed.Retention || unset.Timeout != typed.Timeout || *unset.ToolReserve != *typed.ToolReserve || unset.MaxMediaMB != typed.MaxMediaMB ||
+	if unset.Retention != typed.Retention || unset.Timeout != typed.Timeout || *unset.ToolReserve != *typed.ToolReserve || unset.MaxMediaMB != typed.MaxMediaMB || unset.DescribeWait != typed.DescribeWait ||
 		a[0].MaxTurns != b[0].MaxTurns || a[0].MaxToolRounds != b[0].MaxToolRounds || a[0].context != b[0].context || a[1].wake != b[1].wake {
 		t.Fatalf("schema defaults give %+v %+v wake %v, unset fields %+v %+v wake %v", typed, b[0], b[1].wake, unset, a[0], a[1].wake)
 	}

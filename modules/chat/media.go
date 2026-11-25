@@ -11,13 +11,6 @@ import (
 	"github.com/TundraWork/Ex-Otogi/pkg/otogi"
 )
 
-// describeWait is the longest a message waits for the media module to
-// describe its media, in all, however many pieces it has: the judgment and
-// as_text wait until the same deadline. eku waits as long on dsh, where a
-// picture is described in 2 to 6 seconds; it holds the message's worker
-// that long at most, well within the reply's timeout.
-const describeWait = 10 * time.Second
-
 // describedText is how much of a description's text, in characters, is kept
 // where it shares a line with other messages: the transcript, a quote, the
 // judgment. as_text gives it all.
