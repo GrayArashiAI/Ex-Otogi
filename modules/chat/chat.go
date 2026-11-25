@@ -143,11 +143,11 @@ func (m *Module) Start(ctx context.Context, host otogi.Host) error {
 }
 
 // judged reports whether any agent has the decision service judge messages:
-// whether they address it or carry on its exchange, or whether their senders
-// have finished.
+// whether they address it or carry on its exchange, whether their senders
+// have finished, or whether it should look things up before answering.
 func (m *Module) judged() bool {
 	for _, p := range m.profiles {
-		if p.wake > 0 || p.follow > 0 || p.waitMax > 0 {
+		if p.wake > 0 || p.follow > 0 || p.waitMax > 0 || p.lookup > 0 {
 			return true
 		}
 	}

@@ -95,6 +95,12 @@ type JudgeConfig struct {
 	Wake   *WakeConfig   `json:"wake,omitempty" doc:"Answer group messages addressed to the agent that no trigger caught, such as its name in the middle of a sentence."`
 	Follow *FollowConfig `json:"follow,omitempty" doc:"Keep up an exchange the agent is in: a group message carrying on what the agent said in the last ten messages is answered, though nobody names it. Reactions that need no reply are not."`
 	Wait   *WaitConfig   `json:"wait,omitempty" doc:"In groups, wait until the sender has finished, and answer what was said to the agent meanwhile together. A wait holds one of the process's workers, at most one per agent and group."`
+	Brief  *BriefConfig  `json:"brief,omitempty" doc:"Before each reply, in any chat, ask whether the agent should look things up online before answering; when it should, the turn tells it to. Needs web_search or url_context in its tools."`
+}
+
+// BriefConfig configures the judgment asked before each reply.
+type BriefConfig struct {
+	Lookup float64 `json:"lookup,omitempty" minimum:"0" maximum:"1" default:"0.7" doc:"How sure the judgment must be that the agent should look things up before answering."`
 }
 
 // WaitConfig configures waiting for the sender to finish before answering.
@@ -126,6 +132,9 @@ const (
 	defaultWake = 0.7
 	// defaultFollow is the follow threshold of a follow block that sets none.
 	defaultFollow = 0.6
+	// defaultLookup is the lookup threshold of a brief block that sets none:
+	// Eku's, live since 2026-11-18.
+	defaultLookup = 0.7
 )
 
 // profile is a validated agent.
@@ -138,6 +147,7 @@ type profile struct {
 	wake     float64 // how sure a judgment must be to wake it; 0 when it is not judged
 	follow   float64 // how sure a judgment must be that a message carries on its exchange; 0 when not judged
 	rules    string  // what else counts as talking to it, for judgments
+	lookup   float64 // how sure a judgment must be that it should look things up first; 0 when not asked
 	// waitMin and waitMax bound how long it waits in groups for the sender
 	// to finish; waitMax is 0 when it does not wait.
 	waitMin, waitMax time.Duration
@@ -264,6 +274,14 @@ func (c *Config) profiles(providers func(string) (llm.Provider, error)) ([]*prof
 			}
 			if pc.Judge.Follow != nil {
 				p.follow = cmp.Or(pc.Judge.Follow.Threshold, defaultFollow)
+			}
+			if pc.Judge.Brief != nil {
+				p.lookup = cmp.Or(pc.Judge.Brief.Lookup, defaultLookup)
+				if !slices.ContainsFunc(p.builtins, func(t llm.ToolSpec) bool {
+					return t.Builtin == llm.BuiltinWebSearch || t.Builtin == llm.BuiltinURLContext
+				}) {
+					refuse(".judge.brief", errors.New("needs web_search or url_context in tools, to look things up with"))
+				}
 			}
 			if w := pc.Judge.Wait; w != nil {
 				p.waitMin, p.waitMax = cmp.Or(time.Duration(w.Min), defaultWaitMin), cmp.Or(time.Duration(w.Max), defaultWaitMax)
