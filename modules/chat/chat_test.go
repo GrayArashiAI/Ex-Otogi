@@ -125,6 +125,7 @@ type host struct {
 	records  []otogi.Record
 	services map[string]any
 	lists    map[[2]string]string // list, chat → who added it
+	recorded func(otogi.Record)   // when set, sees each record as it is written
 }
 
 func (h *host) Allowed(list, chat string) bool {
@@ -146,6 +147,9 @@ func (h *host) Record(_ context.Context, r otogi.Record) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.records = append(h.records, r)
+	if h.recorded != nil {
+		h.recorded(r)
+	}
 }
 func (h *host) Schedule(string, string, otogi.Job) error { return nil }
 

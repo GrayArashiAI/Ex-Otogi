@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -26,6 +27,7 @@ type replayLine struct {
 	Agent     bool   `json:"agent,omitempty"`     // the agent's own message
 	Kind      string `json:"kind,omitempty"`      // for the agent's: "chime" when it spoke up unasked, else it was called
 	Addressed *bool  `json:"addressed,omitempty"` // known to be to the agent, or known not to be
+	History   bool   `json:"history,omitempty"`   // TestReplayTimed: in the transcript before the replay starts
 }
 
 // replayAt sets the harness clock so that the next message is sent at l's
@@ -45,12 +47,15 @@ func (h *harness) replayAt(l replayLine) {
 type decisionHost struct {
 	otogi.Host
 	services map[string]any
+	mu       sync.Mutex // guards records, for requests made at once (TestReplayTimed)
 	records  []otogi.Record
 }
 
 func (h *decisionHost) Provide(name string, v any) error { h.services[name] = v; return nil }
 func (h *decisionHost) Logger() *slog.Logger             { return slog.Default() }
 func (h *decisionHost) Record(_ context.Context, r otogi.Record) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	h.records = append(h.records, r)
 }
 
