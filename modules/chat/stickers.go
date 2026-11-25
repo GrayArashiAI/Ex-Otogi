@@ -124,17 +124,16 @@ type sentSticker struct {
 	Ref    string `json:"ref,omitempty"`
 }
 
-// sendSticker sends st as a message of its own replying to e, without the
-// agent's label.
-func (m *Module) sendSticker(ctx context.Context, e otogi.Event, inv otogi.Invocation, st mediasvc.Sticker) (otogi.EventRef, error) {
+// sendSticker sends st as a message of its own, without the agent's label,
+// replying to e when the reply quotes.
+func (m *Module) sendSticker(ctx context.Context, e otogi.Event, inv otogi.Invocation, st mediasvc.Sticker, quote bool) (otogi.EventRef, error) {
 	md, _, err := m.stickers.Picture(ctx, st.ID)
 	if err != nil {
 		return otogi.EventRef{}, fmt.Errorf("sticker %d: %w", st.ID, err)
 	}
-	msg := otogi.Message{
-		Roots:     []otogi.PartID{"s"},
-		Parts:     []otogi.Part{{ID: "s", Kind: otogi.PartMedia, Media: &md}},
-		Relations: []otogi.Relation{{Kind: otogi.RelationReply, Target: e.Ref()}},
+	msg := otogi.Message{Roots: []otogi.PartID{"s"}, Parts: []otogi.Part{{ID: "s", Kind: otogi.PartMedia, Media: &md}}}
+	if quote {
+		msg.Relations = []otogi.Relation{{Kind: otogi.RelationReply, Target: e.Ref()}}
 	}
 	ref, err := inv.Send(ctx, stickerSlot, msg)
 	if err != nil {

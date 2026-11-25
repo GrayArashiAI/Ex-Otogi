@@ -55,7 +55,7 @@ func TestAgentLineOfMediaOnly(t *testing.T) {
 	call := h.message("Alice", "otogi draw a cat")
 	h.mustHandle(call)
 	said := h.streams[0]
-	said.final = present(h.m.byName["otogi"], call, otogi.Message{Roots: []otogi.PartID{"cat"}, Parts: []otogi.Part{photo("cat")}})
+	said.final = present(h.m.byName["otogi"], call, otogi.Message{Roots: []otogi.PartID{"cat"}, Parts: []otogi.Part{photo("cat")}}, true)
 	h.echo(said)
 	h.mustHandle(h.message("Bob", "otogi nice"))
 	if got := lastUserText(h.llm["otogi"].requests[1]); !strings.Contains(got, "Otogi (this account): [photo]") || strings.Contains(got, "**") {

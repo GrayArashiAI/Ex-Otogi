@@ -66,6 +66,10 @@ func (m *Module) respond(ctx context.Context, inv otogi.Invocation, a ask, until
 	started := m.now()
 	p, e, last := a.p, a.msgs[0], a.msgs[len(a.msgs)-1]
 	m.startedReplying(e, started)
+	quote, err := m.quotes(ctx, a, started)
+	if err != nil {
+		return "", err
+	}
 	path, err := m.thread(ctx, a.parent, p.MaxTurns)
 	if err != nil {
 		return "", err
@@ -140,10 +144,10 @@ func (m *Module) respond(ctx context.Context, inv otogi.Invocation, a ask, until
 		if stream == nil {
 			stream = inv.Stream(ctx, "reply-2", e.Destination())
 		}
-		return stream.Update(ctx, present(p, last, msg))
+		return stream.Update(ctx, present(p, last, msg, quote))
 	}
 	say := func(msg otogi.Message) error {
-		sent, err := stream.Close(ctx, present(p, last, msg))
+		sent, err := stream.Close(ctx, present(p, last, msg, quote))
 		refs, stream, said = append(refs, sent...), nil, true
 		shownText = append(shownText, msg.PlainText())
 		return err
@@ -170,7 +174,7 @@ func (m *Module) respond(ctx context.Context, inv otogi.Invocation, a ask, until
 		// shows nothing: not even the agent's label.
 		shown := otogi.Message{}
 		if len(final.Parts) > 0 {
-			shown = present(p, last, final)
+			shown = present(p, last, final, quote)
 			shownText = append(shownText, final.PlainText())
 		}
 		var closed []otogi.EventRef
@@ -184,7 +188,7 @@ func (m *Module) respond(ctx context.Context, inv otogi.Invocation, a ask, until
 	var stickerErr error
 	if sends {
 		var ref otogi.EventRef
-		ref, stickerErr = m.sendSticker(cleanup, last, inv, *picks.picked)
+		ref, stickerErr = m.sendSticker(cleanup, last, inv, *picks.picked, quote)
 		if stickerErr == nil {
 			sticker.Ref = string(ref.SourceEvent)
 			refs = append(refs, ref)
@@ -534,14 +538,55 @@ func writeIn(p *profile) string {
 	return " Write in Markdown."
 }
 
-// present is a reply as the chat shows it: after the profile's label, as a
-// reply to the message it answers.
-func present(p *profile, e otogi.Event, msg otogi.Message) otogi.Message {
+// present is a reply as the chat shows it: after the profile's label, and,
+// when it quotes, as a reply to the message it answers.
+func present(p *profile, e otogi.Event, msg otogi.Message, quote bool) otogi.Message {
 	if p.Label != "" {
 		msg = joinLine(label(p), msg)
 	}
-	msg.Relations = []otogi.Relation{{Kind: otogi.RelationReply, Target: e.Ref()}}
+	msg.Relations = nil
+	if quote {
+		msg.Relations = []otogi.Relation{{Kind: otogi.RelationReply, Target: e.Ref()}}
+	}
 	return msg
+}
+
+// quotes reports whether a's reply, starting at started, quotes the message
+// it answers, by the agent's quote setting. when_interrupted quotes when the
+// transcript has a line after the last message to answer, by the platform's
+// time, and before the reply started: anyone's, the agent's own earlier
+// reply or another module's card included, since then the chat no longer
+// shows what the reply answers. Lines sent while the reply is written do
+// not count; a line in the same second as that message on Telegram, which
+// gives seconds, counts as before it.
+func (m *Module) quotes(ctx context.Context, a ask, started time.Time) (bool, error) {
+	switch a.p.Quote {
+	case "never":
+		return false, nil
+	case "when_interrupted":
+	default:
+		return true, nil
+	}
+	last := a.msgs[len(a.msgs)-1]
+	answered := cmp.Or(last.OccurredAt, started)
+	inBatch := map[string]bool{}
+	for _, msg := range a.msgs {
+		inBatch[string(msg.SourceID)] = true
+	}
+	// The latest lines up to the start, as many as the batch and one: a
+	// line after the batch's is among them, the batch's own being all.
+	lines, err := m.store.recent(ctx, last.Destination(), maxTime(started, answered).Add(time.Millisecond), len(a.msgs)+1)
+	if err != nil {
+		return false, err
+	}
+	return slices.ContainsFunc(lines, func(l line) bool { return l.At.After(answered) && !inBatch[l.SourceID] }), nil
+}
+
+func maxTime(a, b time.Time) time.Time {
+	if a.After(b) {
+		return a
+	}
+	return b
 }
 
 // label is the profile's label as a reply shows it, on a line of its own
