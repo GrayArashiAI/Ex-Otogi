@@ -434,3 +434,36 @@ func TestMemoryConfig(t *testing.T) {
 		}
 	}
 }
+
+// A book whose request always fails, such as a batch the service refuses as
+// too long, holds back no other: it is set aside for the run, takes none of
+// its batches, and is asked again next run.
+func TestMemoryAFailingBookHoldsBackNoOther(t *testing.T) {
+	h := newMemoryHarness(t, MemoryConfig{Provider: "mem", Model: "mm", Batch: 20}, 0, "none")
+	h.host.lists[[2]string{"otogi", "telegram:chat:2"}] = "test"
+	mem := h.llm["mem"]
+	mem.errFor = func(req llm.Request) error {
+		if strings.Contains(section(req, memoryBatchHeader), "two-") {
+			return &llm.HTTPError{Provider: "mem", Status: 400, Message: "too long", Kind: otogi.ErrInvalid}
+		}
+		return nil
+	}
+	h.chatter("Alice", "two-", 20, inChat("chat:2"))
+	h.chatter("Alice", "one-", 80)
+	h.remember()
+	var one, two int
+	for _, req := range mem.requests {
+		if strings.Contains(section(req, memoryBatchHeader), "two-") {
+			two++
+		} else {
+			one++
+		}
+	}
+	if two != 1 || one != 3 {
+		t.Fatalf("one run: %d requests for the failing book, %d for the other, want 1 and 3", two, one)
+	}
+	h.remember()
+	if !strings.Contains(section(mem.requests[len(mem.requests)-1], memoryBatchHeader), "one-61") || !strings.Contains(section(mem.requests[len(mem.requests)-2], memoryBatchHeader), "two-1\n") {
+		t.Fatal("the next run did not ask the failing book again and go on with the other")
+	}
+}

@@ -62,28 +62,30 @@ func bookKey(p *profile, to otogi.Destination) string {
 }
 
 // remember is the memory job: it takes up to memoryRunBatches batches, the
-// oldest first, and shortens at most one book over its size. A request the
-// service does not answer ends the run; the next one asks again.
+// oldest first, and shortens at most one book over its size. A book whose
+// request fails, or whose batch the model answers with nothing usable, is
+// set aside until the next run, so it holds back no other; a failed request
+// takes none of the run's batches.
 func (m *Module) remember(ctx context.Context, _ otogi.Invocation) error {
 	compressed := false
-	asked := map[string]bool{} // books answered unusably this run
-	for range memoryRunBatches {
-		b, ok, err := m.nextBatch(ctx, asked)
-		if err != nil || !ok {
-			if err != nil {
-				return err
-			}
+	aside := map[string]bool{} // books not asked again this run
+	for taken := 0; taken < memoryRunBatches; {
+		b, ok, err := m.nextBatch(ctx, aside)
+		if err != nil {
+			return err
+		}
+		if !ok {
 			break
 		}
 		outcome, err := m.consolidate(ctx, b)
 		if err != nil {
 			return err
 		}
-		switch outcome {
-		case memoryUnanswered:
-			return nil
-		case memoryUnusable:
-			asked[bookKey(b.p, b.to)] = true
+		if outcome != memoryUnanswered {
+			taken++
+		}
+		if outcome != memoryDone {
+			aside[bookKey(b.p, b.to)] = true
 			continue
 		}
 		if !compressed {
@@ -93,7 +95,7 @@ func (m *Module) remember(ctx context.Context, _ otogi.Invocation) error {
 			}
 			if over {
 				compressed = true
-				if outcome, err := m.compress(ctx, b.p, b.to); err != nil || outcome == memoryUnanswered {
+				if _, err := m.compress(ctx, b.p, b.to); err != nil {
 					return err
 				}
 			}
