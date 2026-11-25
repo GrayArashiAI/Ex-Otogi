@@ -163,20 +163,26 @@ func newHarness(t *testing.T, profiles ...ProfileConfig) *harness {
 // newHarnessWith starts the module on a host offering services.
 func newHarnessWith(t *testing.T, services map[string]any, profiles ...ProfileConfig) *harness {
 	t.Helper()
+	return newHarnessConfig(t, services, Config{Profiles: profiles})
+}
+
+// newHarnessConfig starts the module with c on a host offering services.
+func newHarnessConfig(t *testing.T, services map[string]any, c Config) *harness {
+	t.Helper()
 	storage, err := modulestore.Open(context.Background(), t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = storage.Close() })
 	h := &harness{t: t, host: &host{storage: storage, lists: map[[2]string]string{}, services: services}, llm: map[string]*provider{}, now: time.Date(2026, 10, 31, 12, 0, 0, 0, time.UTC)}
-	if len(profiles) == 0 {
-		profiles = []ProfileConfig{{Name: "otogi", Label: "Otogi", Keywords: []string{"otogi", "小鸟"}, Provider: "otogi", Model: "m", System: "Be kind."}}
+	if len(c.Profiles) == 0 {
+		c.Profiles = []ProfileConfig{{Name: "otogi", Label: "Otogi", Keywords: []string{"otogi", "小鸟"}, Provider: "otogi", Model: "m", System: "Be kind."}}
 	}
-	for _, p := range profiles {
+	for _, p := range c.Profiles {
 		h.llm[p.Provider] = &provider{responses: []llm.Response{answer("hello")}}
 		h.host.lists[[2]string{p.Name, group}] = "test"
 	}
-	h.m, err = New(Config{Profiles: profiles}, func(name string) (llm.Provider, error) {
+	h.m, err = New(c, func(name string) (llm.Provider, error) {
 		if p, ok := h.llm[name]; ok {
 			return p, nil
 		}
