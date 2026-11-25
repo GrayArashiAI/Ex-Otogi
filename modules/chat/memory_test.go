@@ -150,6 +150,33 @@ func TestMemoryTakesWhatIsAboutToBePruned(t *testing.T) {
 	}
 }
 
+// The agent's own lines reach its memory as said shows them: by its title,
+// without the label its reply showed first, as the platform echoed it.
+func TestMemoryReadsTheAgentsLinesAsSaid(t *testing.T) {
+	mc := MemoryConfig{Provider: "mem", Model: "mm", Batch: 20}
+	h := newHarness(t, ProfileConfig{Name: "otogi", Label: "Otogi", Keywords: []string{"otogi"}, Provider: "otogi", Model: "m", Context: ptr(5), Memory: &mc})
+	mem := h.llm["mem"]
+	mem.responses = []llm.Response{answer("none")}
+	h.mustHandle(h.message("Alice", "otogi hi"))
+	said := h.streams[0]
+	if got := said.final.PlainText(); got != "Otogi\nhello" {
+		t.Fatalf("sent %q", got)
+	}
+	h.echo(said)
+	h.chatter("Bob", "line ", 23)
+	h.remember()
+	if len(mem.requests) != 1 {
+		t.Fatalf("requests %d, want 1", len(mem.requests))
+	}
+	batch := section(mem.requests[0], memoryBatchHeader)
+	if !strings.Contains(batch, "Otogi (this account): hello") || strings.Contains(batch, "**") {
+		t.Fatalf("the agent's line in the batch:\n%s", batch)
+	}
+	if !strings.Contains(mem.requests[0].System, "Lines from Otogi (this account) are what Otogi said.") {
+		t.Fatalf("system %q", mem.requests[0].System)
+	}
+}
+
 func TestMemoryOnlyInTheAgentsChats(t *testing.T) {
 	h := newHarness(t,
 		ProfileConfig{Name: "otogi", Keywords: []string{"otogi"}, Provider: "otogi", Model: "m", Context: ptr(0), Memory: &MemoryConfig{Provider: "mem", Model: "mm", Batch: 20}},
