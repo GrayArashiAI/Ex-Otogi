@@ -80,10 +80,13 @@ func (f *fakeBilibili) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		f.refuse = false
 		w.WriteHeader(http.StatusPreconditionFailed)
 		_, _ = w.Write([]byte("<html>risk control</html>"))
+	case r.URL.Path == "/x/web-interface/view" && r.URL.Query().Get("aid") == "170001":
+		_, _ = w.Write([]byte(`{"code":0,"data":{"bvid":"BV1xx411c7mD","aid":170001,"title":"没有字幕","duration":60,"pages":[{"page":1,"part":"","duration":60}],"owner":{"name":"someone"}}}`))
 	case r.URL.Path == "/x/web-interface/view" && r.URL.Query().Get("bvid") == "BV1gone00000":
 		_, _ = w.Write([]byte(`{"code":-404,"message":"啥都木有"}`))
 	case r.URL.Path == "/x/web-interface/view":
 		_, _ = w.Write([]byte(`{"code":0,"data":{"bvid":"BV1gm4a6yEor","title":"🔥让银河燃烧吧🔥","pic":"http://i1.hdslb.com/cover.jpg","desc":"hello","duration":128,"pubdate":1793935800,"videos":1,
+			"pages":[{"page":1,"part":"开场","duration":60},{"page":2,"part":"正片","duration":68}],
 			"owner":{"name":"AozakiArisu","face":"https://i2.hdslb.com/face.jpg"},"stat":{"view":65306,"danmaku":130,"reply":382,"favorite":2218,"coin":1215,"share":2362,"like":4848},
 			"honor_reply":{"honor":[{"desc":"热门收录"}]}}}`))
 	case r.Host == "b23.tv":
@@ -108,12 +111,17 @@ func (t toFake) RoundTrip(r *http.Request) (*http.Response, error) {
 
 type host struct {
 	otogi.Host
-	records []otogi.Record
+	records  []otogi.Record
+	services map[string]any
 }
 
 func (h *host) Logger() *slog.Logger                     { return slog.New(slog.DiscardHandler) }
 func (h *host) Record(_ context.Context, r otogi.Record) { h.records = append(h.records, r) }
 func (h *host) Allowed(l, chat string) bool              { return l == list && chat == "qq:group:G1" }
+func (h *host) Provide(name string, service any) error {
+	h.services[name] = service
+	return nil
+}
 
 type invocation struct {
 	otogi.Invocation
@@ -132,7 +140,7 @@ func newTestModule(t *testing.T, render func(context.Context, card) ([]byte, err
 	if err := os.WriteFile(chrome, []byte("#!/bin/sh\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	m, err := New(Config{Chrome: chrome})
+	m, err := New(Config{Chrome: chrome}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,7 +149,7 @@ func newTestModule(t *testing.T, render func(context.Context, card) ([]byte, err
 	t.Cleanup(srv.Close)
 	m.api.http = &http.Client{Transport: toFake{srv}}
 	m.render = render
-	h := &host{}
+	h := &host{services: map[string]any{}}
 	if err := m.Start(context.Background(), h); err != nil {
 		t.Fatal(err)
 	}
@@ -220,12 +228,17 @@ func TestConfig(t *testing.T) {
 		cfg  Config
 		want string
 	}{
-		{Config{}, "the path of chrome-headless-shell is required"},
-		{Config{Chrome: "/nonexistent/chrome"}, "no such file"},
+		{Config{Chrome: "/nonexistent/chrome"}, "chrome: stat /nonexistent/chrome: no such file"},
+		{Config{YtDlp: "/nonexistent/yt-dlp"}, "yt_dlp: stat /nonexistent/yt-dlp: no such file"},
+		{Config{SessData: "${OTOGI_BILIBILI_SESSDATA}"}, "sessdata: secret OTOGI_BILIBILI_SESSDATA is not set"},
 	} {
-		if _, err := New(c.cfg); err == nil || !strings.Contains(err.Error(), c.want) {
+		if _, err := New(c.cfg, func(string) (string, bool) { return "", false }); err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%+v: %v, want %q", c.cfg, err, c.want)
 		}
+	}
+	m, err := New(Config{}, nil)
+	if err != nil || m.render != nil || m.subtitles != nil {
+		t.Fatalf("no settings: %v; render %v, subtitles %v", err, m.render != nil, m.subtitles)
 	}
 }
 
@@ -255,11 +268,8 @@ func TestRenderWithChrome(t *testing.T) {
 func TestSchemaDefaultsAreTheDefaults(t *testing.T) {
 	t.Parallel()
 	m, _, _ := newTestModule(t, nil)
-	unset := m.maxVideos
-	chrome := filepath.Join(t.TempDir(), "chrome-headless-shell")
-	_ = os.WriteFile(chrome, []byte("#!/bin/sh\n"), 0o700)
-	typed, err := New(settingstest.WithDefaults(t, Config{Chrome: chrome}))
-	if err != nil || typed.maxVideos != unset {
-		t.Fatalf("schema defaults give %d (%v), unset fields %d", typed.maxVideos, err, unset)
+	typed, err := New(settingstest.WithDefaults(t, Config{}), nil)
+	if err != nil || typed.maxVideos != m.maxVideos || typed.maxSubtitle != m.maxSubtitle {
+		t.Fatalf("schema defaults give %d, %d (%v), unset fields %d, %d", typed.maxVideos, typed.maxSubtitle, err, m.maxVideos, m.maxSubtitle)
 	}
 }

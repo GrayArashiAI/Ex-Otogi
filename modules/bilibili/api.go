@@ -26,6 +26,7 @@ type video struct {
 	Duration int64  `json:"duration"`
 	PubDate  int64  `json:"pubdate"`
 	Videos   int    `json:"videos"`
+	Pages    []page `json:"pages"`
 	Owner    struct {
 		Name string `json:"name"`
 		Face string `json:"face"`
@@ -38,6 +39,13 @@ type video struct {
 			Desc string `json:"desc"`
 		} `json:"honor"`
 	} `json:"honor_reply"`
+}
+
+// page is one part of a video with several.
+type page struct {
+	Page     int    `json:"page"`
+	Part     string `json:"part"`
+	Duration int64  `json:"duration"`
 }
 
 // apiError is a reply Bilibili gave with a non-zero code.

@@ -42,8 +42,10 @@ type moduleEnv struct {
 
 // moduleKinds lists every module compiled into the binary, by module ID.
 var moduleKinds = map[otogi.ModuleID]moduleKind{
-	"bilibili": kind(func(c bilibili.Config, _ moduleEnv) (otogi.Module, error) { return built(bilibili.New(c)) }),
-	"booth":    kind(func(c booth.Config, _ moduleEnv) (otogi.Module, error) { return built(booth.New(c)) }),
+	"bilibili": kind(func(c bilibili.Config, env moduleEnv) (otogi.Module, error) {
+		return built(bilibili.New(c, env.secret))
+	}),
+	"booth": kind(func(c booth.Config, _ moduleEnv) (otogi.Module, error) { return built(booth.New(c)) }),
 	"chat": kind(func(c chat.Config, env moduleEnv) (otogi.Module, error) {
 		return built(chat.New(c, env.llm, env.operators))
 	}).keeping(profileNames),
