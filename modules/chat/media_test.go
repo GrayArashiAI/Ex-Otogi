@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -393,6 +394,68 @@ func TestDescribedTextInTheRecentChat(t *testing.T) {
 		want := `[screenshot: a long post Text: "` + strings.Repeat("字", c.kept) + `…"]`
 		if got := lastUserText(h.llm["otogi"].requests[0]); !strings.Contains(got, want) || strings.Contains(got, strings.Repeat("字", c.kept+1)) {
 			t.Errorf("described_text %d: the recent chat reads %d characters of it, want %d", c.set, strings.Count(got, "字"), c.kept)
+		}
+	}
+}
+
+// voice is a voice message part named name, which the fake describer keys
+// on, with the platform's transcript, if any.
+func voice(name, transcript string) otogi.Part {
+	return otogi.Part{ID: otogi.PartID(name), Kind: otogi.PartMedia, Media: &otogi.Media{Role: otogi.MediaVoice, MediaType: "audio/silk", Transcript: transcript,
+		Source: otogi.MediaSource{Kind: otogi.MediaSourceOpaque, Locator: otogi.ProviderLocator{Data: []byte(name)}}}}
+}
+
+// A voice message the platform transcribed reads as its transcript, in the
+// recent chat (cut to described_text) and in the message answered, with
+// as_text or without, and is neither waited on nor fetched; one without a
+// transcript is [voice], as before.
+func TestVoiceTranscript(t *testing.T) {
+	for _, asText := range []bool{true, false} {
+		d := newDescriber()
+		h := newHarnessConfig(t, map[string]any{mediasvc.Service: d}, Config{DescribedText: 6, Profiles: []ProfileConfig{mediaProfile(asText)}})
+		h.mustHandle(h.message("Bob", "", withParts("", voice("v1", "今天去打 VRChat 吗"))))
+		h.mustHandle(h.message("Bob", "", withParts("", voice("v2", ""))))
+		h.mustHandle(h.message("Alice", "", withParts("otogi", voice("v3", "这是什么意思"))))
+		req := h.llm["otogi"].requests[0]
+		text := lastUserText(req)
+		for _, want := range []string{`Bob: [voice: Said: "今天去打 V…"]`, "Bob: [voice]", `otogi` + "\n\n" + `[voice: Said: "这是什么意思"]`} {
+			if !strings.Contains(text, want) {
+				t.Errorf("as_text %v: request lacks %q:\n%s", asText, want, text)
+			}
+		}
+		if n := mediaParts(req); n != 0 {
+			t.Errorf("as_text %v: %d media parts, want the transcript alone", asText, n)
+		}
+		if slices.Contains(d.asked, "v3") || slices.Contains(d.asked, "v1") {
+			t.Errorf("as_text %v: waited on a transcribed voice message: %v", asText, d.asked)
+		}
+		for _, r := range h.host.records {
+			if r.Kind == "chat.media_skipped" {
+				t.Errorf("as_text %v: chat.media_skipped %v", asText, r.Payload)
+			}
+		}
+	}
+}
+
+// The judgment reads a transcribed voice message as its transcript, whether
+// or not the agent reads descriptions, and does not wait for a description
+// of it.
+func TestJudgmentSeesTranscripts(t *testing.T) {
+	for _, described := range []bool{false, true} {
+		dec := &decider{scores: map[string]float64{"a1": 0.1}}
+		media := newDescriber()
+		p := judgedProfile("luna", 0.7)
+		if described {
+			p.Media = &MediaConfig{}
+		}
+		h := newHarnessWith(t, map[string]any{decision.Service: dec, mediasvc.Service: media}, p)
+		h.mustHandle(h.message("Bob", "", withParts("", voice("v1", "有人在吗"))))
+		state := dec.requests[0].State.(judgeState)
+		if got := state.History[len(state.History)-1].Text; got != `[voice: Said: "有人在吗"]` {
+			t.Fatalf("described %v: the judgment saw %q", described, got)
+		}
+		if len(media.asked) != 0 {
+			t.Fatalf("described %v: the judgment waited on %v", described, media.asked)
 		}
 	}
 }

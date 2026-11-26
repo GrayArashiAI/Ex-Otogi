@@ -362,6 +362,9 @@ func attachmentPart(a attachment) otogi.Part {
 		if a.ContentType != "voice" {
 			media.MediaType = a.ContentType
 		}
+		// QQ transcribes every voice message, whether or not the sender
+		// asked it to show the text.
+		media.Transcript = strings.TrimSpace(a.ASRText)
 		voice, _ := json.Marshal(map[string]string{"wav_url": a.VoiceWavURL, "asr_text": a.ASRText})
 		media.Extensions = []otogi.Extension{{Namespace: extensionNamespace, Name: "voice", Version: 1, MediaType: "application/json", Data: voice}}
 	default:

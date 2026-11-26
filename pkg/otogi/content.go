@@ -97,6 +97,9 @@ type Media struct {
 	Height int `json:"height,omitempty"`
 	// Duration is the playback duration when known.
 	Duration time.Duration `json:"duration,omitempty"`
+	// Transcript is what a voice message says, as the platform transcribed
+	// it; empty when the platform gave none.
+	Transcript string `json:"transcript,omitempty"`
 	// Hashes are digests of the content.
 	Hashes []MediaHash `json:"hashes,omitempty"`
 	// Source says where the bytes are.

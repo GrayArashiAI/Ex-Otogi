@@ -36,6 +36,10 @@ func (m *Module) examines() bool {
 func (m *Module) mediaText(ctx context.Context, from otogi.Destination, media []otogi.Media, described, ids bool) string {
 	words := make([]string, 0, len(media))
 	for _, md := range media {
+		if t, ok := transcribed(md, m.cfg.DescribedText); ok {
+			words = append(words, t)
+			continue
+		}
 		if described && m.describer != nil {
 			d, ok, err := m.describer.Lookup(ctx, from, md)
 			if err != nil {
@@ -55,7 +59,7 @@ func (m *Module) mediaText(ctx context.Context, from otogi.Destination, media []
 // describe the media of msg, seen at from, so mediaText finds them.
 func (m *Module) awaitDescriptions(ctx context.Context, from otogi.Destination, msg otogi.Message, until time.Time) {
 	for _, part := range msg.Parts {
-		if part.Media != nil {
+		if part.Media != nil && part.Media.Transcript == "" {
 			_, _ = m.awaitDescription(ctx, from, *part.Media, until)
 		}
 	}
@@ -74,6 +78,9 @@ func (m *Module) awaitDescription(ctx context.Context, from otogi.Destination, m
 // it is named by its kind, and why is recorded as chat.media_skipped. With
 // ids, the description shows its media's ID.
 func (m *Module) describedPart(ctx context.Context, from otogi.Destination, md otogi.Media, until time.Time, ids bool) otogi.Message {
+	if t, ok := transcribed(md, 0); ok {
+		return otogi.TextMessage(t)
+	}
 	d, err := m.awaitDescription(ctx, from, md, until)
 	if err != nil {
 		return m.undescribed(ctx, from, md, err)
@@ -87,6 +94,9 @@ func (m *Module) describedPart(ctx context.Context, from otogi.Destination, md o
 // a description, it is named by its kind, and why is recorded. With ids,
 // the description shows its media's ID.
 func (m *Module) keptPart(ctx context.Context, from otogi.Destination, md otogi.Media, ids bool) otogi.Message {
+	if t, ok := transcribed(md, 0); ok {
+		return otogi.TextMessage(t)
+	}
 	d, ok, err := m.describer.Lookup(ctx, from, md)
 	switch {
 	case err != nil:
@@ -134,13 +144,30 @@ func descriptionText(md otogi.Media, d mediasvc.Description, limit int, ids bool
 	}
 	out := "[" + head + ": " + d.Summary
 	if text := d.Text; text != "" {
-		if limit > 0 {
-			text = strings.Join(strings.Fields(text), " ")
-			if r := []rune(text); len(r) > limit {
-				text = string(r[:limit]) + "…"
-			}
-		}
-		out += " " + label + ": \"" + text + "\""
+		out += " " + label + ": \"" + clip(text, limit) + "\""
 	}
 	return out + "]"
+}
+
+// transcribed is media the platform transcribed, as its transcript reads:
+// [voice: Said: "..."], cut as descriptionText cuts text; ok is false for
+// media without a transcript, which goes on as before.
+func transcribed(md otogi.Media, limit int) (string, bool) {
+	if md.Transcript == "" {
+		return "", false
+	}
+	return "[" + mediaWord(md) + ": Said: \"" + clip(md.Transcript, limit) + "\"]", true
+}
+
+// clip puts text on one line, cut to limit characters, when limit is above
+// 0; it is text as it is otherwise.
+func clip(text string, limit int) string {
+	if limit <= 0 {
+		return text
+	}
+	text = strings.Join(strings.Fields(text), " ")
+	if r := []rune(text); len(r) > limit {
+		text = string(r[:limit]) + "…"
+	}
+	return text
 }

@@ -837,6 +837,9 @@
           "source": {
             "$ref": "#/components/schemas/MediaSource"
           },
+          "transcript": {
+            "type": "string"
+          },
           "width": {
             "format": "int64",
             "type": "integer"

@@ -89,20 +89,24 @@ func TestMapAttachments(t *testing.T) {
 	m := testMapper(t)
 	e := mapOne(t, m, "C2C_MESSAGE_CREATE", `{"id":"c1","content":"","author":{"user_openid":"U1"},"attachments":[
 		{"url":"https://multimedia.nt.qq.com.cn/download?fileid=1","filename":"a.png","size":1234,"width":10,"height":20,"content_type":"image/png"},
-		{"url":"//multimedia.nt.qq.com.cn/download?fileid=2","filename":"v.amr","content_type":"voice","voice_wav_url":"https://w/v.wav","asr_refer_text":"你好"},
-		{"url":"https://f/doc.pdf","filename":"doc.pdf","size":9,"content_type":"file"}]}`)
+		{"url":"//multimedia.nt.qq.com.cn/download?fileid=2","filename":"v.amr","content_type":"voice","voice_wav_url":"https://w/v.wav","asr_refer_text":" 你好 "},
+		{"url":"https://f/doc.pdf","filename":"doc.pdf","size":9,"content_type":"file"},
+		{"url":"https://multimedia.nt.qq.com.cn/download?fileid=3","filename":"w.amr","content_type":"voice"}]}`)
 	parts := e.Message.Parts
-	if len(parts) != 3 || len(e.Message.Roots) != 3 {
+	if len(parts) != 4 || len(e.Message.Roots) != 4 {
 		t.Fatalf("parts = %+v", parts)
 	}
 	if img := parts[0].Media; parts[0].Kind != otogi.PartMedia || img.Role != otogi.MediaImage || img.MediaType != "image/png" || img.ByteSize != 1234 || img.Width != 10 || img.Source.Kind != otogi.MediaSourceExternal {
 		t.Fatalf("image = %+v", img)
 	}
-	if voice := parts[1].Media; voice.Role != otogi.MediaVoice || voice.Source.URL != "https://multimedia.nt.qq.com.cn/download?fileid=2" || len(voice.Extensions) != 1 {
+	if voice := parts[1].Media; voice.Role != otogi.MediaVoice || voice.Source.URL != "https://multimedia.nt.qq.com.cn/download?fileid=2" || len(voice.Extensions) != 1 || voice.Transcript != "你好" {
 		t.Fatalf("voice = %+v", voice)
 	}
 	if parts[2].Kind != otogi.PartFile || parts[2].Media.Filename != "doc.pdf" {
 		t.Fatalf("file = %+v", parts[2])
+	}
+	if voice := parts[3].Media; voice.Role != otogi.MediaVoice || voice.Transcript != "" {
+		t.Fatalf("voice without a transcript = %+v", voice)
 	}
 }
 
