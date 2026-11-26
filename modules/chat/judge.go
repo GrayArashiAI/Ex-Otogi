@@ -660,7 +660,7 @@ func (m *Module) lineFrom(to otogi.Destination, l line, agent *profile, agents m
 			id = fmt.Sprintf("u%d", len(people)+1)
 			people[l.ActorID] = id
 		}
-		return id + " " + m.nameOf(to.Platform, l.ActorID, l.ActorName)
+		return id + " " + m.nameOf(to.Platform, l.ActorID, l.ActorName, l.ActorRole)
 	}
 	if agent == nil {
 		return "this account"
@@ -678,7 +678,7 @@ func (m *Module) lineFrom(to otogi.Destination, l line, agent *profile, agents m
 // with "(this account)". Every prompt that shows the chat goes through it.
 func (m *Module) said(ctx context.Context, to otogi.Destination, l line) (who string, agent *profile, shown line, err error) {
 	if !l.Outgoing {
-		return m.nameOf(to.Platform, l.ActorID, l.ActorName), nil, l, nil
+		return m.nameOf(to.Platform, l.ActorID, l.ActorName, l.ActorRole), nil, l, nil
 	}
 	if agent, err = m.lineAgent(ctx, to, l); err != nil {
 		return "", nil, line{}, err

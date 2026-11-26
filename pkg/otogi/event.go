@@ -109,7 +109,22 @@ type Actor struct {
 	// Telegram bot. A person's account a program drives (a userbot) is not
 	// marked.
 	Bot bool `json:"bot,omitempty"`
+	// Role is the actor's standing in the conversation, as the platform
+	// gives it with the event: its owner or an admin; empty for other
+	// members and where the platform says nothing.
+	Role ActorRole `json:"role,omitempty"`
 }
+
+// ActorRole is an actor's standing in a conversation.
+type ActorRole string
+
+// Actor roles.
+const (
+	// RoleOwner owns the conversation, as a QQ group's owner does.
+	RoleOwner ActorRole = "owner"
+	// RoleAdmin administers the conversation.
+	RoleAdmin ActorRole = "admin"
+)
 
 // ProviderLocator is driver-owned data that lets the driver find the source
 // object again, for example to refetch media. Other components treat it as

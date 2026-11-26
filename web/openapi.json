@@ -12,6 +12,9 @@
           },
           "name": {
             "type": "string"
+          },
+          "role": {
+            "type": "string"
           }
         },
         "required": [
