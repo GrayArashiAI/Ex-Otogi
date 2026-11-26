@@ -27,6 +27,47 @@ type describer struct {
 	// then, or until its context ends.
 	late   map[string]mediasvc.Description
 	lateAt time.Time
+	// originals names the media whose originals the module keeps, which
+	// Examine takes without bytes; examineErr fails Examine, and
+	// examineBlock has it wait for its context to end. Each call is kept in
+	// examined.
+	originals    map[string]bool
+	examineErr   error
+	examineBlock bool
+	examined     []examineCall
+}
+
+// examineCall is a call to the fake Examine: the media's name, whether it
+// came with its bytes, and the question.
+type examineCall struct {
+	name     string
+	inline   bool
+	question string
+}
+
+// Examine answers "<name>: <question>" about media with its bytes (named by
+// them, as the harness fetches "bytes of <name>"), or about media whose
+// original is kept.
+func (d *describer) Examine(ctx context.Context, _ otogi.Destination, md otogi.Media, question string) (string, error) {
+	d.mu.Lock()
+	inline := md.Source.Kind == otogi.MediaSourceInline
+	name := string(md.Source.Locator.Data)
+	if inline {
+		name = strings.TrimPrefix(string(md.Source.Inline), "bytes of ")
+	}
+	d.examined = append(d.examined, examineCall{name: name, inline: inline, question: question})
+	kept, err, block := d.originals[name], d.examineErr, d.examineBlock
+	d.mu.Unlock()
+	switch {
+	case !inline && !kept:
+		return "", mediasvc.ErrNotKept
+	case block:
+		<-ctx.Done()
+		return "", ctx.Err()
+	case err != nil:
+		return "", err
+	}
+	return name + ": " + question, nil
 }
 
 func (d *describer) Describe(ctx context.Context, _ otogi.Destination, md otogi.Media) (mediasvc.Description, error) {
