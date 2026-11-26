@@ -80,8 +80,8 @@ type ProfileConfig struct {
 	System        string        `json:"system,omitempty" format:"markdown" doc:"The system prompt: who the agent is and how it talks, in Markdown."`
 	PlainText     bool          `json:"plain_text,omitempty" doc:"Replies are plain text: the agent is not asked for Markdown, and what the model writes is sent as it is, unformatted, the label too. In QQ private chats a streamed reply is still shown as Markdown."`
 	Quote         string        `json:"quote,omitempty" enum:"always,never,when_interrupted" default:"always" doc:"Whether a reply quotes the message it answers: always; never; or when_interrupted, only when the chat said something else after that message before the reply started. A sticker after the reply does the same."`
-	Sources       *bool        `json:"sources,omitempty" default:"true" doc:"End a reply that cites pages, after a web search, with a line linking them: Sources: title, …. Off, the reply ends with what the model wrote; chat.reply still records the pages."`
-	FailureNotes  string       `json:"failure_notes,omitempty" enum:"everywhere,direct_chats" default:"everywhere" doc:"Where a reply says how it failed or that it has no answer (Sorry, I couldn't reply…, Cut short…, I can't answer that…, I have nothing to add.): everywhere; or direct_chats, so that in groups and channels a failed reply sends only what it wrote, or nothing. chat.reply records why either way."`
+	Sources       *bool         `json:"sources,omitempty" default:"true" doc:"End a reply that cites pages, after a web search, with a line linking them: Sources: title, …. Off, the reply ends with what the model wrote; chat.reply still records the pages."`
+	FailureNotes  string        `json:"failure_notes,omitempty" enum:"everywhere,direct_chats" default:"everywhere" doc:"Where a reply says how it failed or that it has no answer (Sorry, I couldn't reply…, Cut short…, I can't answer that…, I have nothing to add.): everywhere; or direct_chats, so that in groups and channels a failed reply sends only what it wrote, or nothing. chat.reply records why either way."`
 	OwnFormat     bool          `json:"own_format,omitempty" doc:"The system prompt does not say how to format a reply, leaving it to the agent's own: it asks neither for Markdown nor, with plain text, for plain text. What the model writes is still read as Markdown unless plain text is on."`
 	Context       *int          `json:"context,omitempty" minimum:"0" default:"30" doc:"How many recent chat messages the agent sees; 0 for none."`
 	MaxTurns      int           `json:"max_turns,omitempty" minimum:"1" default:"40" doc:"How many turns of a thread are sent, newest kept."`
@@ -250,7 +250,7 @@ type profile struct {
 	resend           bool          // whether it may send a picture of the chat again with resend_media
 	maxStickers      int           // the most stickers the agent's list shows
 	sources          bool          // whether a grounded reply ends with its sources
-	memory           *memoryOf // nil when it keeps no memory
+	memory           *memoryOf     // nil when it keeps no memory
 }
 
 // title is what chats know the agent by: its label, or its name.

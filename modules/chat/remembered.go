@@ -52,16 +52,19 @@ func (m *Module) remembered(ctx context.Context, p *profile, to otogi.Destinatio
 	if err != nil {
 		return "", nil, err
 	}
-	// The operator mark alone is no new name: an entry noted before
-	// someone became an operator, or stopped being one, names them still.
-	bare := func(name string) string { return strings.TrimSuffix(name, " "+operatorMark) }
+	// A standing is no new name: an entry noted before someone became an
+	// operator, the group's owner or an admin, or stopped being one, names
+	// them still. Names are told without the group's marks, which the prompt
+	// explains only for turns that show them.
+	noRole := strings.NewReplacer(" "+ownerMark, "", " "+adminMark, "").Replace
+	bare := func(name string) string { return noRole(strings.TrimSuffix(name, " "+operatorMark)) }
 	var renamed []string
 	for k := range noted {
 		s, seen := shown[k[0]]
 		if who, ok := m.known(to.Platform, k[0]); !seen && (!ok || who.name == "") {
 			continue // nothing says what they are called now
 		}
-		now := m.nameOf(to.Platform, k[0], s)
+		now := m.nameOf(to.Platform, k[0], s, "")
 		if bare(now) == bare(k[1]) {
 			continue
 		}
@@ -70,7 +73,7 @@ func (m *Module) remembered(ctx context.Context, p *profile, to otogi.Destinatio
 		if old := bare(k[1]); !seen && strings.HasPrefix(old, bare(now)+" (") && strings.HasSuffix(old, ")") {
 			continue
 		}
-		renamed = append(renamed, k[1]+" is now "+now)
+		renamed = append(renamed, noRole(k[1])+" is now "+now)
 	}
 	text := rememberedHeader + "\n" + strings.Join(lines, "\n")
 	if len(renamed) > 0 {

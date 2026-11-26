@@ -84,7 +84,8 @@ func TestNoMemoryInTheSystemPrompt(t *testing.T) {
 // Someone whose name now differs from the one noted, in the people list or
 // as they last wrote in the chat, is told at the end; someone with no message
 // left in the chat and not on the list is not, nor someone who has only
-// become an operator since.
+// become an operator, the group's owner or an admin since, or stopped being
+// one; the names told have no group marks.
 func TestMemoryTellsOfNamesThatChanged(t *testing.T) {
 	t.Parallel()
 	mc := MemoryConfig{Provider: "mem", Model: "mm"}
@@ -94,12 +95,18 @@ func TestMemoryTellsOfNamesThatChanged(t *testing.T) {
 	h.noted(chat1, "Alice drinks tea", map[string]string{"user:Alice": "Alice"}, noteDay)
 	h.noted(chat1, "Bob sails", map[string]string{"user:Bob": "Bob"}, noteDay)
 	h.noted(chat1, "Carol and Dave are siblings", map[string]string{"user:Carol": "Carol", "user:Dave": "Dave"}, noteDay)
+	h.noted(chat1, "Frank founded the group", map[string]string{"user:Frank": "Frank " + ownerMark}, noteDay)
+	h.noted(chat1, "Gina keeps order", map[string]string{"user:Gina": "Gina"}, noteDay)
+	h.noted(chat1, "Hank bans spam", map[string]string{"user:Hank": "Hank " + adminMark}, noteDay)
 	h.mustHandle(h.message("Alice", "hi"))
 	h.mustHandle(h.message("Alice", "morning", func(e *otogi.Event) { e.Actor.Name = "Alicia" }))
 	h.mustHandle(h.message("Bob", "ahoy"))
+	h.mustHandle(h.message("Frank", "hello"))
+	h.mustHandle(h.message("Gina", "hello", func(e *otogi.Event) { e.Actor.Role = otogi.RoleOwner }))
+	h.mustHandle(h.message("Hank", "hello", func(e *otogi.Event) { e.Actor.Name, e.Actor.Role = "Henry", otogi.RoleAdmin }))
 	h.mustHandle(h.message("Dave", "otogi who are we?"))
 	system := h.llm["otogi"].requests[0].System
-	if !strings.Contains(system, "\nNames noted then that differ now: Alice is now Alicia; Bob is now Captain (Bob).\n\nYou are otogi,") {
+	if !strings.Contains(system, "\nNames noted then that differ now: Alice is now Alicia; Bob is now Captain (Bob); Hank is now Henry.\n\nYou are otogi,") {
 		t.Fatalf("system %q", system)
 	}
 }
