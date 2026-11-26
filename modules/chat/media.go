@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -21,11 +22,18 @@ func (m *Module) describes() bool {
 	return false
 }
 
+// examines reports whether any agent has examine_media, which looks at
+// kept stickers too.
+func (m *Module) examines() bool {
+	return slices.ContainsFunc(m.profiles, func(p *profile) bool { return p.examine > 0 })
+}
+
 // mediaText is how media reads in the transcript, a quote, and the
 // judgment: as the media module described it, its text cut to
 // described_text, when described is set and a description is kept, or else
-// by its kind. It does not wait.
-func (m *Module) mediaText(ctx context.Context, from otogi.Destination, media []otogi.Media, described bool) string {
+// by its kind; with ids, a description shows its media's ID, for
+// examine_media. It does not wait.
+func (m *Module) mediaText(ctx context.Context, from otogi.Destination, media []otogi.Media, described, ids bool) string {
 	words := make([]string, 0, len(media))
 	for _, md := range media {
 		if described && m.describer != nil {
@@ -34,7 +42,7 @@ func (m *Module) mediaText(ctx context.Context, from otogi.Destination, media []
 				m.host.Logger().WarnContext(ctx, "chat: reading a media description", "error", err)
 			}
 			if ok {
-				words = append(words, descriptionText(md, d, m.cfg.DescribedText))
+				words = append(words, descriptionText(md, d, m.cfg.DescribedText, ids))
 				continue
 			}
 		}
@@ -63,20 +71,22 @@ func (m *Module) awaitDescription(ctx context.Context, from otogi.Destination, m
 
 // describedPart is media given to the model as its description, waiting
 // until until at most; the media itself is not sent. Without a description,
-// it is named by its kind, and why is recorded as chat.media_skipped.
-func (m *Module) describedPart(ctx context.Context, from otogi.Destination, md otogi.Media, until time.Time) otogi.Message {
+// it is named by its kind, and why is recorded as chat.media_skipped. With
+// ids, the description shows its media's ID.
+func (m *Module) describedPart(ctx context.Context, from otogi.Destination, md otogi.Media, until time.Time, ids bool) otogi.Message {
 	d, err := m.awaitDescription(ctx, from, md, until)
 	if err != nil {
 		return m.undescribed(ctx, from, md, err)
 	}
-	return otogi.TextMessage(descriptionText(md, d, 0))
+	return otogi.TextMessage(descriptionText(md, d, 0, ids))
 }
 
 // keptPart is an older message's media given to the model as its kept
 // description, without waiting: the media module describes media as it
 // arrives and does not come back to it, so a wait would only run out. Without
-// a description, it is named by its kind, and why is recorded.
-func (m *Module) keptPart(ctx context.Context, from otogi.Destination, md otogi.Media) otogi.Message {
+// a description, it is named by its kind, and why is recorded. With ids,
+// the description shows its media's ID.
+func (m *Module) keptPart(ctx context.Context, from otogi.Destination, md otogi.Media, ids bool) otogi.Message {
 	d, ok, err := m.describer.Lookup(ctx, from, md)
 	switch {
 	case err != nil:
@@ -84,7 +94,7 @@ func (m *Module) keptPart(ctx context.Context, from otogi.Destination, md otogi.
 	case !ok:
 		return m.undescribed(ctx, from, md, errNotKept)
 	}
-	return otogi.TextMessage(descriptionText(md, d, 0))
+	return otogi.TextMessage(descriptionText(md, d, 0, ids))
 }
 
 // errNotKept reports quoted media the media module has no description of.
@@ -105,8 +115,9 @@ func (m *Module) undescribed(ctx context.Context, from otogi.Destination, md oto
 // watermelon], [screenshot: a post Text: "..."], [video 0:12: a song Said:
 // "..."]; a kept sticker as its number, [sticker 3: ...], whatever its kind,
 // so an agent can send it back. With limit above 0, the text goes on one
-// line, cut to limit characters.
-func descriptionText(md otogi.Media, d mediasvc.Description, limit int) string {
+// line, cut to limit characters. With ids, any other media shows its ID
+// after its kind, [photo #2ce7ad: ...], for examine_media.
+func descriptionText(md otogi.Media, d mediasvc.Description, limit int, ids bool) string {
 	head, label := string(d.Kind), "Text"
 	switch {
 	case d.Sticker != 0:
@@ -117,6 +128,9 @@ func descriptionText(md otogi.Media, d mediasvc.Description, limit int) string {
 			s := int(md.Duration.Round(time.Second) / time.Second)
 			head += fmt.Sprintf(" %d:%02d", s/60, s%60)
 		}
+	}
+	if ids && d.Sticker == 0 && d.ID != "" {
+		head += " #" + d.ID
 	}
 	out := "[" + head + ": " + d.Summary
 	if text := d.Text; text != "" {

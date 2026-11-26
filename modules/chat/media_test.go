@@ -309,6 +309,7 @@ func TestDescriptionText(t *testing.T) {
 		md    otogi.Media
 		d     mediasvc.Description
 		limit int
+		ids   bool
 		want  string
 	}{
 		{d: cat, limit: 300, want: "[sticker: a cat eating watermelon, content]"},
@@ -320,8 +321,15 @@ func TestDescriptionText(t *testing.T) {
 		// A kept sticker reads as its number, whatever its kind.
 		{d: mediasvc.Description{Kind: mediasvc.KindMeme, Summary: "Eku喵喵叫", Sticker: 3}, limit: 300, want: "[sticker 3: Eku喵喵叫]"},
 		{d: mediasvc.Description{Kind: mediasvc.KindScreenshot, Summary: "s", Text: "哈哈", Sticker: 3}, limit: 300, want: `[sticker 3: s Text: "哈哈"]`},
+		// With ids, other media shows its ID after its kind; a kept sticker
+		// still its number, and an ID only where there is one.
+		{d: mediasvc.Description{Kind: mediasvc.KindPhoto, Summary: "a tank", ID: "00a0a6"}, want: "[photo: a tank]"},
+		{d: mediasvc.Description{Kind: mediasvc.KindPhoto, Summary: "a tank", ID: "00a0a6"}, ids: true, want: "[photo #00a0a6: a tank]"},
+		{md: otogi.Media{Duration: 12 * time.Second}, d: mediasvc.Description{Kind: mediasvc.KindVideo, Summary: "a song", ID: "9f03c1"}, ids: true, want: "[video 0:12 #9f03c1: a song]"},
+		{d: mediasvc.Description{Kind: mediasvc.KindMeme, Summary: "Eku喵喵叫", Sticker: 3}, ids: true, want: "[sticker 3: Eku喵喵叫]"},
+		{d: mediasvc.Description{Kind: mediasvc.KindPhoto, Summary: "a tank"}, ids: true, want: "[photo: a tank]"},
 	} {
-		if got := descriptionText(c.md, c.d, c.limit); got != c.want {
+		if got := descriptionText(c.md, c.d, c.limit, c.ids); got != c.want {
 			t.Errorf("descriptionText = %q, want %q", got, c.want)
 		}
 	}

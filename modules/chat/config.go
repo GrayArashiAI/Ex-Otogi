@@ -103,9 +103,18 @@ type NotesConfig struct {
 
 // MediaConfig has an agent read the media module's descriptions.
 type MediaConfig struct {
-	AsText   bool  `json:"as_text,omitempty" doc:"Give the model descriptions instead of the current and the quoted message's media, for a model that sees images poorly or not at all. Media left undescribed is named by its kind, not shown."`
-	Stickers []int `json:"stickers,omitempty" doc:"Stickers, by /sticker list number, it may send with send_sticker after its reply, one at most; empty gives none. The list goes past the cached part, at full price each reply. A kept sticker named by number can be sent too. Verified on QQ only."`
+	AsText   bool           `json:"as_text,omitempty" doc:"Give the model descriptions instead of the current and the quoted message's media, for a model that sees images poorly or not at all. Media left undescribed is named by its kind, not shown."`
+	Stickers []int          `json:"stickers,omitempty" doc:"Stickers, by /sticker list number, it may send with send_sticker after its reply, one at most; empty gives none. The list goes past the cached part, at full price each reply. A kept sticker named by number can be sent too. Verified on QQ only."`
+	Examine  *ExamineConfig `json:"examine,omitempty" doc:"Give the agent examine_media, to ask a question of its own about a picture, animation, or video in the chat, which the descriptions it is shown then name by ID (#2ce7ad), or about a kept sticker by its number: the media module's models answer from the media itself. The original is the one the media module keeps (its pictures), else fetched again, which fails once the platform's link expired, on QQ in about an hour. Judgments and the memory are shown no IDs."`
 }
+
+// ExamineConfig gives an agent examine_media.
+type ExamineConfig struct {
+	Timeout otogi.Duration `json:"timeout,omitempty" default:"1m" doc:"The longest one look may take, fetching the original and every model tried included; past it, the agent is told it took too long, and answers from the description. On Eku, Gemini Flash-Lite took 5.5 seconds at the median to describe a picture, and 33 at most."`
+}
+
+// defaultExamineTimeout bounds one look an examine block leaves unbounded.
+const defaultExamineTimeout = time.Minute
 
 // JudgeConfig has the decision service judge group messages for an agent.
 // Each block turns one judgment on.
@@ -193,6 +202,7 @@ type profile struct {
 	// waitMin and waitMax bound how long it waits in groups for the sender
 	// to finish; waitMax is 0 when it does not wait.
 	waitMin, waitMax time.Duration
+	examine          time.Duration // the longest one look with examine_media may take; 0 when it has none
 }
 
 // title is what chats know the agent by: its label, or its name.
@@ -334,6 +344,11 @@ func (c *Config) profiles(providers func(string) (llm.Provider, error)) ([]*prof
 			for j, n := range pc.Media.Stickers {
 				if n <= 0 {
 					refuse(fmt.Sprintf(".media.stickers[%d]", j), fmt.Errorf("%d: want a sticker's number, as /sticker list shows it", n))
+				}
+			}
+			if pc.Media.Examine != nil {
+				if p.examine = cmp.Or(time.Duration(pc.Media.Examine.Timeout), defaultExamineTimeout); p.examine < 0 {
+					refuse(".media.examine.timeout", errors.New("must not be negative"))
 				}
 			}
 		}
