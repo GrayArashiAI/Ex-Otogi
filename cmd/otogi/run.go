@@ -18,6 +18,7 @@ import (
 	"github.com/TundraWork/Ex-Otogi/internal/adapter/telegram"
 	"github.com/TundraWork/Ex-Otogi/internal/kernel"
 	"github.com/TundraWork/Ex-Otogi/modules/utility"
+	"github.com/TundraWork/Ex-Otogi/pkg/media"
 	"github.com/TundraWork/Ex-Otogi/pkg/otogi"
 	"github.com/TundraWork/Ex-Otogi/web"
 )
@@ -194,6 +195,11 @@ func run(ctx context.Context, cfg Config, newLog func(format string) *slog.Logge
 				requestShutdown()
 			},
 			Shutdown: requestShutdown, Modules: newModuleAPI(settings), System: newSystemAPI(settings), Secrets: newModuleAPI(settings), Media: routes.FetchMedia, Version: version(),
+			Stickers: func() (media.StickerAdmin, bool) {
+				s, ok := k.Service(media.StickerAdminService)
+				admin, isAdmin := s.(media.StickerAdmin)
+				return admin, ok && isAdmin
+			},
 			Ready: func() bool { return allReady(drivers) },
 			Running: func() []management.Running {
 				out := []management.Running{}

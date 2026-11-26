@@ -46,7 +46,6 @@ type Module struct {
 	steps     []step
 	keep      int64 // the most the pictures kept may take, 0 when none are kept
 	largest   int64 // the largest media described or examined, in bytes
-	limits    stickerLimits
 	language  string
 	operators func() []string
 	store     *store
@@ -67,7 +66,7 @@ func New(cfg Config, providers func(string) (llm.Provider, error), operators fun
 	if language == "" {
 		language = defaultLanguage
 	}
-	return &Module{steps: steps, keep: cfg.keepBytes(), largest: cfg.largestBytes(), limits: stickerLimits{count: maxStickers, total: maxStickerTotal}, language: language, operators: operators, waits: newWaits(time.Now), now: time.Now}, nil
+	return &Module{steps: steps, keep: cfg.keepBytes(), largest: cfg.largestBytes(), language: language, operators: operators, waits: newWaits(time.Now), now: time.Now}, nil
 }
 
 // Descriptor declares the module: it describes the media of people's new
@@ -80,14 +79,14 @@ func (*Module) Descriptor() otogi.ModuleDescriptor {
 		Ordering:   otogi.OrderNone,
 		Timeout:    handleTimeout,
 		Filter:     otogi.Filter{Directions: []otogi.Direction{otogi.DirectionIncoming}},
-		Provides:   []string{contract.Service, contract.StickersService},
+		Provides:   []string{contract.Service, contract.StickersService, contract.StickerAdminService},
 		Commands:   []otogi.CommandSpec{{Name: stickerCommand, Usage: "add [note] | list | note <n> [note] | remove <n>", Description: "manage the stickers agents may send (operators only)"}},
 		Allowlists: []otogi.AllowlistSpec{{Name: describeList, Title: "Describe media", Description: "Images, animations, and videos in these chats are sent to the configured models and described."}},
 	}
 }
 
-// Start opens the database, provides the media and stickers services, and
-// schedules pruning.
+// Start opens the database, provides the media service, the stickers for
+// agents, and their management, and schedules pruning.
 func (m *Module) Start(ctx context.Context, host otogi.Host) error {
 	db, err := host.Database(ctx)
 	if err != nil {
@@ -101,6 +100,9 @@ func (m *Module) Start(ctx context.Context, host otogi.Host) error {
 		return err
 	}
 	if err := host.Provide(contract.StickersService, contract.Stickers(stickers{m})); err != nil {
+		return err
+	}
+	if err := host.Provide(contract.StickerAdminService, contract.StickerAdmin(stickerAdmin{m})); err != nil {
 		return err
 	}
 	return host.Schedule("prune", "@every 1h", m.prune)

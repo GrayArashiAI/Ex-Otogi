@@ -276,6 +276,16 @@ func ids(entries []*moduleEntry) []otogi.ModuleID {
 	return out
 }
 
+// Service returns the service a running module provided under name. It is
+// for the composition root, which serves the management plane; modules look
+// services up through their Host.
+func (k *Kernel) Service(name string) (any, bool) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	service, ok := k.routes.services[name]
+	return service, ok
+}
+
 // Descriptors returns the descriptors of the running modules, by module ID.
 func (k *Kernel) Descriptors() []otogi.ModuleDescriptor {
 	k.mu.Lock()

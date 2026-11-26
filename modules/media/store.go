@@ -165,7 +165,8 @@ func (s *store) recent(ctx context.Context, d otogi.Destination, source string, 
 	return media, true, nil
 }
 
-// sticker is a kept sticker. Bytes is only read for its picture.
+// sticker is a kept sticker. Bytes is only read for its picture; AddedBy,
+// AddedAt, and Packs, only for the list and the management plane.
 type sticker struct {
 	ID        int
 	SHA256    []byte
@@ -175,6 +176,20 @@ type sticker struct {
 	Kind      contract.Kind
 	Summary   string
 	Note      string
+	AddedBy   string
+	AddedAt   time.Time
+	Packs     []string
+}
+
+// kept is st as an operator manages it.
+func (st sticker) kept() contract.KeptSticker {
+	return contract.KeptSticker{Sticker: st.listed(), Summary: st.Summary, Note: st.Note,
+		MediaType: st.MediaType, Size: st.Size, SHA256: st.SHA256, AddedBy: st.AddedBy, AddedAt: st.AddedAt}
+}
+
+// listed is st as the stickers service gives it.
+func (st sticker) listed() contract.Sticker {
+	return contract.Sticker{ID: st.ID, Kind: st.Kind, Text: st.text(), Packs: st.Packs}
 }
 
 // text is what the sticker shows in a list: its note, else its summary.
@@ -186,30 +201,54 @@ func (st sticker) text() string {
 }
 
 // addSticker keeps st, added by by at now, with the MD5 of its bytes, and
-// returns its number. When a sticker with st's digest is kept already, as
-// when a message is delivered again, it returns that one's number and
-// existed.
-func (s *store) addSticker(ctx context.Context, st sticker, by string, now time.Time) (id int, existed bool, err error) {
+// returns its number, putting it in pack unless pack is empty, in one
+// transaction; packed is whether that put it in pack. When a sticker with
+// st's digest is kept already, as when a message is delivered again, it
+// returns that one's number and existed, put in pack all the same. A pack
+// that is not there is contract.ErrNoPack, and nothing is kept.
+func (s *store) addSticker(ctx context.Context, st sticker, pack, by string, now time.Time) (id int, existed, packed bool, err error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, false, false, fmt.Errorf("media store: keep sticker: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if pack != "" {
+		if err := packThere(ctx, tx, pack); err != nil {
+			return 0, false, false, err
+		}
+	}
 	sum := md5.Sum(st.Bytes)
-	res, err := s.db.ExecContext(ctx, `INSERT INTO stickers (sha256, md5, media_type, bytes, kind, summary, note, added_by, added_at)
+	res, err := tx.ExecContext(ctx, `INSERT INTO stickers (sha256, md5, media_type, bytes, kind, summary, note, added_by, added_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (sha256) DO NOTHING`,
 		st.SHA256, sum[:], st.MediaType, st.Bytes, string(st.Kind), st.Summary, st.Note, by, now.UnixMilli())
 	if err != nil {
-		return 0, false, fmt.Errorf("media store: keep sticker: %w", err)
+		return 0, false, false, fmt.Errorf("media store: keep sticker: %w", err)
 	}
 	if n, _ := res.RowsAffected(); n == 1 {
 		last, err := res.LastInsertId()
 		if err != nil {
-			return 0, false, fmt.Errorf("media store: keep sticker: %w", err)
+			return 0, false, false, fmt.Errorf("media store: keep sticker: %w", err)
 		}
-		return int(last), false, nil
+		id = int(last)
+	} else {
+		existed = true
+		if err := tx.QueryRowContext(ctx, `SELECT id FROM stickers WHERE sha256 = ?`, st.SHA256).Scan(&id); err != nil {
+			return 0, false, false, fmt.Errorf("media store: keep sticker: neither inserted nor kept: %w", err)
+		}
 	}
-	id, ok, err := s.stickerByDigest(ctx, st.SHA256)
-	if err == nil && !ok {
-		err = errors.New("media store: keep sticker: neither inserted nor kept")
+	if pack != "" {
+		res, err := tx.ExecContext(ctx, `INSERT INTO sticker_pack_members (pack, sticker) VALUES (?, ?) ON CONFLICT DO NOTHING`, pack, id)
+		if err != nil {
+			return 0, false, false, fmt.Errorf("media store: keep sticker: %w", err)
+		}
+		n, _ := res.RowsAffected()
+		packed = n == 1
 	}
-	return id, true, err
+	if err := tx.Commit(); err != nil {
+		return 0, false, false, fmt.Errorf("media store: keep sticker: %w", err)
+	}
+	return id, existed, packed, nil
 }
 
 // stickerQueries find a kept sticker by a key's digest, by algorithm.
@@ -251,18 +290,9 @@ func (s *store) stickerByDigest(ctx context.Context, sum []byte) (int, bool, err
 	return id, true, nil
 }
 
-// stickerUsage returns how many stickers are kept and their bytes in all.
-func (s *store) stickerUsage(ctx context.Context) (count int, total int64, err error) {
-	err = s.db.QueryRowContext(ctx, `SELECT count(*), coalesce(sum(length(bytes)), 0) FROM stickers`).Scan(&count, &total)
-	if err != nil {
-		return 0, 0, fmt.Errorf("media store: count stickers: %w", err)
-	}
-	return count, total, nil
-}
-
 // stickers returns the kept stickers by number, without their bytes.
 func (s *store) stickers(ctx context.Context) ([]sticker, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, sha256, media_type, length(bytes), kind, summary, note FROM stickers ORDER BY id`)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, sha256, media_type, length(bytes), kind, summary, note, added_by, added_at FROM stickers ORDER BY id`)
 	if err != nil {
 		return nil, fmt.Errorf("media store: list stickers: %w", err)
 	}
@@ -271,16 +301,61 @@ func (s *store) stickers(ctx context.Context) ([]sticker, error) {
 	for rows.Next() {
 		var st sticker
 		var kind string
-		if err := rows.Scan(&st.ID, &st.SHA256, &st.MediaType, &st.Size, &kind, &st.Summary, &st.Note); err != nil {
+		var at int64
+		if err := rows.Scan(&st.ID, &st.SHA256, &st.MediaType, &st.Size, &kind, &st.Summary, &st.Note, &st.AddedBy, &at); err != nil {
 			return nil, fmt.Errorf("media store: list stickers: %w", err)
 		}
-		st.Kind = contract.Kind(kind)
+		st.Kind, st.AddedAt = contract.Kind(kind), time.UnixMilli(at)
 		out = append(out, st)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("media store: list stickers: %w", err)
 	}
+	in, err := s.memberships(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for i := range out {
+		out[i].Packs = in[out[i].ID]
+	}
 	return out, nil
+}
+
+// sticker returns sticker id without its bytes, with its packs.
+func (s *store) sticker(ctx context.Context, id int) (sticker, bool, error) {
+	all, err := s.stickers(ctx)
+	if err != nil {
+		return sticker{}, false, err
+	}
+	for _, st := range all {
+		if st.ID == id {
+			return st, true, nil
+		}
+	}
+	return sticker{}, false, nil
+}
+
+// memberships returns the packs of each sticker in any, by number, each
+// sorted.
+func (s *store) memberships(ctx context.Context) (map[int][]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT sticker, pack FROM sticker_pack_members ORDER BY pack`)
+	if err != nil {
+		return nil, fmt.Errorf("media store: list sticker packs: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	in := map[int][]string{}
+	for rows.Next() {
+		var id int
+		var pack string
+		if err := rows.Scan(&id, &pack); err != nil {
+			return nil, fmt.Errorf("media store: list sticker packs: %w", err)
+		}
+		in[id] = append(in[id], pack)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("media store: list sticker packs: %w", err)
+	}
+	return in, nil
 }
 
 // stickerPicture returns sticker id with its bytes.
@@ -303,15 +378,16 @@ func (s *store) stickerPicture(ctx context.Context, id int) (sticker, bool, erro
 func (s *store) setStickerNote(ctx context.Context, id int, note string) (sticker, bool, error) {
 	st := sticker{ID: id}
 	var kind string
-	err := s.db.QueryRowContext(ctx, `UPDATE stickers SET note = ? WHERE id = ? RETURNING sha256, media_type, length(bytes), kind, summary, note`, note, id).
-		Scan(&st.SHA256, &st.MediaType, &st.Size, &kind, &st.Summary, &st.Note)
+	var at int64
+	err := s.db.QueryRowContext(ctx, `UPDATE stickers SET note = ? WHERE id = ? RETURNING sha256, media_type, length(bytes), kind, summary, note, added_by, added_at`, note, id).
+		Scan(&st.SHA256, &st.MediaType, &st.Size, &kind, &st.Summary, &st.Note, &st.AddedBy, &at)
 	if errors.Is(err, sql.ErrNoRows) {
 		return sticker{}, false, nil
 	}
 	if err != nil {
 		return sticker{}, false, fmt.Errorf("media store: note sticker: %w", err)
 	}
-	st.Kind = contract.Kind(kind)
+	st.Kind, st.AddedAt = contract.Kind(kind), time.UnixMilli(at)
 	return st, true, nil
 }
 

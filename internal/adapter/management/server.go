@@ -15,6 +15,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
 
+	"github.com/TundraWork/Ex-Otogi/pkg/media"
 	"github.com/TundraWork/Ex-Otogi/pkg/otogi"
 )
 
@@ -50,6 +51,9 @@ type ServerConfig struct {
 	System System
 	// Secrets serves the secret routes; without it they are absent.
 	Secrets Secrets
+	// Stickers returns the running media module's sticker service, or
+	// false when it is not running; without it the sticker routes are absent.
+	Stickers func() (media.StickerAdmin, bool)
 	// Media fetches media people sent through the platform's driver.
 	Media func(context.Context, otogi.Destination, otogi.MediaSource) ([]byte, error)
 	// Version is the build, as the OpenAPI document names it.
@@ -297,6 +301,9 @@ func newAPI(cfg ServerConfig, signIn *signIn, every bool) (*http.ServeMux, huma.
 	}
 	if cfg.System != nil || every {
 		registerSystem(api, cfg.System)
+	}
+	if cfg.Stickers != nil || every {
+		registerStickers(api, cfg.Stickers)
 	}
 	if cfg.Secrets != nil || every {
 		registerSecrets(api, cfg.Secrets)

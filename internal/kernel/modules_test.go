@@ -163,6 +163,40 @@ func TestReconfigureReplacesDependentsWithTheirProvider(t *testing.T) {
 	}
 }
 
+// The composition root finds the service the running provider gave: the
+// new instance's after a replacement, none once the provider is removed.
+func TestServiceIsTheRunningProviders(t *testing.T) {
+	provider := func(greeting string) otogi.Module {
+		return starterModule{moduleFunc: describe("p", []string{"greeter"}, nil), start: func(h otogi.Host) error { return h.Provide("greeter", named(greeting)) }}
+	}
+	k := start(t, Config{}, []otogi.Module{provider("hello")}, nil, nil)
+	greeting := func() any {
+		s, ok := k.Service("greeter")
+		if !ok {
+			return nil
+		}
+		return s.(greeter).Greet()
+	}
+	if got := greeting(); got != "hello" {
+		t.Fatalf("Service = %v, want hello", got)
+	}
+	if err := k.Reconfigure(context.Background(), []otogi.Module{provider("hi")}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := greeting(); got != "hi" {
+		t.Fatalf("after the replacement, Service = %v, want hi", got)
+	}
+	if err := k.Reconfigure(context.Background(), nil, []otogi.ModuleID{"p"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := greeting(); got != nil {
+		t.Fatalf("after the removal, Service = %v, want none", got)
+	}
+	if _, ok := k.Service("nothing"); ok {
+		t.Fatal("a service nobody provides is found")
+	}
+}
+
 func TestReconfigureMovesJobsToTheNewInstance(t *testing.T) {
 	var runs [2]atomic.Int64
 	scheduler := func(i int) otogi.Module {
