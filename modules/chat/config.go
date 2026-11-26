@@ -138,6 +138,7 @@ type StaleConfig struct {
 // ChimeConfig configures speaking up unasked.
 type ChimeConfig struct {
 	Threshold float64 `json:"threshold,omitempty" minimum:"0" maximum:"1" default:"0.55" doc:"How sure the judgment must be that the agent would like to add to a message. It rises with how often the agent has spoken up unasked, as judge.follow's does."`
+	Still     float64 `json:"still,omitempty" minimum:"0" maximum:"1" default:"0.5" doc:"While the agent waits for the chat to pause before speaking up, each other message asks whether it still means to: how sure the judgment must be that it does, or it gives up. Lower keeps it waiting through more of the chat."`
 }
 
 // BriefConfig configures the judgment asked before each reply.
@@ -177,6 +178,9 @@ const (
 	// defaultChime is the chime threshold of a chime block that sets none:
 	// Eku's live value (2026-11-25).
 	defaultChime = 0.55
+	// defaultStill is the still threshold of a chime block that sets none:
+	// the default of Eku's code, whose owner runs it at 0.4.
+	defaultStill = 0.5
 	// defaultLookup is the lookup threshold of a brief block that sets none:
 	// Eku's, live since 2026-11-18.
 	defaultLookup = 0.7
@@ -195,6 +199,7 @@ type profile struct {
 	wake     float64 // how sure a judgment must be to wake it; 0 when it is not judged
 	follow   float64 // how sure a judgment must be that a message carries on its exchange; 0 when not judged
 	chime    float64 // how sure a judgment must be that it would like to speak up; 0 when not judged
+	still    float64 // how sure a judgment must be, while it waits to speak up, that it still means to
 	// chimeMax is the longest it waits for a chat to pause before speaking
 	// up: chimeHoldMax, or half of timeout, which also bounds the reply.
 	chimeMax time.Duration
@@ -365,6 +370,7 @@ func (c *Config) profiles(providers func(string) (llm.Provider, error)) ([]*prof
 			}
 			if pc.Judge.Chime != nil {
 				p.chime = cmp.Or(pc.Judge.Chime.Threshold, defaultChime)
+				p.still = cmp.Or(pc.Judge.Chime.Still, defaultStill)
 			}
 			if pc.Judge.Stale != nil {
 				p.stale = cmp.Or(pc.Judge.Stale.Threshold, defaultStale)

@@ -796,7 +796,7 @@ func TestSchemaDefaultsAreTheDefaults(t *testing.T) {
 	providers := func(string) (llm.Provider, error) { return &provider{}, nil }
 	unset := Config{Profiles: []ProfileConfig{
 		{Name: "luna", Keywords: []string{"luna"}, Provider: "p", Model: "m", Notes: &NotesConfig{}, Media: &MediaConfig{Examine: &ExamineConfig{}}},
-		{Name: "mizuki", Keywords: []string{"mizuki"}, Provider: "p", Model: "m", Judge: &JudgeConfig{Wake: &WakeConfig{}, Stale: &StaleConfig{}}},
+		{Name: "mizuki", Keywords: []string{"mizuki"}, Provider: "p", Model: "m", Judge: &JudgeConfig{Wake: &WakeConfig{}, Stale: &StaleConfig{}, Wait: &WaitConfig{}, Chime: &ChimeConfig{}}},
 	}, People: []PersonConfig{{User: "qq:user:x"}}}
 	typed := settingstest.WithDefaults(t, unset)
 	a, err := unset.profiles(providers)
@@ -809,7 +809,7 @@ func TestSchemaDefaultsAreTheDefaults(t *testing.T) {
 	}
 	if unset.Retention != typed.Retention || unset.Timeout != typed.Timeout || *unset.ToolReserve != *typed.ToolReserve || unset.MaxMediaMB != typed.MaxMediaMB || unset.DescribeWait != typed.DescribeWait || unset.DescribedText != typed.DescribedText ||
 		a[0].MaxTurns != b[0].MaxTurns || a[0].MaxToolRounds != b[0].MaxToolRounds || a[0].context != b[0].context || a[1].wake != b[1].wake ||
-		a[1].stale != b[1].stale || a[0].note("follow") != b[0].note("follow") || a[0].note("chime") != b[0].note("chime") || a[0].examine != b[0].examine {
+		a[1].stale != b[1].stale || a[1].chime != b[1].chime || a[1].still != b[1].still || a[1].waitMin != b[1].waitMin || a[1].waitMax != b[1].waitMax || a[0].note("follow") != b[0].note("follow") || a[0].note("chime") != b[0].note("chime") || a[0].examine != b[0].examine {
 		t.Fatalf("schema defaults give %+v %+v wake %v, unset fields %+v %+v wake %v", typed, b[0], b[1].wake, unset, a[0], a[1].wake)
 	}
 	pa, err := unset.people()
