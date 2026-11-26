@@ -52,7 +52,7 @@ func (f *fakeStickers) Keep(_ context.Context, data []byte, pack, by string) (me
 		}
 		return media.KeptSticker{}, false, &media.StickerRefusal{Reason: "already kept", Message: "Already kept as sticker 3.", ID: 3}
 	case "text":
-		return media.KeptSticker{}, false, &media.StickerRefusal{Reason: "not png, jpeg, or gif", Message: "Only PNG, JPEG, and GIF pictures can be kept."}
+		return media.KeptSticker{}, false, &media.StickerRefusal{Reason: "not png, jpeg, gif, or webp", Message: "Only PNG, JPEG, GIF, and WebP pictures can be kept."}
 	}
 	st := media.KeptSticker{Sticker: media.Sticker{ID: 4}, MediaType: "image/png", Size: int64(len(data)), AddedBy: by}
 	f.kept = append(f.kept, st)
@@ -173,7 +173,7 @@ func TestStickerRoutes(t *testing.T) {
 		{"POST", "/api/modules/media/stickers?pack=eku", "again", 200, `"id":3`},
 		{"POST", "/api/modules/media/stickers?pack=eku", "again", 200, `"existing":true`},
 		{"POST", "/api/modules/media/stickers?pack=nope", "\x89PNG", 404, "no such sticker pack"},
-		{"POST", "/api/modules/media/stickers", "text", 422, `"message":"not png, jpeg, or gif"`},
+		{"POST", "/api/modules/media/stickers", "text", 422, `"message":"not png, jpeg, gif, or webp"`},
 		{"POST", "/api/modules/media/stickers", "\x89PNG", 201, `"id":4`},
 		{"PATCH", "/api/modules/media/stickers/3", `{"note":"安慰"}`, 200, `"note":"安慰"`},
 		{"PATCH", "/api/modules/media/stickers/9", `{"note":"x"}`, 404, "there is no sticker 9"},

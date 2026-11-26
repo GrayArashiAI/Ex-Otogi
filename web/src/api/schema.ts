@@ -290,7 +290,7 @@ export interface paths {
         put?: never;
         /**
          * Keep a picture as a sticker
-         * @description The body is the picture: PNG, JPEG, or GIF, at most 9 MiB. It is kept as /sticker add keeps one, with no note: the same checks, and it is described first, waiting at most 30 seconds (kept all the same when it cannot be). With pack, it is put in that pack, which must be there (404, answered before the picture is described). Answers 201 with the sticker. A picture kept already is 409 without pack; with pack, that sticker is put in the pack and answered with 200 and existing. Any other refusal is 422, the detail being what /sticker add answers and the errors naming the reason (and the sticker already kept). Recorded as media.sticker by the caller.
+         * @description The body is the picture: PNG, JPEG, GIF, or a WebP that is not animated, at most 9 MiB. It is kept as /sticker add keeps one, with no note: the same checks, and it is described first, waiting at most 30 seconds (kept all the same when it cannot be). With pack, it is put in that pack, which must be there (404, answered before the picture is described). Answers 201 with the sticker. A picture kept already is 409 without pack; with pack, that sticker is put in the pack and answered with 200 and existing. Any other refusal is 422, the detail being what /sticker add answers and the errors naming the reason (and the sticker already kept). Recorded as media.sticker by the caller.
          */
         post: operations["add-sticker"];
         delete?: never;
@@ -986,7 +986,7 @@ export interface components {
             /** @description What its description said it is; empty when it was not described. */
             kind?: string;
             /** @enum {string} */
-            media_type: "image/png" | "image/jpeg" | "image/gif";
+            media_type: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
             note: string;
             /** @description The IDs of the packs it is in, sorted; empty when it is in none. */
             packs: string[];
@@ -1397,7 +1397,7 @@ export interface components {
             /** @description What its description said it is; empty when it was not described. */
             kind?: string;
             /** @enum {string} */
-            media_type: "image/png" | "image/jpeg" | "image/gif";
+            media_type: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
             note: string;
             /** @description The IDs of the packs it is in, sorted; empty when it is in none. */
             packs: string[];

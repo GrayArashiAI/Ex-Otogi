@@ -37,10 +37,29 @@ const (
 	describeSticker = 30 * time.Second
 )
 
-// stickerTypes are the picture types kept, by content: both drivers send
-// them as pictures. Telegram's GIFs are MP4 files, and WebP is untried on
-// Telegram.
-var stickerTypes = []string{"image/png", "image/jpeg", "image/gif"}
+// stickerTypes are the picture types kept, by content, each kept and sent
+// as it is, so a platform that knows a picture by its file's digest, as QQ
+// does, knows it when someone posts it again. Both drivers send them as
+// pictures: Telegram's GIFs are MP4 files, and a WebP sent on Telegram goes
+// as a photo, its transparency made solid, which is untried. An animated
+// WebP is not kept (animatedWebP).
+var stickerTypes = []string{"image/png", "image/jpeg", "image/gif", "image/webp"}
+
+// animatedWebP reports whether data, which http.DetectContentType took for a
+// WebP, is an animated one, or a WebP too short to tell: by the WebP
+// container's extended header, "RIFF", its size, "WEBP", the "VP8X" chunk
+// and its size, then its flags, whose bit 0x02 is the animation flag
+// (https://developers.google.com/speed/webp/docs/riff_container). Content
+// sniffing takes 14 bytes for a WebP; the flags are the 21st.
+func animatedWebP(data []byte) (animated, short bool) {
+	if len(data) >= 16 && string(data[12:16]) != "VP8X" {
+		return false, false // a simple file, lossy or lossless: one picture
+	}
+	if len(data) < 21 {
+		return false, true
+	}
+	return data[20]&0x02 != 0, false
+}
 
 const stickerUsage = "Usage: /sticker add [note] (replying to a picture, or with one) | list | note <n> [note] | remove <n>"
 
@@ -193,7 +212,17 @@ func (m *Module) keepSticker(ctx context.Context, md otogi.Media, data []byte, n
 	mediaType := http.DetectContentType(data)
 	if !slices.Contains(stickerTypes, mediaType) {
 		payload["media_type"] = mediaType
-		return refuse(&contract.StickerRefusal{Reason: "not png, jpeg, or gif", Message: "Only PNG, JPEG, and GIF pictures can be kept."})
+		return refuse(&contract.StickerRefusal{Reason: "not png, jpeg, gif, or webp", Message: "Only PNG, JPEG, GIF, and WebP pictures can be kept."})
+	}
+	if mediaType == "image/webp" {
+		switch animated, short := animatedWebP(data); {
+		case short:
+			payload["media_type"] = mediaType
+			return refuse(&contract.StickerRefusal{Reason: "not png, jpeg, gif, or webp", Message: "Only PNG, JPEG, GIF, and WebP pictures can be kept."})
+		case animated:
+			payload["media_type"] = mediaType
+			return refuse(&contract.StickerRefusal{Reason: "animated webp", Message: "Animated WebP pictures cannot be kept yet."})
+		}
 	}
 	sum := sha256.Sum256(data)
 	payload["sha256"] = hex.EncodeToString(sum[:])

@@ -20,7 +20,7 @@ type Sticker struct {
 	Text      string    `json:"text" doc:"What agents see of it: the note, else the summary. Empty: agents do not see it."`
 	Summary   string    `json:"summary" doc:"What its description said when it was kept."`
 	Note      string    `json:"note"`
-	MediaType string    `json:"media_type" enum:"image/png,image/jpeg,image/gif"`
+	MediaType string    `json:"media_type" enum:"image/png,image/jpeg,image/gif,image/webp"`
 	Bytes     int64     `json:"bytes"`
 	SHA256    string    `json:"sha256" doc:"The picture's SHA-256, in hex."`
 	Packs     []string  `json:"packs" nullable:"false" doc:"The IDs of the packs it is in, sorted; empty when it is in none."`
@@ -155,7 +155,7 @@ func registerStickers(api huma.API, stickers func() (media.StickerAdmin, bool)) 
 			}}, nil
 		})
 	huma.Register(api, huma.Operation{OperationID: "add-sticker", Method: http.MethodPost, Path: "/api/modules/media/stickers", Summary: "Keep a picture as a sticker",
-		Description: "The body is the picture: PNG, JPEG, or GIF, at most 9 MiB. It is kept as /sticker add keeps one, with no note: the same checks, and it is described first, waiting at most 30 seconds (kept all the same when it cannot be). With pack, it is put in that pack, which must be there (404, answered before the picture is described). Answers 201 with the sticker. A picture kept already is 409 without pack; with pack, that sticker is put in the pack and answered with 200 and existing. Any other refusal is 422, the detail being what /sticker add answers and the errors naming the reason (and the sticker already kept). Recorded as media.sticker by the caller.", Tags: tags,
+		Description: "The body is the picture: PNG, JPEG, GIF, or a WebP that is not animated, at most 9 MiB. It is kept as /sticker add keeps one, with no note: the same checks, and it is described first, waiting at most 30 seconds (kept all the same when it cannot be). With pack, it is put in that pack, which must be there (404, answered before the picture is described). Answers 201 with the sticker. A picture kept already is 409 without pack; with pack, that sticker is put in the pack and answered with 200 and existing. Any other refusal is 422, the detail being what /sticker add answers and the errors naming the reason (and the sticker already kept). Recorded as media.sticker by the caller.", Tags: tags,
 		DefaultStatus: http.StatusCreated, MaxBodyBytes: maxStickerUpload},
 		func(ctx context.Context, in *struct {
 			Pack    string `query:"pack" doc:"The ID of the pack to put it in."`

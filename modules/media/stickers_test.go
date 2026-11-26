@@ -1,6 +1,7 @@
 package media
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"errors"
@@ -237,19 +238,48 @@ func TestStickerTooLarge(t *testing.T) {
 	}
 }
 
+// A picture is kept by its content: PNG, JPEG, GIF, and a WebP that is
+// not animated. An animated WebP is refused with its own reason, and a
+// WebP too short to tell is refused as not a picture kept, without reading
+// past its end; so is anything else, an MP4 GIF from Telegram included.
 func TestStickerTypes(t *testing.T) {
 	h := newHarness(t, 1)
 	mp4 := append([]byte{0, 0, 0, 0x20}, []byte("ftypisom\x00\x00\x02\x00isomiso2mp41")...)
-	webp := append([]byte("RIFF\x24\x00\x00\x00WEBPVP8 "), make([]byte, 24)...)
-	for name, data := range map[string][]byte{"mp4": mp4, "webp": webp} {
-		md := otogi.Media{Role: otogi.MediaAnimation, Source: otogi.MediaSource{Kind: otogi.MediaSourceInline, Inline: data}}
-		wantPrefix(t, h.sticker(stickerCall{args: "add", media: []otogi.Media{md}}), "Only PNG, JPEG, and GIF pictures can be kept.")
-		if p := h.host.last("media.sticker"); p["reason"] != "not png, jpeg, or gif" {
+	// An extended WebP header, its flags at data[20]: 0x10, alpha, or with
+	// 0x02, animation.
+	extended := func(flags byte) []byte {
+		return append([]byte("RIFF\x24\x00\x00\x00WEBPVP8X\x0a\x00\x00\x00"), append([]byte{flags}, make([]byte, 24)...)...)
+	}
+	for name, c := range map[string]struct {
+		data   []byte
+		reason string
+		reply  string
+	}{
+		"mp4":       {mp4, "not png, jpeg, gif, or webp", "Only PNG, JPEG, GIF, and WebP pictures can be kept."},
+		"animated":  {extended(0x12), "animated webp", "Animated WebP pictures cannot be kept yet."},
+		"truncated": {[]byte("RIFF\x24\x00\x00\x00WEBPVP8X"), "not png, jpeg, gif, or webp", "Only PNG, JPEG, GIF, and WebP pictures can be kept."},
+	} {
+		md := otogi.Media{Role: otogi.MediaAnimation, Source: otogi.MediaSource{Kind: otogi.MediaSourceInline, Inline: c.data}}
+		wantPrefix(t, h.sticker(stickerCall{args: "add", media: []otogi.Media{md}}), c.reply)
+		if p := h.host.last("media.sticker"); p["reason"] != c.reason || p["media_type"] == nil {
 			t.Fatalf("%s: media.sticker = %v", name, p)
 		}
 	}
 	if len(h.list()) != 0 {
 		t.Fatal("a picture of the wrong type was kept")
+	}
+	// A WebP, simple or extended with no animation, is kept and sent as it
+	// is: a picture, named for its type.
+	h.steps[0].answers = []answer{says(picture), says(picture)}
+	simple := append([]byte("RIFF\x24\x00\x00\x00WEBPVP8 "), make([]byte, 24)...)
+	for i, data := range [][]byte{simple, extended(0x10)} {
+		md := otogi.Media{Role: otogi.MediaImage, Source: otogi.MediaSource{Kind: otogi.MediaSourceInline, Inline: data}}
+		wantPrefix(t, h.sticker(stickerCall{args: "add", media: []otogi.Media{md}}), fmt.Sprintf("Kept as sticker %d", i+1))
+		got, _, err := h.picture(i + 1)
+		if err != nil || got.Role != otogi.MediaImage || got.MediaType != "image/webp" || got.Filename != fmt.Sprintf("sticker-%d.webp", i+1) ||
+			!bytes.Equal(got.Source.Inline, data) {
+			t.Fatalf("sticker %d: %+v, %v", i+1, got, err)
+		}
 	}
 }
 
@@ -404,7 +434,7 @@ func TestStickerAdmin(t *testing.T) {
 	if _, _, err := admin.Keep(ctx, png, "", "panel:alice"); !errors.As(err, &refusal) || refusal.Reason != "already kept" || refusal.ID != 1 || refusal.Message != "Already kept as sticker 1." {
 		t.Fatalf("again: %v", err)
 	}
-	if _, _, err := admin.Keep(ctx, []byte("not a picture"), "", "panel:alice"); !errors.As(err, &refusal) || refusal.Reason != "not png, jpeg, or gif" {
+	if _, _, err := admin.Keep(ctx, []byte("not a picture"), "", "panel:alice"); !errors.As(err, &refusal) || refusal.Reason != "not png, jpeg, gif, or webp" {
 		t.Fatalf("text: %v", err)
 	}
 	if _, _, err := admin.Keep(ctx, make([]byte, maxStickerBytes+1), "", "panel:alice"); !errors.As(err, &refusal) || refusal.Reason != "too large" {
