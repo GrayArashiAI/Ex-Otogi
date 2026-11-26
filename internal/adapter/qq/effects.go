@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"path"
 	"slices"
 	"strings"
 	"time"
@@ -19,6 +20,7 @@ import (
 	qqstore "github.com/TundraWork/Ex-Otogi/internal/adapter/qq/store"
 	"github.com/TundraWork/Ex-Otogi/pkg/markdown"
 	"github.com/TundraWork/Ex-Otogi/pkg/otogi"
+	"github.com/TundraWork/Ex-Otogi/pkg/webpanim"
 )
 
 // Passive reply windows, with a margin for the clock difference between QQ
@@ -316,8 +318,20 @@ func (x *effects) recall(ctx context.Context, ref otogi.EventRef) error {
 }
 
 // upload uploads media for a message to the conversation and returns its
-// file_info.
+// file_info. An animated WebP, which QQ refuses, goes as a GIF (gifOf).
 func (x *effects) upload(ctx context.Context, base string, media otogi.Media) (string, error) {
+	if media.Source.Kind == otogi.MediaSourceInline && http.DetectContentType(media.Source.Inline) == "image/webp" {
+		if animated, _ := webpanim.Animated(media.Source.Inline); animated {
+			data, err := gifOf(media.Source.Inline)
+			if err != nil {
+				return "", fmt.Errorf("qq: an animated webp as a gif: %w: %w", err, otogi.ErrInvalid)
+			}
+			media.Source.Inline, media.MediaType = data, "image/gif"
+			if media.Filename != "" {
+				media.Filename = strings.TrimSuffix(media.Filename, path.Ext(media.Filename)) + ".gif"
+			}
+		}
+	}
 	body := map[string]any{"file_type": fileType(media), "srv_send_msg": false}
 	switch {
 	case media.Source.Kind == otogi.MediaSourceInline:
