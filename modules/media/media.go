@@ -3,7 +3,11 @@
 // provides the descriptions as the service contract.Service. It describes
 // in its own Handle, as messages arrive; other modules only wait for or
 // look up the result. A picture whose driver gives its digest (QQ's MD5) is
-// known again without fetching it.
+// known again without fetching it, unless its original is to be kept.
+//
+// With pictures set, it keeps the pictures and animations it describes, for
+// Examine, which answers an agent's question about a piece of media: from
+// the original it keeps, or the bytes the agent fetched again.
 //
 // Operators keep stickers with /sticker: their pictures, kept in the
 // module's database, are what agents may send, provided as the service
@@ -13,9 +17,11 @@ package media
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -45,6 +51,7 @@ const (
 // Module is the media module. Once started it is the media service.
 type Module struct {
 	steps     []step
+	keep      int64 // the most the pictures kept may take, 0 when none are kept
 	limits    stickerLimits
 	language  string
 	operators func() []string
@@ -66,7 +73,7 @@ func New(cfg Config, providers func(string) (llm.Provider, error), operators fun
 	if language == "" {
 		language = defaultLanguage
 	}
-	return &Module{steps: steps, limits: stickerLimits{count: maxStickers, total: maxStickerTotal}, language: language, operators: operators, waits: newWaits(time.Now), now: time.Now}, nil
+	return &Module{steps: steps, keep: cfg.keepBytes(), limits: stickerLimits{count: maxStickers, total: maxStickerTotal}, language: language, operators: operators, waits: newWaits(time.Now), now: time.Now}, nil
 }
 
 // Descriptor declares the module: it describes the media of people's new
@@ -102,16 +109,22 @@ func (m *Module) Start(ctx context.Context, host otogi.Host) error {
 	if err := host.Provide(contract.StickersService, contract.Stickers(stickers{m})); err != nil {
 		return err
 	}
-	return host.Schedule("prune", "@every 24h", m.prune)
+	return host.Schedule("prune", "@every 1h", m.prune)
 }
 
+// prune deletes what is kept past its time, and the pictures kept whose
+// descriptions are gone or that are past the pictures' limit.
 func (m *Module) prune(ctx context.Context, _ otogi.Invocation) error {
 	now := m.now()
 	n, err := m.store.prune(ctx, now.Add(-retention), now.Add(-recentMedia))
 	if err != nil {
 		return err
 	}
-	m.host.Logger().Debug("media: pruned", "rows", n)
+	originals, err := m.store.pruneOriginals(ctx, m.keep)
+	if err != nil {
+		return err
+	}
+	m.host.Logger().Debug("media: pruned", "rows", n, "originals", originals)
 	return nil
 }
 
@@ -180,7 +193,11 @@ func (m *Module) handleOne(ctx context.Context, e otogi.Event, inv otogi.Invocat
 	if k.Algorithm != "" {
 		if d, ok, err := m.kept(ctx, chat, k); err != nil || ok {
 			res = result{d: d, err: err}
-			return err
+			if err != nil || !m.keepsOriginal(d, md) {
+				return err
+			}
+			m.waits.finish(wk, res) // the description first: keeping the picture does not hold it up
+			return m.keepAgain(ctx, inv, from, chat, k, md, nil)
 		}
 	}
 	data := md.Source.Inline
@@ -203,7 +220,11 @@ func (m *Module) handleOne(ctx context.Context, e otogi.Event, inv otogi.Invocat
 		}
 		if d, ok, err := m.kept(ctx, chat, k); err != nil || ok {
 			res = result{d: d, err: err}
-			return err
+			if err != nil || !m.keepsOriginal(d, md) {
+				return err
+			}
+			m.waits.finish(wk, res)
+			return m.keepAgain(ctx, inv, from, chat, k, md, data)
 		}
 	}
 	p, err := m.prepare(md, data)
@@ -227,8 +248,49 @@ func (m *Module) handleOne(ctx context.Context, e otogi.Event, inv otogi.Invocat
 	if err := m.store.put(ctx, k, d, model, m.now()); err != nil {
 		return err
 	}
-	res = result{d: d}
-	return nil
+	res = result{d: withID(d, k)}
+	if m.keep == 0 || p.video {
+		return nil
+	}
+	m.waits.finish(wk, res)
+	return m.store.keepOriginal(ctx, k, chat, http.DetectContentType(data), data, m.now())
+}
+
+// keepsOriginal reports whether md, described as d, has its original kept:
+// a picture or animation, not a kept sticker, while pictures are kept.
+func (m *Module) keepsOriginal(d contract.Description, md otogi.Media) bool {
+	return m.keep > 0 && d.Sticker == 0 && md.Role != otogi.MediaVideo
+}
+
+// keepAgain keeps the original of md, described under k already, as seen in
+// chat now: marked seen when it is kept, or else kept, fetched unless data
+// has it. Content that turns out not to be a picture is not kept.
+func (m *Module) keepAgain(ctx context.Context, inv otogi.Invocation, from otogi.Destination, chat string, k key, md otogi.Media, data []byte) error {
+	if kept, err := m.store.seenOriginal(ctx, k, chat, m.now()); err != nil || kept {
+		return err
+	}
+	if data == nil {
+		data = md.Source.Inline
+		if md.Source.Kind != otogi.MediaSourceInline {
+			var err error
+			if data, err = inv.FetchMedia(ctx, from, md.Source); err != nil {
+				return fmt.Errorf("media: fetch to keep: %w", err)
+			}
+		}
+	}
+	mediaType := http.DetectContentType(data)
+	if len(data) > maxBytes || !strings.HasPrefix(mediaType, "image/") {
+		return nil
+	}
+	return m.store.keepOriginal(ctx, k, chat, mediaType, data, m.now())
+}
+
+// withID gives d, described under k, its ID: none for a kept sticker.
+func withID(d contract.Description, k key) contract.Description {
+	if d.Sticker == 0 && len(k.Digest) >= 3 {
+		d.ID = hex.EncodeToString(k.Digest[:3])
+	}
+	return d
 }
 
 // kept returns what is kept of the media under k, seen in chat from: the
@@ -246,7 +308,7 @@ func (m *Module) kept(ctx context.Context, from string, k key) (contract.Descrip
 	} else if d, ok, err = m.store.get(ctx, k); err != nil || !ok {
 		return d, ok, err
 	}
-	return d, true, m.store.seen(ctx, k, m.now())
+	return withID(d, k), true, m.store.seen(ctx, k, m.now())
 }
 
 // stickerOf returns the kept sticker under k as a description: its number
@@ -310,7 +372,11 @@ func (m *Module) Lookup(ctx context.Context, from otogi.Destination, md otogi.Me
 	if d, ok, err := m.stickerOf(ctx, k); err != nil || ok {
 		return d, ok, err
 	}
-	return m.store.get(ctx, k)
+	d, ok, err := m.store.get(ctx, k)
+	if err != nil || !ok {
+		return d, ok, err
+	}
+	return withID(d, k), true, nil
 }
 
 // describable reports whether md is a kind of media that is described:

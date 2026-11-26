@@ -44,6 +44,10 @@ type Description struct {
 	// not one. Summary is then the sticker's text: the operator's note, else
 	// the summary it was kept with.
 	Sticker int
+	// ID names the media to an agent, for Examine: the first six hex digits
+	// of the digest it is described under. Empty for a kept sticker, which
+	// its number names.
+	ID string
 }
 
 var (
@@ -52,6 +56,9 @@ var (
 	ErrNotAllowed = errors.New("media: chat not on the describe list")
 	// ErrNotDescribed reports media of a kind or size that is not described.
 	ErrNotDescribed = errors.New("media: not described")
+	// ErrNotKept reports media given to Examine without its bytes whose
+	// original the module does not keep for that chat.
+	ErrNotKept = errors.New("media: original not kept")
 )
 
 // Describer gives the descriptions the media module keeps. The module
@@ -67,6 +74,13 @@ type Describer interface {
 	// Lookup returns the kept description of m, seen in from, without
 	// waiting; ok is false when there is none.
 	Lookup(ctx context.Context, from otogi.Destination, m otogi.Media) (d Description, ok bool, err error)
+	// Examine answers question about m, seen in from, asking the configured
+	// models in turn. m carries its bytes inline, or else its original is
+	// the one the module keeps from that chat. It fails with ErrNotKept when
+	// m has no bytes and none is kept, with ErrNotAllowed or ErrNotDescribed
+	// as Describe does, and with otogi.ErrUnavailable when every model
+	// failed.
+	Examine(ctx context.Context, from otogi.Destination, m otogi.Media, question string) (string, error)
 }
 
 // StickersService is the name the media module provides Stickers under.

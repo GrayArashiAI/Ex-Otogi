@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"crypto/md5"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"image"
 	"image/color"
@@ -166,6 +168,13 @@ type harness struct {
 // chat on its list.
 func newHarness(t *testing.T, steps int) *harness {
 	t.Helper()
+	return newHarnessWith(t, steps, nil)
+}
+
+// newHarnessWith is newHarness with the settings changed by edit, unless
+// nil.
+func newHarnessWith(t *testing.T, steps int, edit func(*Config)) *harness {
+	t.Helper()
 	storage, err := modulestore.Open(context.Background(), t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -180,6 +189,9 @@ func newHarness(t *testing.T, steps int) *harness {
 		byName[name] = p
 		h.steps = append(h.steps, p)
 		cfg.Steps = append(cfg.Steps, Step{Provider: name, Model: "model-" + name, Thinking: "minimal"})
+	}
+	if edit != nil {
+		edit(&cfg)
 	}
 	h.m, err = New(cfg, func(name string) (llm.Provider, error) {
 		if p, ok := byName[name]; ok {
@@ -243,7 +255,9 @@ func TestDescribesOnceByContent(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("Lookup = %v, %v", ok, err)
 	}
-	want := contract.Description{Kind: contract.KindMeme, Summary: "一只猫 在笑", Text: "哈哈\n第二行"}
+	// The ID is the first six hex digits of the digest it is known by: the
+	// driver's MD5 here.
+	want := contract.Description{Kind: contract.KindMeme, Summary: "一只猫 在笑", Text: "哈哈\n第二行", ID: hex.EncodeToString(img.Hashes[0].Value[:3])}
 	if d != want {
 		t.Fatalf("description = %+v, want %+v", d, want)
 	}
@@ -778,7 +792,8 @@ func TestVideos(t *testing.T) {
 		t.Fatal(err)
 	}
 	d, ok, err := h.m.Lookup(context.Background(), from, v)
-	if err != nil || !ok || d != (contract.Description{Kind: contract.KindVideo, Summary: "有人在弹琴"}) {
+	sum := sha256.Sum256(mp4) // no digest from the driver: the content's, once fetched
+	if err != nil || !ok || d != (contract.Description{Kind: contract.KindVideo, Summary: "有人在弹琴", ID: hex.EncodeToString(sum[:3])}) {
 		t.Fatalf("Lookup = %+v, %v, %v", d, ok, err)
 	}
 	req := h.steps[0].requests[0]
