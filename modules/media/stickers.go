@@ -15,6 +15,7 @@ import (
 
 	contract "github.com/TundraWork/Ex-Otogi/pkg/media"
 	"github.com/TundraWork/Ex-Otogi/pkg/otogi"
+	"github.com/TundraWork/Ex-Otogi/pkg/webpanim"
 )
 
 const (
@@ -42,8 +43,9 @@ const (
 // does, knows it when someone posts it again. Both drivers send them as
 // pictures: Telegram's GIFs are MP4 files, and a WebP sent on Telegram goes
 // as a photo, its transparency made solid, which is untried. An animated
-// WebP is not kept: QQ takes a still one, but refuses an animated one's
-// upload (40034002, the format unsupported), though its users post them.
+// WebP is not kept: QQ refuses its upload, so its driver sends it as a GIF,
+// another file than the one kept, and a sticker someone posts again would
+// not be known by its MD5.
 var stickerTypes = []string{"image/png", "image/jpeg", "image/gif", "image/webp"}
 
 const stickerUsage = "Usage: /sticker add [note] (replying to a picture, or with one) | list | note <n> [note] | remove <n>"
@@ -200,13 +202,13 @@ func (m *Module) keepSticker(ctx context.Context, md otogi.Media, data []byte, n
 		return refuse(&contract.StickerRefusal{Reason: "not png, jpeg, gif, or webp", Message: "Only PNG, JPEG, GIF, and WebP pictures can be kept."})
 	}
 	if mediaType == "image/webp" {
-		switch animated, short := animatedWebP(data); {
+		switch animated, short := webpanim.Animated(data); {
 		case short:
 			payload["media_type"] = mediaType
 			return refuse(&contract.StickerRefusal{Reason: "not png, jpeg, gif, or webp", Message: "Only PNG, JPEG, GIF, and WebP pictures can be kept."})
 		case animated:
 			payload["media_type"] = mediaType
-			return refuse(&contract.StickerRefusal{Reason: "animated webp", Message: "Animated WebP pictures cannot be kept: QQ refuses to send them."})
+			return refuse(&contract.StickerRefusal{Reason: "animated webp", Message: "Animated WebP pictures cannot be kept: keep it as a GIF instead."})
 		}
 	}
 	sum := sha256.Sum256(data)

@@ -256,7 +256,7 @@ func TestStickerTypes(t *testing.T) {
 		reply  string
 	}{
 		"mp4":       {mp4, "not png, jpeg, gif, or webp", "Only PNG, JPEG, GIF, and WebP pictures can be kept."},
-		"animated":  {extended(0x12), "animated webp", "Animated WebP pictures cannot be kept: QQ refuses to send them."},
+		"animated":  {extended(0x12), "animated webp", "Animated WebP pictures cannot be kept: keep it as a GIF instead."},
 		"truncated": {[]byte("RIFF\x24\x00\x00\x00WEBPVP8X"), "not png, jpeg, gif, or webp", "Only PNG, JPEG, GIF, and WebP pictures can be kept."},
 	} {
 		md := otogi.Media{Role: otogi.MediaAnimation, Source: otogi.MediaSource{Kind: otogi.MediaSourceInline, Inline: c.data}}

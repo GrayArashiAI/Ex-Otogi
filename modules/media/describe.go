@@ -10,6 +10,7 @@ import (
 	"github.com/TundraWork/Ex-Otogi/pkg/llm"
 	contract "github.com/TundraWork/Ex-Otogi/pkg/media"
 	"github.com/TundraWork/Ex-Otogi/pkg/otogi"
+	"github.com/TundraWork/Ex-Otogi/pkg/webpanim"
 )
 
 // The answer is asked for in labeled sections, one line each but the text,
@@ -97,7 +98,7 @@ func (m *Module) prepare(md otogi.Media, data []byte) (prepared, error) {
 			Media: &otogi.Media{Role: otogi.MediaImage, MediaType: mime, Source: otogi.MediaSource{Kind: otogi.MediaSourceInline, Inline: b}}}
 	}
 	text := func(s string) otogi.Part { return otogi.Part{ID: "t", Kind: otogi.PartText, Text: s} }
-	animated, _ := animatedWebP(data)
+	animated, _ := webpanim.Animated(data)
 	switch {
 	case detected == "image/gif" || detected == "image/webp" && animated:
 		decode := gifFrames
