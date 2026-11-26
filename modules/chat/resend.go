@@ -110,8 +110,9 @@ func (r *resender) original(ctx context.Context, id string) (otogi.Media, string
 // sentPicture is how chat.reply records a picture sent again: its ID, and
 // the sent message's source ID, empty when it was not sent.
 type sentPicture struct {
-	ID  string `json:"id"`
-	Ref string `json:"ref,omitempty"`
+	ID    string `json:"id"`
+	Ref   string `json:"ref,omitempty"`
+	Error string `json:"error,omitempty"` // why it did not go
 }
 
 // sendPicture sends md as a message of its own, without the agent's label,

@@ -44,6 +44,7 @@ type ask struct {
 	stale   *staleCheck  // what the check before the reply went out said; nil when it asked nothing
 	hidden  int          // how many stickers the agent is given past its list
 	resent  *sentPicture // the picture of the chat the reply sent again; nil when it sent none
+	after   *afterFailed // what the agent was asked once its picture or sticker did not go; nil when it went
 }
 
 // batchInfo is what a reply's record says of its batch.
@@ -261,35 +262,53 @@ func (m *Module) respond(ctx context.Context, inv otogi.Invocation, a ask, until
 	for _, ref := range refs {
 		messages = append(messages, sentMessage{Ref: ref})
 	}
-	var stickerErr error
+	var sendErr error
 	switch {
 	case sends && sticker != nil:
 		var ref otogi.EventRef
-		ref, stickerErr = m.sendSticker(cleanup, last, inv, *picks.picked, quote)
-		if stickerErr == nil {
+		ref, sendErr = m.sendSticker(cleanup, last, inv, *picks.picked, quote)
+		if sendErr == nil {
 			sticker.Ref = string(ref.SourceEvent)
 			refs = append(refs, ref)
 			messages = append(messages, sentMessage{Ref: ref, Sticker: sticker.Text})
+		} else {
+			sticker.Error = sendErr.Error()
 		}
 	case sends:
 		var ref otogi.EventRef
-		ref, stickerErr = m.sendPicture(cleanup, last, inv, *resend.picked, quote)
-		if stickerErr == nil {
+		ref, sendErr = m.sendPicture(cleanup, last, inv, *resend.picked, quote)
+		if sendErr == nil {
 			a.resent.Ref = string(ref.SourceEvent)
 			refs = append(refs, ref)
 			messages = append(messages, sentMessage{Ref: ref})
+		} else {
+			a.resent.Error = sendErr.Error()
+		}
+	}
+	// A picture or sticker that did not go: the agent is told, as its
+	// call's result, and may say so. The reply itself went out.
+	var after []llm.Turn
+	if sendErr != nil {
+		notSent(out.Turns, sendErr)
+		var text string
+		var ref *otogi.EventRef
+		a.after, after, ref, text = m.afterFailure(ctx, a, req, out.Turns, tools, inv, last, quote)
+		if ref != nil {
+			refs = append(refs, *ref)
+			messages = append(messages, sentMessage{Ref: *ref})
+			shownText = append(shownText, text)
 		}
 	}
 	var ids []int64
 	var storeErr error
 	if runErr == nil {
 		turns := []storedTurn{{Turn: user, SourceID: string(e.SourceID)}}
-		for _, t := range out.Turns {
+		for _, t := range append(out.Turns, after...) {
 			turns = append(turns, storedTurn{Turn: t})
 		}
 		ids, storeErr = m.store.thread(cleanup, p.Name, a.trigger, e.Destination(), a.parent, turns, messages, m.now())
 	}
-	err = errors.Join(runErr, closeErr, stickerErr, storeErr)
+	err = errors.Join(runErr, closeErr, storeErr)
 	m.record(cleanup, a, ids, out, refs, sticker, err, m.now().Sub(started), "")
 	return strings.Join(shownText, "\n"), err
 }
@@ -849,6 +868,9 @@ func (m *Module) record(ctx context.Context, a ask, ids []int64, out llm.RunResu
 	}
 	if a.resent != nil {
 		payload["resent"] = a.resent
+	}
+	if a.after != nil {
+		payload["after_failure"] = a.after
 	}
 	if a.hidden > 0 {
 		payload["stickers_hidden"] = a.hidden
