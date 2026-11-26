@@ -434,6 +434,58 @@ func TestSourcesOff(t *testing.T) {
 	}
 }
 
+// An agent with failure_notes direct_chats says how a reply failed only in
+// direct chats. In a group, it sends what the model wrote and nothing else;
+// a batch it sends nothing for is not kept, and its record says why.
+func TestFailureNotesInGroups(t *testing.T) {
+	busy := fmt.Errorf("gemini: HTTP 503: %w", otogi.ErrUnavailable)
+	lookUp := llm.Response{Turn: llm.Turn{Role: llm.RoleModel, Content: otogi.TextMessage("Let me look."), Calls: []llm.Call{{ID: "c1", Name: "look", Args: json.RawMessage(`{}`)}}}, Finish: llm.FinishToolCalls}
+	for name, c := range map[string]struct {
+		resps   []llm.Response
+		errs    []error
+		direct  bool
+		shown   []string // what each stream showed, in order
+		skipped string   // the record's, when it is skipped
+	}{
+		"error":        {errs: []error{busy}, shown: []string{""}},
+		"cut short":    {resps: []llm.Response{lookUp}, errs: []error{nil, busy}, shown: []string{"Otogi\nLet me look."}},
+		"blocked":      {resps: []llm.Response{{Turn: llm.Turn{Role: llm.RoleModel}, Finish: llm.FinishBlocked, Reason: "SAFETY"}}, shown: []string{""}, skipped: "no_answer"},
+		"nothing":      {resps: []llm.Response{{Turn: llm.Turn{Role: llm.RoleModel}, Finish: llm.FinishStop}}, shown: []string{""}, skipped: "no_answer"},
+		"direct error": {errs: []error{busy}, direct: true, shown: []string{"Otogi\nSorry, I couldn't reply: the model is busy or unreachable, try again in a minute."}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := newHarness(t, ProfileConfig{Name: "otogi", Label: "Otogi", Keywords: []string{"otogi"}, Provider: "otogi", Model: "m", FailureNotes: "direct_chats"})
+			p := h.llm["otogi"]
+			p.responses, p.errs = c.resps, c.errs
+			e := h.message("Alice", "otogi?")
+			if c.direct {
+				e.Conversation = otogi.Conversation{ID: "user:7", Kind: otogi.ConversationDirect}
+				h.host.lists[[2]string{"otogi", "telegram:user:7"}] = "test"
+			}
+			err := h.handle(e)
+			if (len(c.errs) > 0) != (err != nil) {
+				t.Fatalf("err %v", err)
+			}
+			var shown []string
+			for _, s := range h.streams {
+				shown = append(shown, s.final.PlainText())
+			}
+			if !slices.Equal(shown, c.shown) {
+				t.Fatalf("shown %q, want %q", shown, c.shown)
+			}
+			r, payload := lastReplyRecord(t, h)
+			if c.skipped != "" && (r.Outcome != "skipped" || payload["skipped"] != c.skipped) {
+				t.Fatalf("record %s %+v, want skipped %s", r.Outcome, payload, c.skipped)
+			}
+			if c.skipped != "" {
+				if _, _, _, found, _ := h.m.store.agentTurn(context.Background(), h.streams[0].ref); found {
+					t.Fatal("a batch nothing was sent for was kept")
+				}
+			}
+		})
+	}
+}
+
 func TestRetention(t *testing.T) {
 	h := newHarness(t)
 	h.mustHandle(h.message("Alice", "otogi hi"))

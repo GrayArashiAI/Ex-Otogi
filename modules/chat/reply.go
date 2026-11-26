@@ -192,9 +192,10 @@ func (m *Module) respond(ctx context.Context, inv otogi.Invocation, a ask, until
 	// The agent replied nothing: it called stay_silent, said nothing, and
 	// picked no sticker.
 	quiet := runErr == nil && silent.called && !said && len(out.Last.Parts) == 0 && !sends
+	notes := p.FailureNotes != "direct_chats" || e.Conversation.Kind == otogi.ConversationDirect
 	var final otogi.Message
 	if !held && !quiet {
-		final = ending(out, said || sends, runErr, p)
+		final = ending(out, said || sends, runErr, p, notes)
 		if !said && (len(final.Parts) > 0 || sends) {
 			draft := final.PlainText()
 			if sends {
@@ -203,15 +204,20 @@ func (m *Module) respond(ctx context.Context, inv otogi.Invocation, a ask, until
 			held = !passes(cleanup, draft)
 		}
 	}
-	if held || quiet {
+	// The model gave no answer, and no note says so here.
+	unanswered := !held && !quiet && runErr == nil && !said && !sends && len(final.Parts) == 0
+	if held || quiet || unanswered {
 		// Nothing goes out: the stream closes empty, which shows nothing,
 		// and the turn is not kept.
 		if stream != nil {
 			_, _ = stream.Close(cleanup, otogi.Message{})
 		}
 		skipped := "stale"
-		if quiet {
+		switch {
+		case quiet:
 			skipped = "silent"
+		case unanswered:
+			skipped = "no_answer"
 		}
 		m.record(cleanup, a, nil, out, nil, nil, nil, m.now().Sub(started), skipped)
 		return "", nil
@@ -670,19 +676,26 @@ func joinLine(a, b otogi.Message) otogi.Message {
 // words before tools went out, saying once how the reply ended when that was
 // not a plain answer. said is whether the reply shows something else: those
 // words, or a sticker after it; then an empty ending is no message at all.
-// p says whether the sources follow, and how.
-func ending(out llm.RunResult, said bool, err error, p *profile) otogi.Message {
+// p says whether the sources follow, and how. notes is whether a note
+// says how the reply failed or that it has no answer: without, the reply
+// is what the model wrote, which may be nothing.
+func ending(out llm.RunResult, said bool, err error, p *profile, notes bool) otogi.Message {
 	reply := out.Last
 	empty := len(reply.Parts) == 0
 	silent := empty && !said // the reply showed nothing at all
 	note := func(text string) otogi.Message { return llm.Join(reply, otogi.TextMessage("("+text+")")) }
+	alone := otogi.TextMessage
+	if !notes {
+		note = func(string) otogi.Message { return reply }
+		alone = func(string) otogi.Message { return otogi.Message{} }
+	}
 	switch {
 	case err != nil && silent:
-		return otogi.TextMessage("Sorry, I couldn't reply: " + friendly(err) + ".")
+		return alone("Sorry, I couldn't reply: " + friendly(err) + ".")
 	case err != nil:
 		return note("Cut short: " + friendly(err))
 	case out.Final.Finish == llm.FinishBlocked && silent:
-		return otogi.TextMessage("I can't answer that (" + out.Final.Reason + ").")
+		return alone("I can't answer that (" + out.Final.Reason + ").")
 	case out.Final.Finish == llm.FinishBlocked:
 		return note("The rest was blocked: " + out.Final.Reason)
 	case out.Final.Finish == llm.FinishMaxTokens:
@@ -691,9 +704,9 @@ func ending(out llm.RunResult, said bool, err error, p *profile) otogi.Message {
 			reply.Parts[n-1].Text += "…"
 		}
 	case out.Final.Finish == llm.FinishOther && silent:
-		return otogi.TextMessage("I couldn't come up with an answer (" + out.Final.Reason + ").")
+		return alone("I couldn't come up with an answer (" + out.Final.Reason + ").")
 	case silent:
-		return otogi.TextMessage("I have nothing to add.")
+		return alone("I have nothing to add.")
 	}
 	if !p.sources {
 		return reply
