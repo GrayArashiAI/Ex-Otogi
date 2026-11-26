@@ -216,8 +216,9 @@ func TestExamineTriesTheNextModel(t *testing.T) {
 func TestSchemaDefaultsAreTheDefaults(t *testing.T) {
 	unset := Config{Steps: []Step{{Provider: "a", Model: "m"}}, Pictures: &PicturesConfig{}}
 	typed := settingstest.WithDefaults(t, unset)
-	if unset.keepBytes() != typed.keepBytes() || typed.keepBytes() != defaultPicturesMB<<20 || typed.Language != defaultLanguage {
-		t.Fatalf("schema defaults give %+v, %d bytes; unset fields %d bytes", typed, typed.keepBytes(), unset.keepBytes())
+	if unset.keepBytes() != typed.keepBytes() || typed.keepBytes() != defaultPicturesMB<<20 || typed.Language != defaultLanguage ||
+		unset.largestBytes() != typed.largestBytes() || typed.largestBytes() != 25<<20 {
+		t.Fatalf("schema defaults give %+v, %d and %d bytes; unset fields %d and %d bytes", typed, typed.keepBytes(), typed.largestBytes(), unset.keepBytes(), unset.largestBytes())
 	}
 }
 

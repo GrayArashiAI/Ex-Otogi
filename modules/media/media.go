@@ -33,13 +33,6 @@ import (
 const (
 	// describeList names the allowlist of chats whose media is described.
 	describeList = "describe"
-	// maxBytes is the largest media described. It bounds memory, not an
-	// API limit (Gemini took inline videos of 103 MiB): describing holds
-	// the media about 2.3 times over (raw and base64), and Handle runs
-	// unordered, so several can be described at once. eku's 12 QQ videos
-	// ran 11 to 67 seconds, about 1.7 MB per 21 seconds, so 25 MiB is
-	// about four minutes of QQ video and three at once under 200 MB.
-	maxBytes = 25 << 20
 	// retention is how long a description is kept after the media was last
 	// seen: as long as the chat module keeps its transcript by default.
 	retention = 30 * 24 * time.Hour
@@ -52,6 +45,7 @@ const (
 type Module struct {
 	steps     []step
 	keep      int64 // the most the pictures kept may take, 0 when none are kept
+	largest   int64 // the largest media described or examined, in bytes
 	limits    stickerLimits
 	language  string
 	operators func() []string
@@ -73,7 +67,7 @@ func New(cfg Config, providers func(string) (llm.Provider, error), operators fun
 	if language == "" {
 		language = defaultLanguage
 	}
-	return &Module{steps: steps, keep: cfg.keepBytes(), limits: stickerLimits{count: maxStickers, total: maxStickerTotal}, language: language, operators: operators, waits: newWaits(time.Now), now: time.Now}, nil
+	return &Module{steps: steps, keep: cfg.keepBytes(), largest: cfg.largestBytes(), limits: stickerLimits{count: maxStickers, total: maxStickerTotal}, language: language, operators: operators, waits: newWaits(time.Now), now: time.Now}, nil
 }
 
 // Descriptor declares the module: it describes the media of people's new
@@ -185,7 +179,7 @@ func (m *Module) handleOne(ctx context.Context, e otogi.Event, inv otogi.Invocat
 		res.err = contract.ErrNotDescribed
 		return nil
 	}
-	if md.ByteSize > maxBytes {
+	if md.ByteSize > m.largest {
 		m.skip(ctx, chat, md, md.ByteSize, "too large")
 		res.err = contract.ErrNotDescribed
 		return nil
@@ -207,7 +201,7 @@ func (m *Module) handleOne(ctx context.Context, e otogi.Event, inv otogi.Invocat
 			return fmt.Errorf("media: fetch: %w", err)
 		}
 	}
-	if len(data) > maxBytes {
+	if int64(len(data)) > m.largest {
 		m.skip(ctx, chat, md, int64(len(data)), "too large")
 		res.err = contract.ErrNotDescribed
 		return nil
@@ -279,7 +273,7 @@ func (m *Module) keepAgain(ctx context.Context, inv otogi.Invocation, from otogi
 		}
 	}
 	mediaType := http.DetectContentType(data)
-	if len(data) > maxBytes || !strings.HasPrefix(mediaType, "image/") {
+	if int64(len(data)) > m.largest || !strings.HasPrefix(mediaType, "image/") {
 		return nil
 	}
 	return m.store.keepOriginal(ctx, k, chat, mediaType, data, m.now())
@@ -338,7 +332,7 @@ func (m *Module) Describe(ctx context.Context, from otogi.Destination, md otogi.
 	if !m.host.Allowed(describeList, chatKey(from)) {
 		return contract.Description{}, contract.ErrNotAllowed
 	}
-	if !describable(md) || md.ByteSize > maxBytes {
+	if !describable(md) || md.ByteSize > m.largest {
 		return contract.Description{}, contract.ErrNotDescribed
 	}
 	if d, ok, err := m.Lookup(ctx, from, md); err != nil || ok {
