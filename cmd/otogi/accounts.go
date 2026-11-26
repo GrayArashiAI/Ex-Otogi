@@ -5,11 +5,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"maps"
 	"path/filepath"
-	"regexp"
 	"strconv"
-	"strings"
 
 	"github.com/TundraWork/Ex-Otogi/pkg/otogi"
 )
@@ -85,6 +82,27 @@ func (c accountsSettings) validate() []error {
 	return errs
 }
 
+// TelegramAccount is one Telegram user account as its driver takes it:
+// see accountsSettings.resolve.
+type TelegramAccount struct {
+	Account  string
+	AppID    int
+	AppHash  string
+	Session  string
+	Database string
+	// UploadThreads is how many parts of a file upload at once; default 8.
+	UploadThreads int
+}
+
+// QQAccount is one QQ bot (QQ Open Platform, q.qq.com) as its driver takes
+// it.
+type QQAccount struct {
+	Account   string
+	AppID     string
+	AppSecret string
+	Database  string
+}
+
 // resolve returns the accounts as their drivers take them: each with its
 // secret's value, and with the files it does not place itself under dataDir.
 func (c accountsSettings) resolve(dataDir string, secret func(name string) (string, bool)) ([]TelegramAccount, []QQAccount, error) {
@@ -148,62 +166,10 @@ func checkProcess(*system, processSettings, func(string) (string, bool)) (func()
 	return func() {}, nil
 }
 
-// accounts is the file's accounts as settings, each secret as the value the
-// file has for it.
-func (c Config) accounts() accountsSettings {
-	var out accountsSettings
-	for _, a := range c.Telegram {
-		out.Telegram = append(out.Telegram, telegramSettings{
-			Account: a.Account, AppID: a.AppID, AppHash: otogi.Secret(a.AppHash), Session: a.Session, Database: a.Database, UploadThreads: a.UploadThreads,
-		})
-	}
-	for _, a := range c.QQ {
-		out.QQ = append(out.QQ, qqSettings{Account: a.Account, AppID: a.AppID, AppSecret: otogi.Secret(a.AppSecret), Database: a.Database})
-	}
-	return out
-}
-
-// notInAName is what an account's name may have that a secret's may not.
-var notInAName = regexp.MustCompile(`[^A-Za-z0-9_]`)
-
-// accountsFromFile keeps each secret as the file writes it, as llmFromFile
-// does. An app_id the file takes from the environment is stored as its
-// value: it is no secret.
-func accountsFromFile(cfg Config) ([]string, any, map[string]string) {
-	var keys []string
-	if len(cfg.Telegram) > 0 {
-		keys = append(keys, "telegram")
-	}
-	if len(cfg.QQ) > 0 {
-		keys = append(keys, "qq")
-	}
-	settings, written, literal := cfg.accounts(), cfg.moved.accounts, map[string]string{}
-	secretOf := func(platform, account, field, written string, value otogi.Secret) otogi.Secret {
-		name := "OTOGI_" + platform + "_" + strings.ToUpper(notInAName.ReplaceAllString(account, "_")) + "_" + field
-		return fileSecret(written, name, string(value), literal)
-	}
-	for i := range settings.Telegram {
-		a := &settings.Telegram[i]
-		a.AppHash = secretOf("TELEGRAM", a.Account, "APP_HASH", written.Telegram[i].AppHash, a.AppHash)
-	}
-	for i := range settings.QQ {
-		a := &settings.QQ[i]
-		a.AppSecret = secretOf("QQ", a.Account, "APP_SECRET", written.QQ[i].AppSecret, a.AppSecret)
-	}
-	return keys, settings, literal
-}
-
-func processFromFile(cfg Config) ([]string, any, map[string]string) {
-	return cfg.moved.process, processSettings{
-		Workers: cfg.Kernel.Workers, MaxInFlight: cfg.Kernel.MaxInFlight, HandlerTimeout: otogi.Duration(cfg.Kernel.HandlerTimeout),
-		LogFormat: cfg.Log.Format, ShutdownTimeout: otogi.Duration(cfg.ShutdownTimeout),
-	}, nil
-}
-
 // startAccounts returns the accounts a start runs, for the drivers and for
-// otogi login: those of the section's starting revision.
-func (s *moduleSettings) startAccounts(ctx context.Context, cfg Config) ([]TelegramAccount, []QQAccount, error) {
-	start, err := s.starting(ctx, cfg, accountsSection)
+// otogi login: those of the section's current revision.
+func (s *moduleSettings) startAccounts(ctx context.Context, dataDir string) ([]TelegramAccount, []QQAccount, error) {
+	cur, err := s.current(ctx, accountsSection)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -211,28 +177,27 @@ func (s *moduleSettings) startAccounts(ctx context.Context, cfg Config) ([]Teleg
 	if err != nil {
 		return nil, nil, err
 	}
-	maps.Copy(stored, start.literal)
-	c, err := decodeSettings[accountsSettings](start.Settings)
+	c, err := decodeSettings[accountsSettings](cur.Settings)
 	if err != nil {
-		return nil, nil, fmt.Errorf("%s, settings revision %d: %w", accountsSection, start.Revision, err)
+		return nil, nil, fmt.Errorf("%s, settings revision %d: %w", accountsSection, cur.Revision, err)
 	}
-	telegram, qq, err := c.resolve(cfg.DataDir, s.environmentWith(stored).secret)
+	telegram, qq, err := c.resolve(dataDir, s.environmentWith(stored).secret)
 	if err != nil {
-		return nil, nil, fmt.Errorf("%s, settings revision %d: %w", accountsSection, start.Revision, err)
+		return nil, nil, fmt.Errorf("%s, settings revision %d: %w", accountsSection, cur.Revision, err)
 	}
 	return telegram, qq, nil
 }
 
 // startProcess returns the process settings a start runs with. It needs no
 // log, which is made from them.
-func (s *moduleSettings) startProcess(ctx context.Context, cfg Config) (processSettings, error) {
-	start, err := s.starting(ctx, cfg, processSection)
+func (s *moduleSettings) startProcess(ctx context.Context) (processSettings, error) {
+	cur, err := s.current(ctx, processSection)
 	if err != nil {
 		return processSettings{}, err
 	}
-	c, err := decodeSettings[processSettings](start.Settings)
+	c, err := decodeSettings[processSettings](cur.Settings)
 	if err != nil {
-		return c, fmt.Errorf("%s, settings revision %d: %w", processSection, start.Revision, err)
+		return c, fmt.Errorf("%s, settings revision %d: %w", processSection, cur.Revision, err)
 	}
 	return c, nil
 }

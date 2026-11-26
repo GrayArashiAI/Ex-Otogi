@@ -18,20 +18,15 @@ management:
 # where a change is kept as a revision; see docs/operations.md:
 #   - Settings, General (/api/system/general): the operators, the command
 #     prefixes, how long the event log is kept, and the log level, which apply
-#     at once. These were the keys operators, commands.prefixes,
-#     eventlog.retention, and log.level.
+#     at once.
 #   - Settings, Language models (/api/system/llm): the Gemini provider and
 #     the OpenAI-compatible services, with their API keys as secrets, which
-#     apply at once. This was the key llm.
+#     apply at once.
 #   - Settings, Accounts (/api/system/accounts): the Telegram accounts and the
-#     QQ bots, with app_hash and app_secret as secrets. These were the keys
-#     telegram and qq. Saved there, they apply at the next start; a new
-#     Telegram account is logged in with "otogi login <account>" before it.
+#     QQ bots, with app_hash and app_secret as secrets. Saved there, they
+#     apply at the next start; a new Telegram account is logged in with
+#     "otogi login <account>" before it.
 #   - Settings, Process (/api/system/process): workers, max_in_flight,
 #     handler_timeout, log_format, and shutdown_timeout, which apply at the
-#     next start. These were the keys kernel.*, log.format, and
-#     shutdown_timeout.
+#     next start.
 #   - Modules: which run, their settings, and where they answer.
-# A file that still has the moved keys starts: the first start after the
-# upgrade saves them as the first revision of their section, and later starts
-# ignore them with a warning. Remove them once that has happened.

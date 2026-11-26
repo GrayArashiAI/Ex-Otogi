@@ -104,8 +104,6 @@ curl -X PUT http://127.0.0.1:8090/api/system/llm/settings -H 'If-Match: "1"' \
   -d '{"gemini": {"api_key": "${OTOGI_GEMINI_API_KEY}"}, "openai": {"deepseek": {"base_url": "https://api.deepseek.com", "api_key": "${OTOGI_DEEPSEEK_API_KEY}"}}}'
 ```
 
-All four sections used to be keys of `otogi.yaml`. After an upgrade the first start saves the file's keys as each section's first revision, by `otogi.yaml`; later starts ignore them and say so in one warning. Remove them from the file then (see `docs/operations.md`).
-
 ## The bot does not start after a settings change
 
 Saving checks what can be checked without the platform. A wrong `app_hash` or `app_secret`, or a Telegram account not logged in, shows only when the driver starts: it fails, the process exits with an error, the supervisor starts it again, and it fails again. The panel is down with it.

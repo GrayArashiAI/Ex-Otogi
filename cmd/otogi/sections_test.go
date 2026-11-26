@@ -25,9 +25,9 @@ import (
 )
 
 // sectionsHarness starts the runtime as run does: the sections loaded from
-// the store and the config file, then a kernel with the enabled modules and
+// the store, then a kernel with the enabled modules and
 // the command parser. It returns what the bot sends as well.
-func sectionsHarness(t *testing.T, storage *modulestore.Storage, cfg Config, log *slog.Logger) (*moduleSettings, *records, *capture.Effector) {
+func sectionsHarness(t *testing.T, storage *modulestore.Storage, log *slog.Logger) (*moduleSettings, *records, *capture.Effector) {
 	t.Helper()
 	ctx := context.Background()
 	rec := &records{}
@@ -36,7 +36,7 @@ func sectionsHarness(t *testing.T, storage *modulestore.Storage, cfg Config, log
 		operators: sys.operatorList, llm: sys.provider,
 		status: func(context.Context) utility.Status { return utility.Status{Version: "test"} },
 	}}
-	if err := s.loadSections(ctx, cfg); err != nil {
+	if err := s.loadSections(ctx); err != nil {
 		t.Fatal(err)
 	}
 	sent := capture.New()
@@ -92,7 +92,7 @@ func say(t *testing.T, s *moduleSettings, sent *capture.Effector, actor otogi.Ac
 func TestGeneralSettingsApplyAtOnce(t *testing.T) {
 	ctx := context.Background()
 	storage := openStore(t)
-	s, rec, sent := sectionsHarness(t, storage, fileConfig(t, ""), slog.New(slog.DiscardHandler))
+	s, rec, sent := sectionsHarness(t, storage, slog.New(slog.DiscardHandler))
 	on := true
 	if _, err := s.save(ctx, "utility", 0, &on, json.RawMessage(`{}`), "Tundra"); err != nil {
 		t.Fatal(err)
@@ -214,7 +214,7 @@ func TestLLMSettingsRebuildTheModulesUsingAProvider(t *testing.T) {
 	ctx := context.Background()
 	storage := openStore(t)
 	var log bytes.Buffer
-	s, rec, _ := sectionsHarness(t, storage, fileConfig(t, ""), slog.New(slog.NewTextHandler(&log, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	s, rec, _ := sectionsHarness(t, storage, slog.New(slog.NewTextHandler(&log, &slog.HandlerOptions{Level: slog.LevelDebug})))
 	var inUse atomic.Pointer[asker]
 	s.kinds = map[otogi.ModuleID]moduleKind{
 		"asker": kind(func(c askerConfig, env moduleEnv) (otogi.Module, error) {
@@ -317,7 +317,7 @@ func TestLLMSettingsRebuildTheModulesUsingAProvider(t *testing.T) {
 	}
 
 	// The next start builds the providers from the stored settings.
-	again, _, _ := sectionsHarness(t, storage, fileConfig(t, ""), slog.New(slog.DiscardHandler))
+	again, _, _ := sectionsHarness(t, storage, slog.New(slog.DiscardHandler))
 	if _, err := again.env.llm("deepseek"); err != nil {
 		t.Fatalf("the provider after a restart: %v", err)
 	}
@@ -350,150 +350,6 @@ func secretList(t *testing.T, s *moduleSettings) string {
 	}
 	data, _ := json.Marshal(secrets)
 	return string(data)
-}
-
-func storedSecrets(t *testing.T, storage *modulestore.Storage) string {
-	t.Helper()
-	secrets, err := storage.Secrets(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	var out []string
-	for _, secret := range secrets {
-		out = append(out, secret.Name+"="+secret.Value+" by "+secret.By)
-	}
-	return strings.Join(out, " ")
-}
-
-const movedKeysFile = `
-operators: ["telegram:user:1"]
-commands:
-  prefixes: ["!"]
-eventlog:
-  retention: 48h
-log:
-  level: WARN
-`
-
-// A section with no revision takes its first from the keys otogi.yaml has
-// for it. Once it has one, the file's keys no longer apply, and the start
-// says so once.
-func TestSectionsAreImportedFromTheFileOnce(t *testing.T) {
-	ctx := context.Background()
-	storage := openStore(t)
-	t.Setenv("OTOGI_TEST_GEMINI_KEY", "value-from-environment")
-	file := movedKeysFile + "llm:\n  gemini:\n    api_key: ${OTOGI_TEST_GEMINI_KEY}\n    base_url: https://gateway.example/gemini\n"
-	var log bytes.Buffer
-	s, rec, sent := sectionsHarness(t, storage, fileConfig(t, file), slog.New(slog.NewTextHandler(&log, &slog.HandlerOptions{Level: slog.LevelDebug})))
-
-	general, _ := s.current(ctx, generalSection)
-	if general.Revision != 1 || general.By != "otogi.yaml" || string(general.Settings) != `{"operators":["telegram:user:1"],"command_prefixes":["!"],"eventlog_retention":"48h","log_level":"warn"}` {
-		t.Fatalf("the general settings imported: %+v", general)
-	}
-	models, _ := s.current(ctx, llmSection)
-	if models.Revision != 1 || models.By != "otogi.yaml" || string(models.Settings) != `{"gemini":{"api_key":"${OTOGI_TEST_GEMINI_KEY}","base_url":"https://gateway.example/gemini"}}` {
-		t.Fatalf("the language model settings imported: %+v", models)
-	}
-	// A key the file takes from the environment stays there.
-	if got := storedSecrets(t, storage); got != "" {
-		t.Fatalf("secrets stored by the import: %s", got)
-	}
-	if s.system.retention() != 48*time.Hour || s.system.level.Level() != slog.LevelWarn || !slices.Equal(s.system.operatorList(), []string{"telegram:user:1"}) {
-		t.Fatalf("imported: retention %s, level %s, operators %v", s.system.retention(), s.system.level.Level(), s.system.operatorList())
-	}
-	if _, err := s.env.llm("gemini"); err != nil {
-		t.Fatal(err)
-	}
-	on := true
-	if _, err := s.save(ctx, "utility", 0, &on, json.RawMessage(`{}`), "Tundra"); err != nil {
-		t.Fatal(err)
-	}
-	if got := say(t, s, sent, "user:1", "!ping"); got != "Pong." {
-		t.Fatalf("!ping with the file's prefix: %q", got)
-	}
-	var imported []string
-	for _, r := range rec.list {
-		if r.Kind == "system.reconfigured" {
-			imported = append(imported, r.Component+" by "+r.Payload.(map[string]any)["by"].(string))
-		}
-	}
-	if !slices.Equal(imported, []string{"system:general by otogi.yaml", "system:llm by otogi.yaml"}) {
-		t.Fatalf("records of the import: %q", imported)
-	}
-	if strings.Contains(log.String(), "level=WARN") {
-		t.Fatalf("the first start warns: %s", log.String())
-	}
-
-	// The second start: the file says other things now, and they are
-	// ignored with one warning that names the keys.
-	log.Reset()
-	changed := strings.NewReplacer("user:1", "user:2", `"!"`, `"?"`, "48h", "72h", "WARN", "error", "gateway.example", "other.example").Replace(file)
-	s, rec, _ = sectionsHarness(t, storage, fileConfig(t, changed), slog.New(slog.NewTextHandler(&log, &slog.HandlerOptions{Level: slog.LevelDebug})))
-	if s.system.retention() != 48*time.Hour || s.system.level.Level() != slog.LevelWarn || !slices.Equal(s.system.operatorList(), []string{"telegram:user:1"}) || !slices.Equal(*s.system.prefixes.Load(), []string{"!"}) {
-		t.Fatalf("second start: retention %s, level %s, operators %v, prefixes %v", s.system.retention(), s.system.level.Level(), s.system.operatorList(), *s.system.prefixes.Load())
-	}
-	if cur, _ := s.current(ctx, llmSection); cur.Revision != 1 || !strings.Contains(string(cur.Settings), "gateway.example") {
-		t.Fatalf("second start: %+v", cur)
-	}
-	if len(rec.list) != 0 {
-		t.Fatalf("second start recorded %+v", rec.list)
-	}
-	if strings.Count(log.String(), "level=WARN") != 1 {
-		t.Fatalf("second start: want one warning: %s", log.String())
-	}
-	for _, key := range []string{"operators", "commands.prefixes", "eventlog.retention", "log.level", "llm", "panel"} {
-		if !strings.Contains(log.String(), key) {
-			t.Fatalf("the warning does not name %s: %s", key, log.String())
-		}
-	}
-	if strings.Contains(log.String(), "value-") {
-		t.Fatalf("a secret's value is in %s", log.String())
-	}
-}
-
-// A key written into the file itself is moved to the secrets, and the
-// settings refer to it there: it is in no revision, record, or log line.
-func TestImportMovesAKeyWrittenInTheFileToTheSecrets(t *testing.T) {
-	ctx := context.Background()
-	storage := openStore(t)
-	t.Setenv("OTOGI_TEST_GEMINI_KEY", "value-from-environment")
-	file := "llm:\n  gemini: {api_key: \"${OTOGI_TEST_GEMINI_KEY}\"}\n  openai:\n    deep-seek: {base_url: https://api.deepseek.com, api_key: value-literal}\n"
-	var log bytes.Buffer
-	s, rec, _ := sectionsHarness(t, storage, fileConfig(t, file), slog.New(slog.NewTextHandler(&log, &slog.HandlerOptions{Level: slog.LevelDebug})))
-
-	models, _ := s.current(ctx, llmSection)
-	if string(models.Settings) != `{"gemini":{"api_key":"${OTOGI_TEST_GEMINI_KEY}"},"openai":{"deep-seek":{"base_url":"https://api.deepseek.com","api_key":"${OTOGI_LLM_DEEP_SEEK_API_KEY}"}}}` {
-		t.Fatalf("the language model settings imported: %s", models.Settings)
-	}
-	if got := storedSecrets(t, storage); got != "OTOGI_LLM_DEEP_SEEK_API_KEY=value-literal by otogi.yaml" {
-		t.Fatalf("secrets stored by the import: %s", got)
-	}
-	if _, err := s.env.llm("deep-seek"); err != nil {
-		t.Fatal(err)
-	}
-	if got := secretList(t, s); !strings.Contains(got, `{"name":"OTOGI_LLM_DEEP_SEEK_API_KEY","source":"panel","by":"otogi.yaml"`) || !strings.Contains(got, `"references":["system:llm"]`) {
-		t.Fatalf("secrets %s", got)
-	}
-	if general, _ := s.current(ctx, generalSection); general.Revision != 0 {
-		t.Fatalf("the general settings, which the file does not have: %+v", general)
-	}
-	recorded, err := json.Marshal(rec.list)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(recorded), `"secret.changed"`) || !strings.Contains(string(recorded), "OTOGI_LLM_DEEP_SEEK_API_KEY") {
-		t.Fatalf("the import's records do not name the secret it set: %s", recorded)
-	}
-	revisions, err := storage.SettingsRevisions(ctx, llmSection, 9, 9)
-	if err != nil {
-		t.Fatal(err)
-	}
-	stored, _ := json.Marshal(revisions)
-	for _, text := range []string{string(recorded), log.String(), string(stored), secretList(t, s)} {
-		if strings.Contains(text, "value-") {
-			t.Fatalf("a secret's value is in %s", text)
-		}
-	}
 }
 
 // plain is a module that uses nothing a section changes.

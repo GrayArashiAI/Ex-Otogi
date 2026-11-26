@@ -111,7 +111,7 @@ func TestRouterRoutesByPlatformAndAccount(t *testing.T) {
 // saved event log retention shows in the status, and a saved log level is
 // the logger's, with no restart.
 func TestRunAppliesTheGeneralSettings(t *testing.T) {
-	cfg, err := loadConfig(writeConfig(t, "data_dir: "+t.TempDir()+"\nmanagement: {addr: \"127.0.0.1:0\"}\neventlog: {retention: 24h}\n"))
+	cfg, err := loadConfig(writeConfig(t, "data_dir: "+t.TempDir()+"\nmanagement: {addr: \"127.0.0.1:0\"}\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +131,7 @@ func TestRunAppliesTheGeneralSettings(t *testing.T) {
 		t.Helper()
 		req, _ := http.NewRequestWithContext(ctx, method, api+path, strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("If-Match", `"1"`)
+		req.Header.Set("If-Match", `"0"`)
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			t.Fatal(err)
@@ -143,8 +143,8 @@ func TestRunAppliesTheGeneralSettings(t *testing.T) {
 		}
 		return string(data)
 	}
-	if got := do("GET", "/api/status", ""); !strings.Contains(got, `"retention_ms":86400000`) || level.Level() != slog.LevelInfo {
-		t.Fatalf("with the file's settings: level %s, status %s", level.Level(), got)
+	if got := do("GET", "/api/status", ""); !strings.Contains(got, `"retention_ms":2592000000`) || level.Level() != slog.LevelInfo {
+		t.Fatalf("with the defaults: level %s, status %s", level.Level(), got)
 	}
 	do("PUT", "/api/system/general/settings", `{"eventlog_retention": "48h", "log_level": "debug"}`)
 	if got := do("GET", "/api/status", ""); !strings.Contains(got, `"retention_ms":172800000`) || level.Level() != slog.LevelDebug {
@@ -215,19 +215,19 @@ func (p *started) do(t *testing.T, method, path, ifMatch, body string, wantCode 
 // requested restart, and the next start runs with them; POST /api/shutdown
 // stops it as a stop.
 func TestRestartAppliesTheProcessSettings(t *testing.T) {
-	cfg, err := loadConfig(writeConfig(t, "data_dir: "+t.TempDir()+"\nmanagement: {addr: \"127.0.0.1:0\"}\nkernel: {workers: 4}\nlog: {format: text}\n"))
+	cfg, err := loadConfig(writeConfig(t, "data_dir: "+t.TempDir()+"\nmanagement: {addr: \"127.0.0.1:0\"}\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	p := startRun(t, cfg)
-	if got := p.do(t, "GET", "/api/status", "", "", 200); p.format != "text" || !strings.Contains(got, `"workers":4`) || !strings.Contains(got, `"handler_timeout_ms":600000`) {
-		t.Fatalf("with the file's settings: log format %q, status %s", p.format, got)
+	if got := p.do(t, "GET", "/api/status", "", "", 200); p.format != "" || !strings.Contains(got, `"workers":32`) || !strings.Contains(got, `"handler_timeout_ms":600000`) {
+		t.Fatalf("with the defaults: log format %q, status %s", p.format, got)
 	}
-	p.do(t, "PUT", "/api/system/process/settings", `"1"`, `{"workers": 6, "handler_timeout": "90s", "log_format": "json"}`, 200)
-	if got := p.do(t, "GET", "/api/status", "", "", 200); !strings.Contains(got, `"workers":4`) || !strings.Contains(got, `"handler_timeout_ms":600000`) {
+	p.do(t, "PUT", "/api/system/process/settings", `"0"`, `{"workers": 6, "handler_timeout": "90s", "log_format": "text"}`, 200)
+	if got := p.do(t, "GET", "/api/status", "", "", 200); !strings.Contains(got, `"workers":32`) || !strings.Contains(got, `"handler_timeout_ms":600000`) {
 		t.Fatalf("after saving, the running process: %s", got)
 	}
-	if got := p.do(t, "GET", "/api/system", "", "", 200); !strings.Contains(got, `{"id":"process","revision":2,"applies":"restart","running":1}`) {
+	if got := p.do(t, "GET", "/api/system", "", "", 200); !strings.Contains(got, `{"id":"process","revision":1,"applies":"restart","running":0}`) {
 		t.Fatalf("after saving, the sections: %s", got)
 	}
 	p.do(t, "POST", "/api/restart", "", "", 202)
@@ -237,10 +237,10 @@ func TestRestartAppliesTheProcessSettings(t *testing.T) {
 	}
 
 	p = startRun(t, cfg)
-	if got := p.do(t, "GET", "/api/status", "", "", 200); p.format != "json" || !strings.Contains(got, `"workers":6`) || !strings.Contains(got, `"handler_timeout_ms":90000`) {
+	if got := p.do(t, "GET", "/api/status", "", "", 200); p.format != "text" || !strings.Contains(got, `"workers":6`) || !strings.Contains(got, `"handler_timeout_ms":90000`) {
 		t.Fatalf("after the restart: log format %q, status %s", p.format, got)
 	}
-	if got := p.do(t, "GET", "/api/system", "", "", 200); !strings.Contains(got, `{"id":"process","revision":2,"applies":"restart","running":2}`) {
+	if got := p.do(t, "GET", "/api/system", "", "", 200); !strings.Contains(got, `{"id":"process","revision":1,"applies":"restart","running":1}`) {
 		t.Fatalf("after the restart, the sections: %s", got)
 	}
 	states := p.do(t, "GET", "/api/events?kind=process.state", "", "", 200)

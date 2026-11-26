@@ -129,10 +129,9 @@ func offline(ctx context.Context, cfg Config, command func(*moduleSettings) erro
 }
 
 // login logs in a Telegram account of those a start would run: the ones set
-// in the panel, or, before the first start has taken them from it, the
-// config file's.
+// in the panel.
 func login(ctx context.Context, s *moduleSettings, cfg Config, account string) error {
-	accounts, _, err := s.startAccounts(ctx, cfg)
+	accounts, _, err := s.startAccounts(ctx, cfg.DataDir)
 	if err != nil {
 		return err
 	}

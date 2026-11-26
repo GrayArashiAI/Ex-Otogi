@@ -55,7 +55,7 @@ func run(ctx context.Context, cfg Config, newLog func(format string) *slog.Logge
 		}
 	}()
 	settings := &moduleSettings{store: storage, kinds: moduleKinds}
-	limits, err := settings.startProcess(ctx, cfg)
+	limits, err := settings.startProcess(ctx)
 	if err != nil {
 		return false, err
 	}
@@ -93,10 +93,10 @@ func run(ctx context.Context, cfg Config, newLog func(format string) *slog.Logge
 		status:    func(ctx context.Context) utility.Status { return status(ctx) },
 		commands:  func() []utility.CommandInfo { return commandsOf(k.Descriptors()) },
 	}
-	if err := settings.loadSections(ctx, cfg); err != nil {
+	if err := settings.loadSections(ctx); err != nil {
 		return false, err
 	}
-	telegramAccounts, qqAccounts, err := settings.startAccounts(ctx, cfg)
+	telegramAccounts, qqAccounts, err := settings.startAccounts(ctx, cfg.DataDir)
 	if err != nil {
 		return false, err
 	}

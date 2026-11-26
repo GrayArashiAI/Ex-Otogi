@@ -44,7 +44,7 @@ func apiHarnessIn(t *testing.T, dir string, log *slog.Logger) (*kernel.Kernel, f
 	t.Cleanup(func() { _ = events.Close() })
 	settings := &moduleSettings{store: storage, kinds: moduleKinds, recorder: events, log: log, system: newSystem(new(slog.LevelVar), events, log)}
 	settings.env = moduleEnv{llm: settings.system.provider}
-	if err := settings.loadSections(ctx, Config{}); err != nil {
+	if err := settings.loadSections(ctx); err != nil {
 		t.Fatal(err)
 	}
 	k, err := kernel.New(kernel.Config{Storage: storage, Recorder: events}, nil, nil, capture.New(), log)
