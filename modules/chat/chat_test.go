@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"github.com/TundraWork/Ex-Otogi/internal/settingstest"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -413,6 +414,23 @@ func TestEndings(t *testing.T) {
 				t.Fatalf("thread stored %v, want %v", found, c.store)
 			}
 		})
+	}
+}
+
+// An agent with sources off ends a grounded reply with what the model
+// wrote, and its record still has the pages.
+func TestSourcesOff(t *testing.T) {
+	off := false
+	h := newHarness(t, ProfileConfig{Name: "otogi", Label: "Otogi", Keywords: []string{"otogi"}, Provider: "otogi", Model: "m", Sources: &off})
+	cited := []llm.Source{{Title: "uefa.com", URL: "https://u"}}
+	h.llm["otogi"].responses = []llm.Response{{Turn: answer("Kane won.").Turn, Finish: llm.FinishStop, Sources: cited}}
+	h.mustHandle(h.message("Alice", "otogi, who won?"))
+	if got := h.streams[0].final.PlainText(); got != "Otogi\nKane won." {
+		t.Fatalf("reply %q, want no sources", got)
+	}
+	r := h.host.records[len(h.host.records)-1]
+	if got, _ := r.Payload.(map[string]any)["sources"].([]llm.Source); r.Kind != "chat.reply" || !slices.Equal(got, cited) {
+		t.Fatalf("record %s %+v, want the sources", r.Kind, r.Payload)
 	}
 }
 

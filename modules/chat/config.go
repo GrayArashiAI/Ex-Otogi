@@ -78,6 +78,7 @@ type ProfileConfig struct {
 	System        string       `json:"system,omitempty" format:"markdown" doc:"The system prompt: who the agent is and how it talks, in Markdown."`
 	PlainText     bool         `json:"plain_text,omitempty" doc:"Replies are plain text: the agent is not asked for Markdown, and what the model writes is sent as it is, unformatted, the label too. In QQ private chats a streamed reply is still shown as Markdown."`
 	Quote         string       `json:"quote,omitempty" enum:"always,never,when_interrupted" default:"always" doc:"Whether a reply quotes the message it answers: always; never; or when_interrupted, only when the chat said something else after that message before the reply started. A sticker after the reply does the same."`
+	Sources       *bool        `json:"sources,omitempty" default:"true" doc:"End a reply that cites pages, after a web search, with a line linking them: Sources: title, …. Off, the reply ends with what the model wrote; chat.reply still records the pages."`
 	OwnFormat     bool         `json:"own_format,omitempty" doc:"The system prompt does not say how to format a reply, leaving it to the agent's own: it asks neither for Markdown nor, with plain text, for plain text. What the model writes is still read as Markdown unless plain text is on."`
 	Context       *int         `json:"context,omitempty" minimum:"0" default:"30" doc:"How many recent chat messages the agent sees; 0 for none."`
 	MaxTurns      int          `json:"max_turns,omitempty" minimum:"1" default:"40" doc:"How many turns of a thread are sent, newest kept."`
@@ -203,6 +204,7 @@ type profile struct {
 	// to finish; waitMax is 0 when it does not wait.
 	waitMin, waitMax time.Duration
 	examine          time.Duration // the longest one look with examine_media may take; 0 when it has none
+	sources          bool          // whether a grounded reply ends with its sources
 }
 
 // title is what chats know the agent by: its label, or its name.
@@ -287,7 +289,7 @@ func (c *Config) profiles(providers func(string) (llm.Provider, error)) ([]*prof
 	for i, pc := range c.Profiles {
 		field := fmt.Sprintf("profiles[%d]", i)
 		refuse := func(path string, err error) { errs = append(errs, &otogi.SettingError{Path: field + path, Err: err}) }
-		p := &profile{ProfileConfig: pc, context: 30}
+		p := &profile{ProfileConfig: pc, context: 30, sources: pc.Sources == nil || *pc.Sources}
 		if pc.Context != nil {
 			p.context = *pc.Context
 		}

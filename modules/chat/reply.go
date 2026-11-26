@@ -194,7 +194,7 @@ func (m *Module) respond(ctx context.Context, inv otogi.Invocation, a ask, until
 	quiet := runErr == nil && silent.called && !said && len(out.Last.Parts) == 0 && !sends
 	var final otogi.Message
 	if !held && !quiet {
-		final = ending(out, said || sends, runErr, p.PlainText)
+		final = ending(out, said || sends, runErr, p)
 		if !said && (len(final.Parts) > 0 || sends) {
 			draft := final.PlainText()
 			if sends {
@@ -670,8 +670,8 @@ func joinLine(a, b otogi.Message) otogi.Message {
 // words before tools went out, saying once how the reply ended when that was
 // not a plain answer. said is whether the reply shows something else: those
 // words, or a sticker after it; then an empty ending is no message at all.
-// plain is whether the agent writes plain text, for the sources.
-func ending(out llm.RunResult, said bool, err error, plain bool) otogi.Message {
+// p says whether the sources follow, and how.
+func ending(out llm.RunResult, said bool, err error, p *profile) otogi.Message {
 	reply := out.Last
 	empty := len(reply.Parts) == 0
 	silent := empty && !said // the reply showed nothing at all
@@ -695,7 +695,10 @@ func ending(out llm.RunResult, said bool, err error, plain bool) otogi.Message {
 	case silent:
 		return otogi.TextMessage("I have nothing to add.")
 	}
-	return withSources(reply, out.Sources, plain)
+	if !p.sources {
+		return reply
+	}
+	return withSources(reply, out.Sources, p.PlainText)
 }
 
 // withSources ends a grounded reply with links to the pages it cites; in
