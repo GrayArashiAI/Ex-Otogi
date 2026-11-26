@@ -69,4 +69,4 @@ make deploy            # build linux/amd64, upload, validate the host's config w
 make deploy-rollback   # restore otogi.prev and restart
 ```
 
-`DEPLOY_HOST`, `DEPLOY_DIR`, `DEPLOY_SERVICE`, and `DEPLOY_READY_URL` override the defaults. A deploy that does not become ready within 60 seconds prints the service's recent logs and fails. Inspect the running bot with `ssh <host> 'curl -s localhost:8383/api/status'` and `journalctl -u ex-otogi-next -f`.
+`DEPLOY_HOST`, `DEPLOY_DIR`, `DEPLOY_SERVICE`, and `DEPLOY_READY_URL` override the defaults. A deploy that does not become ready within 60 seconds prints the service's recent logs and fails. Once ready, both list the modules that are on but not running, with why (the `problem` of `GET /api/modules`, read on the host beside `DEPLOY_READY_URL`); the deploy still succeeds, since such a module does not stop the bot. The list needs `jq` on the machine running `make deploy`; without it, or when the API cannot be read, the deploy says so and still succeeds. Inspect the running bot with `ssh <host> 'curl -s localhost:8383/api/status'` and `journalctl -u ex-otogi-next -f`.
