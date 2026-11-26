@@ -904,6 +904,7 @@ export interface components {
             media_type?: string;
             role?: string;
             source: components["schemas"]["MediaSource"];
+            transcript?: string;
             /** Format: int64 */
             width?: number;
         };

@@ -454,8 +454,13 @@ func (m *Module) userContent(ctx context.Context, e otogi.Event, inv otogi.Invoc
 func (m *Module) maxMedia() int64 { return int64(m.cfg.MaxMediaMB) << 20 }
 
 // mediaPart fetches media for the model, or describes it when it is too
-// large or cannot be fetched.
+// large or cannot be fetched. Media the platform transcribed goes as its
+// transcript instead: QQ's voice comes as SILK, which is not among the audio
+// formats Gemini lists.
 func (m *Module) mediaPart(ctx context.Context, inv otogi.Invocation, from otogi.Destination, media otogi.Media) otogi.Message {
+	if t, ok := transcribed(media, 0); ok {
+		return otogi.TextMessage(t)
+	}
 	word := mediaWord(media)
 	skipped := func(reason string, err error, size int64) {
 		m.host.Logger().Warn("chat: media left out", "reason", reason, "media", word, "bytes", size, "error", err)
