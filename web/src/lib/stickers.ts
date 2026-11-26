@@ -68,7 +68,7 @@ export function usage(stickers: { bytes: number }[]): string {
 }
 
 /** accepted is the picture types the media module keeps. */
-export const accepted = ["image/png", "image/jpeg", "image/gif"];
+export const accepted = ["image/png", "image/jpeg", "image/gif", "image/webp"];
 
 /** next is the sticker to select once id is removed: the one after it,
  * else the one before, else none. */

@@ -168,7 +168,8 @@ type KeptSticker struct {
 	// Summary is what its description said when it was kept; Note, the
 	// operator's note.
 	Summary, Note string
-	// MediaType is image/png, image/jpeg, or image/gif; Size, its bytes.
+	// MediaType is image/png, image/jpeg, image/gif, or image/webp; Size,
+	// its bytes.
 	MediaType string
 	Size      int64
 	SHA256    []byte
@@ -179,8 +180,8 @@ type KeptSticker struct {
 }
 
 // StickerRefusal is a picture not kept, and why: Reason is what the
-// media.sticker record says (too large, not png, jpeg, or gif, already
-// kept); Message is the reply /sticker add gives; ID is the sticker
+// media.sticker record says (too large, not png, jpeg, gif, or webp,
+// animated webp, already kept); Message is the reply /sticker add gives; ID is the sticker
 // already kept, for already kept.
 type StickerRefusal struct {
 	Reason  string

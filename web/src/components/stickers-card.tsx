@@ -300,7 +300,7 @@ export function StickersCard() {
                   stickers.length === 0 ? (
                     <Empty>
                       <p className="max-w-md text-muted-foreground text-sm">
-                        No stickers yet. Upload PNG, JPEG, or GIF pictures, or reply to a picture in a chat with{" "}
+                        No stickers yet. Upload PNG, JPEG, GIF, or WebP pictures, or reply to a picture in a chat with{" "}
                         <code className="font-mono text-foreground text-xs">/sticker add</code>.
                       </p>
                       <Button size="sm" onClick={() => fileRef.current?.click()}>
