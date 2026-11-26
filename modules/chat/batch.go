@@ -31,9 +31,6 @@ const (
 	// chimeHoldMax is the longest an agent waits to speak up, from the
 	// message it means to add to.
 	chimeHoldMax = 2 * time.Minute
-	// stillThreshold is how sure the judgment must be, when another message
-	// comes during the wait, that the agent still means to speak up.
-	stillThreshold = 0.5
 )
 
 // chimeHold is how long a chat must stay quiet after a message, from a sender
@@ -375,7 +372,7 @@ func (m *Module) heard(p *profile, chat string, at time.Time, s stillAnswer, r t
 	switch {
 	case s.gone:
 		b.gaveUp = true
-	case s.known && s.score < stillThreshold:
+	case s.known && s.score < p.still:
 		score := s.score
 		b.gaveUp, b.still = true, &score
 	case s.known:

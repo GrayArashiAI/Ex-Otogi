@@ -120,15 +120,18 @@ func TestChimeWaitsForAPause(t *testing.T) {
 }
 
 // A message that comes during the wait asks whether the agent still means
-// to speak up: not, and it gives up; still, and it speaks up.
+// to speak up: below judge.chime.still (0.5 unset), it gives up; at or
+// above, it speaks up.
 func TestChimeStill(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
-		still float64
-		spoke bool
-	}{{0.3, false}, {0.8, true}} {
+		setting, still float64
+		spoke          bool
+	}{{0, 0.3, false}, {0, 0.8, true}, {0, 0.45, false}, {0.4, 0.45, true}, {0.4, 0.3, false}} {
 		d := &decider{answer: chiming(0.9, c.still)}
-		h := newChiming(t, d, chimeProfile("luna", 0))
+		pc := chimeProfile("luna", 0)
+		pc.Judge.Chime.Still = c.setting
+		h := newChiming(t, d, pc)
 		first := h.message("Alice", "anyone tried the new Unity?")
 		errc := make(chan error, 1)
 		go func() { errc <- h.handle(first) }()
@@ -138,24 +141,24 @@ func TestChimeStill(t *testing.T) {
 			t.Fatal(err)
 		}
 		if req := d.requests[len(d.requests)-1]; !asks(req, "still.a1") || asks(req, "chime.") {
-			t.Fatalf("still %v: the second message asked %+v", c.still, req.Questions)
+			t.Fatalf("still %v of %v: the second message asked %+v", c.still, c.setting, req.Questions)
 		}
 		if n := h.llm["luna"].count(); (n == 1) != c.spoke {
-			t.Fatalf("still %v: %d replies", c.still, n)
+			t.Fatalf("still %v of %v: %d replies", c.still, c.setting, n)
 		}
 		r := h.host.records[len(h.host.records)-1]
 		p, _ := r.Payload.(map[string]any)
 		if c.spoke {
 			if r.Kind != "chat.reply" || r.Outcome != "ok" || p["trigger"] != "chime" {
-				t.Fatalf("still %v: record %s %s %+v", c.still, r.Kind, r.Outcome, p)
+				t.Fatalf("still %v of %v: record %s %s %+v", c.still, c.setting, r.Kind, r.Outcome, p)
 			}
 			continue
 		}
-		if r.Kind != "chat.reply" || r.Outcome != "skipped" || p["skipped"] != "still" || batchOf(t, p)["still"] != 0.3 {
-			t.Fatalf("still %v: record %s %s %+v", c.still, r.Kind, r.Outcome, p)
+		if r.Kind != "chat.reply" || r.Outcome != "skipped" || p["skipped"] != "still" || batchOf(t, p)["still"] != c.still {
+			t.Fatalf("still %v of %v: record %s %s %+v", c.still, c.setting, r.Kind, r.Outcome, p)
 		}
 		if waitingToChime(h) {
-			t.Fatalf("still %v: still waiting after giving up", c.still)
+			t.Fatalf("still %v of %v: still waiting after giving up", c.still, c.setting)
 		}
 	}
 }
