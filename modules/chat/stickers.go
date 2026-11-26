@@ -146,9 +146,21 @@ func (m *Module) sendSticker(ctx context.Context, e otogi.Event, inv otogi.Invoc
 // judgments read it: its text and media, a sticker an agent sent reading as
 // what it shows rather than as its picture.
 func (m *Module) lineText(ctx context.Context, to otogi.Destination, l line, described bool) string {
+	return m.lineWith(ctx, to, l, described, false)
+}
+
+// shownLine is a transcript message as p's reply reads it: its media
+// described when p reads descriptions, with their IDs when p has
+// examine_media.
+func (m *Module) shownLine(ctx context.Context, to otogi.Destination, l line, p *profile) string {
+	return m.lineWith(ctx, to, l, p.Media != nil, p.examine > 0)
+}
+
+// lineWith is lineText, the descriptions showing their media's IDs with ids.
+func (m *Module) lineWith(ctx context.Context, to otogi.Destination, l line, described, ids bool) string {
 	media := "[sticker: " + l.Sticker + "]"
 	if l.Sticker == "" {
-		media = m.mediaText(ctx, to, l.Media, described)
+		media = m.mediaText(ctx, to, l.Media, described, ids)
 	}
 	return strings.TrimSpace(strings.TrimSpace(l.Text) + " " + media)
 }

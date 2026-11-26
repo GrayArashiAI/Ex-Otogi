@@ -135,7 +135,7 @@ func (m *Module) Start(ctx context.Context, host otogi.Host) error {
 			return fmt.Errorf("media: %w", err)
 		}
 	}
-	if m.sendsStickers() {
+	if m.sendsStickers() || m.examines() {
 		if m.stickers, err = otogi.Lookup[mediasvc.Stickers](host, mediasvc.StickersService); err != nil {
 			return fmt.Errorf("media stickers: %w", err)
 		}

@@ -131,6 +131,9 @@ func (m *Module) respond(ctx context.Context, inv otogi.Invocation, a ask, until
 	if p.Silent {
 		tools[silentTool] = silent.tool()
 	}
+	if p.examine > 0 {
+		tools[examineTool] = (&looker{m: m, a: a, inv: inv, path: path, until: started}).tool()
+	}
 
 	// The reply is at most two messages, each a stream of its own: "reply",
 	// and "reply-2" for what follows words said before tools. The second is
@@ -306,7 +309,7 @@ func (m *Module) askContent(ctx context.Context, inv otogi.Invocation, a ask, un
 		if !l.Outgoing {
 			named = append(named, sender{l.ActorID, l.ActorName})
 		}
-		content = llm.Join(content, otogi.TextMessage(who+": "+m.lineText(ctx, to, shown, a.p.Media != nil)))
+		content = llm.Join(content, otogi.TextMessage(who+": "+m.shownLine(ctx, to, shown, a.p)))
 		inBatch[l.SourceID] = true
 	}
 	for _, msg := range a.msgs { // not in the transcript's span, which should not happen
@@ -385,7 +388,7 @@ func (m *Module) userContent(ctx context.Context, e otogi.Event, inv otogi.Invoc
 	asText := p.Media != nil && p.Media.AsText
 	shown := func(media otogi.Media) otogi.Message {
 		if asText {
-			return m.describedPart(ctx, e.Destination(), media, until)
+			return m.describedPart(ctx, e.Destination(), media, until, p.examine > 0)
 		}
 		return m.mediaPart(ctx, inv, e.Destination(), media)
 	}
@@ -405,7 +408,7 @@ func (m *Module) userContent(ctx context.Context, e otogi.Event, inv otogi.Invoc
 			msg = llm.Join(msg, otogi.TextMessage("Replying to "+who+":\n"+quoted.Text))
 			for _, media := range quoted.Media {
 				if asText {
-					msg = llm.Join(msg, m.keptPart(ctx, e.Destination(), media))
+					msg = llm.Join(msg, m.keptPart(ctx, e.Destination(), media, p.examine > 0))
 				} else {
 					msg = llm.Join(msg, m.mediaPart(ctx, inv, e.Destination(), media))
 				}
@@ -517,7 +520,7 @@ func (m *Module) contextText(ctx context.Context, a ask, path []storedTurn, inBa
 		if !l.Outgoing {
 			named = append(named, sender{l.ActorID, l.ActorName})
 		}
-		text := m.lineText(ctx, e.Destination(), shown, p.Media != nil)
+		text := m.shownLine(ctx, e.Destination(), shown, p)
 		row := fmt.Sprintf("[%s] %s: %s", l.At.In(time.Local).Format("15:04"), who, text)
 		if l.At.After(answered) {
 			after = append(after, row)

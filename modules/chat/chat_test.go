@@ -116,6 +116,9 @@ func (i invocation) Stream(context.Context, string, otogi.Destination) otogi.Mes
 }
 
 func (i invocation) FetchMedia(_ context.Context, _ otogi.Destination, src otogi.MediaSource) ([]byte, error) {
+	if i.h.fetchErr != nil {
+		return nil, i.h.fetchErr
+	}
 	return []byte("bytes of " + string(src.Locator.Data)), nil
 }
 
@@ -155,18 +158,19 @@ func (h *host) Record(_ context.Context, r otogi.Record) {
 func (h *host) Schedule(string, string, otogi.Job) error { return nil }
 
 type harness struct {
-	t       *testing.T
-	mu      sync.Mutex // guards what the invocation and streams record, for handlers running at once
-	m       *Module
-	host    *host
-	llm     map[string]*provider
-	streams []*stream
-	replies []string // sent with Send: command replies
-	sends   []sentEffect
-	sendErr error // when set, Send fails with it
-	sent    int
-	now     time.Time
-	seq     int
+	t        *testing.T
+	mu       sync.Mutex // guards what the invocation and streams record, for handlers running at once
+	m        *Module
+	host     *host
+	llm      map[string]*provider
+	streams  []*stream
+	replies  []string // sent with Send: command replies
+	sends    []sentEffect
+	sendErr  error // when set, Send fails with it
+	fetchErr error // when set, FetchMedia fails with it
+	sent     int
+	now      time.Time
+	seq      int
 }
 
 const group = "telegram:chat:1"
@@ -721,7 +725,7 @@ func TestSchemaDefaultsAreTheDefaults(t *testing.T) {
 	t.Parallel()
 	providers := func(string) (llm.Provider, error) { return &provider{}, nil }
 	unset := Config{Profiles: []ProfileConfig{
-		{Name: "luna", Keywords: []string{"luna"}, Provider: "p", Model: "m", Notes: &NotesConfig{}},
+		{Name: "luna", Keywords: []string{"luna"}, Provider: "p", Model: "m", Notes: &NotesConfig{}, Media: &MediaConfig{Examine: &ExamineConfig{}}},
 		{Name: "mizuki", Keywords: []string{"mizuki"}, Provider: "p", Model: "m", Judge: &JudgeConfig{Wake: &WakeConfig{}, Stale: &StaleConfig{}}},
 	}, People: []PersonConfig{{User: "qq:user:x"}}}
 	typed := settingstest.WithDefaults(t, unset)
@@ -735,7 +739,7 @@ func TestSchemaDefaultsAreTheDefaults(t *testing.T) {
 	}
 	if unset.Retention != typed.Retention || unset.Timeout != typed.Timeout || *unset.ToolReserve != *typed.ToolReserve || unset.MaxMediaMB != typed.MaxMediaMB || unset.DescribeWait != typed.DescribeWait || unset.DescribedText != typed.DescribedText ||
 		a[0].MaxTurns != b[0].MaxTurns || a[0].MaxToolRounds != b[0].MaxToolRounds || a[0].context != b[0].context || a[1].wake != b[1].wake ||
-		a[1].stale != b[1].stale || a[0].note("follow") != b[0].note("follow") || a[0].note("chime") != b[0].note("chime") {
+		a[1].stale != b[1].stale || a[0].note("follow") != b[0].note("follow") || a[0].note("chime") != b[0].note("chime") || a[0].examine != b[0].examine {
 		t.Fatalf("schema defaults give %+v %+v wake %v, unset fields %+v %+v wake %v", typed, b[0], b[1].wake, unset, a[0], a[1].wake)
 	}
 	pa, err := unset.people()
