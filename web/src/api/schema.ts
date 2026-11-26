@@ -207,6 +207,142 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/modules/media/sticker-packs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Make a sticker pack
+         * @description An empty pack. Its ID is how chat's settings name it, and cannot change; 409 when a pack has it already. Recorded as media.sticker_pack by the caller.
+         */
+        post: operations["make-sticker-pack"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/modules/media/sticker-packs/{pack}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove a sticker pack
+         * @description stickers says what becomes of its stickers: keep keeps them all, those in no other pack then in none; remove removes those in no other pack too, their numbers not used again. Neither can be undone. Agents' settings still naming the pack skip it. Recorded as media.sticker_pack by the caller, and each sticker removed as media.sticker.
+         */
+        delete: operations["remove-sticker-pack"];
+        options?: never;
+        head?: never;
+        /**
+         * Set a sticker pack's title and description
+         * @description Recorded as media.sticker_pack by the caller.
+         */
+        patch: operations["edit-sticker-pack"];
+        trace?: never;
+    };
+    "/api/modules/media/sticker-packs/{pack}/stickers/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Put a sticker in a pack
+         * @description 204 when it is there already too. Recorded as media.sticker by the caller when it changes anything.
+         */
+        put: operations["pack-sticker"];
+        post?: never;
+        /**
+         * Take a sticker out of a pack
+         * @description 204 when it was not there too. Recorded as media.sticker by the caller when it changes anything.
+         */
+        delete: operations["unpack-sticker"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/modules/media/stickers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The stickers the media module keeps, and their packs
+         * @description Every kept sticker by number, those agents do not see (no note and no description) included, and every pack by ID. Answers 503 while the media module is not running.
+         */
+        get: operations["list-stickers"];
+        put?: never;
+        /**
+         * Keep a picture as a sticker
+         * @description The body is the picture: PNG, JPEG, or GIF, at most 9 MiB. It is kept as /sticker add keeps one, with no note: the same checks, and it is described first, waiting at most 30 seconds (kept all the same when it cannot be). With pack, it is put in that pack, which must be there (404, answered before the picture is described). Answers 201 with the sticker. A picture kept already is 409 without pack; with pack, that sticker is put in the pack and answered with 200 and existing. Any other refusal is 422, the detail being what /sticker add answers and the errors naming the reason (and the sticker already kept). Recorded as media.sticker by the caller.
+         */
+        post: operations["add-sticker"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/modules/media/stickers/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove a sticker
+         * @description It leaves its packs too, and its number is not used again. Recorded as media.sticker by the caller.
+         */
+        delete: operations["remove-sticker"];
+        options?: never;
+        head?: never;
+        /**
+         * Set a sticker's note
+         * @description An empty note clears it, and agents see the description's summary again. Recorded as media.sticker by the caller.
+         */
+        patch: operations["note-sticker"];
+        trace?: never;
+    };
+    "/api/modules/media/stickers/{id}/picture": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A sticker's picture
+         * @description The picture itself, with its type. A sticker's picture never changes, so it may be cached for good; its ETag is its SHA-256.
+         */
+        get: operations["get-sticker-picture"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/modules/{module}": {
         parameters: {
             query?: never;
@@ -836,6 +972,31 @@ export interface components {
             label?: string;
             layout?: string;
         };
+        KeptStickerBody: {
+            /** Format: date-time */
+            added_at: string;
+            /** @description Who kept it: platform:actor, or the control panel's user. */
+            added_by: string;
+            /** Format: int64 */
+            bytes: number;
+            /** @description The picture was kept already: this is that sticker, now in the pack. */
+            existing?: boolean;
+            /** Format: int64 */
+            id: number;
+            /** @description What its description said it is; empty when it was not described. */
+            kind?: string;
+            /** @enum {string} */
+            media_type: "image/png" | "image/jpeg" | "image/gif";
+            note: string;
+            /** @description The IDs of the packs it is in, sorted; empty when it is in none. */
+            packs: string[];
+            /** @description The picture's SHA-256, in hex. */
+            sha256: string;
+            /** @description What its description said when it was kept. */
+            summary: string;
+            /** @description What agents see of it: the note, else the summary. Empty: agents do not see it. */
+            text: string;
+        };
         KernelStatus: {
             /**
              * Format: int64
@@ -891,6 +1052,12 @@ export interface components {
             latitude: number;
             /** Format: double */
             longitude: number;
+        };
+        "Make-sticker-packRequest": {
+            description?: string;
+            /** @description Lowercase letters, digits, and hyphens, starting with a letter or digit, at most 32. */
+            id: string;
+            title: string;
         };
         Media: {
             /** Format: int64 */
@@ -977,6 +1144,14 @@ export interface components {
         "Name-chatRequest": {
             name: string;
         };
+        "Note-stickerRequest": {
+            /** @description What agents see of the sticker; empty for its description's summary. */
+            note: string;
+        };
+        PackBody: {
+            description?: string;
+            title: string;
+        };
         Page: {
             more: boolean;
             /** Format: int64 */
@@ -1036,6 +1211,10 @@ export interface components {
             key?: string;
             kind: string;
             target: components["schemas"]["EventRef"];
+        };
+        "Remove-sticker-packResponse": {
+            /** @description The stickers removed with it. */
+            removed: number[];
         };
         Revision: {
             /** Format: date-time */
@@ -1205,6 +1384,41 @@ export interface components {
             /** Format: date-time */
             started_at: string;
             version: string;
+        };
+        Sticker: {
+            /** Format: date-time */
+            added_at: string;
+            /** @description Who kept it: platform:actor, or the control panel's user. */
+            added_by: string;
+            /** Format: int64 */
+            bytes: number;
+            /** Format: int64 */
+            id: number;
+            /** @description What its description said it is; empty when it was not described. */
+            kind?: string;
+            /** @enum {string} */
+            media_type: "image/png" | "image/jpeg" | "image/gif";
+            note: string;
+            /** @description The IDs of the packs it is in, sorted; empty when it is in none. */
+            packs: string[];
+            /** @description The picture's SHA-256, in hex. */
+            sha256: string;
+            /** @description What its description said when it was kept. */
+            summary: string;
+            /** @description What agents see of it: the note, else the summary. Empty: agents do not see it. */
+            text: string;
+        };
+        StickerList: {
+            packs: components["schemas"]["StickerPack"][];
+            stickers: components["schemas"]["Sticker"][];
+        };
+        StickerPack: {
+            description: string;
+            /** @description How chat's settings name it; fixed once it is made. */
+            id: string;
+            /** @description Its stickers' numbers, in order. */
+            stickers: number[];
+            title: string;
         };
         "Switch-moduleRequest": {
             /** @description Whether the module runs. */
@@ -1661,6 +1875,335 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Module"][] | null;
                 };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "make-sticker-pack": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Make-sticker-packRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StickerPack"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "remove-sticker-pack": {
+        parameters: {
+            query: {
+                /** @description What becomes of its stickers. */
+                stickers: "keep" | "remove";
+            };
+            header?: never;
+            path: {
+                /** @description The pack's ID. */
+                pack: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Remove-sticker-packResponse"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "edit-sticker-pack": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The pack's ID. */
+                pack: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PackBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StickerPack"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "pack-sticker": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The pack's ID. */
+                pack: string;
+                /** @description The sticker's number. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "unpack-sticker": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The pack's ID. */
+                pack: string;
+                /** @description The sticker's number. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "list-stickers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StickerList"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "add-sticker": {
+        parameters: {
+            query?: {
+                /** @description The ID of the pack to put it in. */
+                pack?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/octet-stream": string;
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KeptStickerBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "remove-sticker": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The sticker's number. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "note-sticker": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The sticker's number. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Note-stickerRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Sticker"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-sticker-picture": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The sticker's number. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Error */
             default: {

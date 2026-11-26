@@ -646,6 +646,78 @@
         },
         "type": "object"
       },
+      "KeptStickerBody": {
+        "additionalProperties": false,
+        "properties": {
+          "added_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "added_by": {
+            "description": "Who kept it: platform:actor, or the control panel's user.",
+            "type": "string"
+          },
+          "bytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "existing": {
+            "description": "The picture was kept already: this is that sticker, now in the pack.",
+            "type": "boolean"
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "kind": {
+            "description": "What its description said it is; empty when it was not described.",
+            "type": "string"
+          },
+          "media_type": {
+            "enum": [
+              "image/png",
+              "image/jpeg",
+              "image/gif"
+            ],
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          },
+          "packs": {
+            "description": "The IDs of the packs it is in, sorted; empty when it is in none.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "sha256": {
+            "description": "The picture's SHA-256, in hex.",
+            "type": "string"
+          },
+          "summary": {
+            "description": "What its description said when it was kept.",
+            "type": "string"
+          },
+          "text": {
+            "description": "What agents see of it: the note, else the summary. Empty: agents do not see it.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "text",
+          "summary",
+          "note",
+          "media_type",
+          "bytes",
+          "sha256",
+          "packs",
+          "added_by",
+          "added_at"
+        ],
+        "type": "object"
+      },
       "KernelStatus": {
         "additionalProperties": false,
         "properties": {
@@ -792,6 +864,28 @@
         "required": [
           "latitude",
           "longitude"
+        ],
+        "type": "object"
+      },
+      "Make-sticker-packRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "id": {
+            "description": "Lowercase letters, digits, and hyphens, starting with a letter or digit, at most 32.",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,31}$",
+            "type": "string"
+          },
+          "title": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title"
         ],
         "type": "object"
       },
@@ -1098,6 +1192,35 @@
         ],
         "type": "object"
       },
+      "Note-stickerRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "note": {
+            "description": "What agents see of the sticker; empty for its description's summary.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "note"
+        ],
+        "type": "object"
+      },
+      "PackBody": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "title": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "title"
+        ],
+        "type": "object"
+      },
       "Page": {
         "additionalProperties": false,
         "properties": {
@@ -1313,6 +1436,23 @@
         "required": [
           "kind",
           "target"
+        ],
+        "type": "object"
+      },
+      "Remove-sticker-packResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "removed": {
+            "description": "The stickers removed with it.",
+            "items": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "removed"
         ],
         "type": "object"
       },
@@ -1797,6 +1937,127 @@
           "kernel",
           "event_log",
           "running"
+        ],
+        "type": "object"
+      },
+      "Sticker": {
+        "additionalProperties": false,
+        "properties": {
+          "added_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "added_by": {
+            "description": "Who kept it: platform:actor, or the control panel's user.",
+            "type": "string"
+          },
+          "bytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "kind": {
+            "description": "What its description said it is; empty when it was not described.",
+            "type": "string"
+          },
+          "media_type": {
+            "enum": [
+              "image/png",
+              "image/jpeg",
+              "image/gif"
+            ],
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          },
+          "packs": {
+            "description": "The IDs of the packs it is in, sorted; empty when it is in none.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "sha256": {
+            "description": "The picture's SHA-256, in hex.",
+            "type": "string"
+          },
+          "summary": {
+            "description": "What its description said when it was kept.",
+            "type": "string"
+          },
+          "text": {
+            "description": "What agents see of it: the note, else the summary. Empty: agents do not see it.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "text",
+          "summary",
+          "note",
+          "media_type",
+          "bytes",
+          "sha256",
+          "packs",
+          "added_by",
+          "added_at"
+        ],
+        "type": "object"
+      },
+      "StickerList": {
+        "additionalProperties": false,
+        "properties": {
+          "packs": {
+            "items": {
+              "$ref": "#/components/schemas/StickerPack"
+            },
+            "type": "array"
+          },
+          "stickers": {
+            "items": {
+              "$ref": "#/components/schemas/Sticker"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "stickers",
+          "packs"
+        ],
+        "type": "object"
+      },
+      "StickerPack": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "id": {
+            "description": "How chat's settings name it; fixed once it is made.",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,31}$",
+            "type": "string"
+          },
+          "stickers": {
+            "description": "Its stickers' numbers, in order.",
+            "items": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "description",
+          "stickers"
         ],
         "type": "object"
       },
@@ -2650,6 +2911,473 @@
         "summary": "Every module compiled in",
         "tags": [
           "Modules"
+        ]
+      }
+    },
+    "/api/modules/media/sticker-packs": {
+      "post": {
+        "description": "An empty pack. Its ID is how chat's settings name it, and cannot change; 409 when a pack has it already. Recorded as media.sticker_pack by the caller.",
+        "operationId": "make-sticker-pack",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Make-sticker-packRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StickerPack"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Make a sticker pack",
+        "tags": [
+          "Stickers"
+        ]
+      }
+    },
+    "/api/modules/media/sticker-packs/{pack}": {
+      "delete": {
+        "description": "stickers says what becomes of its stickers: keep keeps them all, those in no other pack then in none; remove removes those in no other pack too, their numbers not used again. Neither can be undone. Agents' settings still naming the pack skip it. Recorded as media.sticker_pack by the caller, and each sticker removed as media.sticker.",
+        "operationId": "remove-sticker-pack",
+        "parameters": [
+          {
+            "description": "The pack's ID.",
+            "in": "path",
+            "name": "pack",
+            "required": true,
+            "schema": {
+              "description": "The pack's ID.",
+              "type": "string"
+            }
+          },
+          {
+            "description": "What becomes of its stickers.",
+            "explode": false,
+            "in": "query",
+            "name": "stickers",
+            "required": true,
+            "schema": {
+              "description": "What becomes of its stickers.",
+              "enum": [
+                "keep",
+                "remove"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Remove-sticker-packResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Remove a sticker pack",
+        "tags": [
+          "Stickers"
+        ]
+      },
+      "patch": {
+        "description": "Recorded as media.sticker_pack by the caller.",
+        "operationId": "edit-sticker-pack",
+        "parameters": [
+          {
+            "description": "The pack's ID.",
+            "in": "path",
+            "name": "pack",
+            "required": true,
+            "schema": {
+              "description": "The pack's ID.",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PackBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StickerPack"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Set a sticker pack's title and description",
+        "tags": [
+          "Stickers"
+        ]
+      }
+    },
+    "/api/modules/media/sticker-packs/{pack}/stickers/{id}": {
+      "delete": {
+        "description": "204 when it was not there too. Recorded as media.sticker by the caller when it changes anything.",
+        "operationId": "unpack-sticker",
+        "parameters": [
+          {
+            "description": "The pack's ID.",
+            "in": "path",
+            "name": "pack",
+            "required": true,
+            "schema": {
+              "description": "The pack's ID.",
+              "type": "string"
+            }
+          },
+          {
+            "description": "The sticker's number.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "The sticker's number.",
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Take a sticker out of a pack",
+        "tags": [
+          "Stickers"
+        ]
+      },
+      "put": {
+        "description": "204 when it is there already too. Recorded as media.sticker by the caller when it changes anything.",
+        "operationId": "pack-sticker",
+        "parameters": [
+          {
+            "description": "The pack's ID.",
+            "in": "path",
+            "name": "pack",
+            "required": true,
+            "schema": {
+              "description": "The pack's ID.",
+              "type": "string"
+            }
+          },
+          {
+            "description": "The sticker's number.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "The sticker's number.",
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Put a sticker in a pack",
+        "tags": [
+          "Stickers"
+        ]
+      }
+    },
+    "/api/modules/media/stickers": {
+      "get": {
+        "description": "Every kept sticker by number, those agents do not see (no note and no description) included, and every pack by ID. Answers 503 while the media module is not running.",
+        "operationId": "list-stickers",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StickerList"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "The stickers the media module keeps, and their packs",
+        "tags": [
+          "Stickers"
+        ]
+      },
+      "post": {
+        "description": "The body is the picture: PNG, JPEG, or GIF, at most 9 MiB. It is kept as /sticker add keeps one, with no note: the same checks, and it is described first, waiting at most 30 seconds (kept all the same when it cannot be). With pack, it is put in that pack, which must be there (404, answered before the picture is described). Answers 201 with the sticker. A picture kept already is 409 without pack; with pack, that sticker is put in the pack and answered with 200 and existing. Any other refusal is 422, the detail being what /sticker add answers and the errors naming the reason (and the sticker already kept). Recorded as media.sticker by the caller.",
+        "operationId": "add-sticker",
+        "parameters": [
+          {
+            "description": "The ID of the pack to put it in.",
+            "explode": false,
+            "in": "query",
+            "name": "pack",
+            "schema": {
+              "description": "The ID of the pack to put it in.",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "contentMediaType": "application/octet-stream",
+                "format": "binary",
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KeptStickerBody"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Keep a picture as a sticker",
+        "tags": [
+          "Stickers"
+        ]
+      }
+    },
+    "/api/modules/media/stickers/{id}": {
+      "delete": {
+        "description": "It leaves its packs too, and its number is not used again. Recorded as media.sticker by the caller.",
+        "operationId": "remove-sticker",
+        "parameters": [
+          {
+            "description": "The sticker's number.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "The sticker's number.",
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Remove a sticker",
+        "tags": [
+          "Stickers"
+        ]
+      },
+      "patch": {
+        "description": "An empty note clears it, and agents see the description's summary again. Recorded as media.sticker by the caller.",
+        "operationId": "note-sticker",
+        "parameters": [
+          {
+            "description": "The sticker's number.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "The sticker's number.",
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Note-stickerRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Sticker"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Set a sticker's note",
+        "tags": [
+          "Stickers"
+        ]
+      }
+    },
+    "/api/modules/media/stickers/{id}/picture": {
+      "get": {
+        "description": "The picture itself, with its type. A sticker's picture never changes, so it may be cached for good; its ETag is its SHA-256.",
+        "operationId": "get-sticker-picture",
+        "parameters": [
+          {
+            "description": "The sticker's number.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "The sticker's number.",
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "A sticker's picture",
+        "tags": [
+          "Stickers"
         ]
       }
     },

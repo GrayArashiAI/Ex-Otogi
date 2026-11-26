@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"errors"
+	"fmt"
 	"image/color"
 	"strings"
 	"sync"
@@ -265,23 +266,25 @@ func TestStickerKeptOnce(t *testing.T) {
 	}
 }
 
-func TestStickerLimits(t *testing.T) {
+// Stickers are not limited in number or in bytes in all: what an agent is
+// shown is chat's to bound. /sticker list shows 50 of them at most.
+func TestStickersUnlimited(t *testing.T) {
 	h := newHarness(t, 1)
-	h.m.limits = stickerLimits{count: 2, total: 1 << 20}
-	h.steps[0].answers = []answer{says(picture), says(picture), says(picture)}
-	for i, c := range []color.Color{color.Black, color.White} {
-		wantPrefix(t, h.sticker(stickerCall{args: "add", media: []otogi.Media{h.image("https://qq/"+string(rune('a'+i)), pngOf(t, c))}}), "Kept as sticker")
+	ctx := context.Background()
+	for i := range listedStickers + 1 {
+		pic := []byte(fmt.Sprintf("sticker %d", i))
+		sum := sha256.Sum256(pic)
+		if _, _, _, err := h.m.store.addSticker(ctx, sticker{SHA256: sum[:], MediaType: "image/png", Bytes: pic, Note: fmt.Sprint("n", i)}, "", "qq:U1", time.Now()); err != nil {
+			t.Fatal(err)
+		}
 	}
-	third := h.image("https://qq/c", pngOf(t, color.RGBA{R: 255, A: 255}))
-	wantPrefix(t, h.sticker(stickerCall{args: "add", media: []otogi.Media{third}}), "There are 2 stickers already; remove one first.")
-
-	h.m.limits = stickerLimits{count: 10, total: 100}
-	wantPrefix(t, h.sticker(stickerCall{args: "add", media: []otogi.Media{third}}), "The stickers would take more than 0 MiB; remove some first.")
-	if p := h.host.last("media.sticker"); p["reason"] != "too much in all" {
-		t.Fatalf("media.sticker = %v", p)
-	}
-	if h.steps[0].calls() != 2 {
-		t.Fatalf("model calls = %d, want 2: a picture that can't be kept is not described", h.steps[0].calls())
+	h.steps[0].answers = []answer{says(picture)}
+	wantPrefix(t, h.sticker(stickerCall{args: "add", media: []otogi.Media{h.image("https://qq/1", pngOf(t, color.Black))}}), fmt.Sprintf("Kept as sticker %d", listedStickers+2))
+	got := h.sticker(stickerCall{args: "list"})
+	lines := strings.Split(got, "\n")
+	if !strings.HasPrefix(lines[0], fmt.Sprintf("%d kept, ", listedStickers+2)) || len(lines) != listedStickers+2 ||
+		lines[len(lines)-1] != "…and 2 more; see the control panel." {
+		t.Fatalf("list: %d lines, first %q, last %q", len(lines), lines[0], lines[len(lines)-1])
 	}
 }
 
@@ -296,7 +299,7 @@ func TestStickerNoteAndRemove(t *testing.T) {
 		t.Fatalf("List = %+v", all)
 	}
 	wantPrefix(t, h.sticker(stickerCall{args: "note 1"}), "Sticker 1 now shows: 一只猫")
-	wantPrefix(t, h.sticker(stickerCall{args: "list"}), "1 of 50 stickers")
+	wantPrefix(t, h.sticker(stickerCall{args: "list"}), "1 kept, 0.0 MiB:")
 	wantPrefix(t, h.sticker(stickerCall{args: "note 7 x"}), "There is no sticker 7.")
 
 	wantPrefix(t, h.sticker(stickerCall{args: "remove 1"}), "Removed sticker 1.")
@@ -354,5 +357,92 @@ func TestAfter(t *testing.T) {
 		if got := after(c.args, c.n); got != c.want {
 			t.Errorf("after(%q, %d) = %q, want %q", c.args, c.n, got, c.want)
 		}
+	}
+}
+
+// lastRecord is the last record of kind.
+func (h *host) lastRecord(kind string) otogi.Record {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for i := len(h.records) - 1; i >= 0; i-- {
+		if h.records[i].Kind == kind {
+			return h.records[i]
+		}
+	}
+	return otogi.Record{}
+}
+
+func (h *harness) admin() contract.StickerAdmin {
+	return h.host.services[contract.StickerAdminService].(contract.StickerAdmin)
+}
+
+// The management plane keeps, notes, and removes stickers as /sticker
+// does: the same checks, the description waited for, and a media.sticker
+// record by its caller, on no event.
+func TestStickerAdmin(t *testing.T) {
+	h := newHarness(t, 1)
+	h.steps[0].answers = []answer{says(picture), {err: errors.New("down")}}
+	ctx, admin := context.Background(), h.admin()
+	png := pngOf(t, color.Black)
+
+	st, existing, err := admin.Keep(ctx, png, "", "panel:alice")
+	if err != nil || existing {
+		t.Fatal(existing, err)
+	}
+	sum := sha256.Sum256(png)
+	if st.ID != 1 || st.Kind != contract.KindMeme || st.Note != "" || !strings.HasPrefix(st.Summary, "一只猫") || st.Text != st.Summary ||
+		st.MediaType != "image/png" || st.Size != int64(len(png)) || string(st.SHA256) != string(sum[:]) || st.AddedBy != "panel:alice" || time.Since(st.AddedAt) > time.Minute ||
+		len(st.Packs) != 0 {
+		t.Fatalf("kept %+v", st)
+	}
+	if r := h.host.lastRecord("media.sticker"); r.Event != "" || r.Platform != "" || r.Conversation != "" || r.Outcome != "ok" ||
+		r.Payload.(map[string]any)["by"] != "panel:alice" || r.Payload.(map[string]any)["action"] != "add" {
+		t.Fatalf("record %+v", r)
+	}
+
+	var refusal *contract.StickerRefusal
+	if _, _, err := admin.Keep(ctx, png, "", "panel:alice"); !errors.As(err, &refusal) || refusal.Reason != "already kept" || refusal.ID != 1 || refusal.Message != "Already kept as sticker 1." {
+		t.Fatalf("again: %v", err)
+	}
+	if _, _, err := admin.Keep(ctx, []byte("not a picture"), "", "panel:alice"); !errors.As(err, &refusal) || refusal.Reason != "not png, jpeg, or gif" {
+		t.Fatalf("text: %v", err)
+	}
+	if _, _, err := admin.Keep(ctx, make([]byte, maxStickerBytes+1), "", "panel:alice"); !errors.As(err, &refusal) || refusal.Reason != "too large" {
+		t.Fatalf("too large: %v", err)
+	}
+	if r := h.host.lastRecord("media.sticker"); r.Outcome != "skipped" || r.Payload.(map[string]any)["reason"] != "too large" || r.Event != "" {
+		t.Fatalf("refusal record %+v", r)
+	}
+
+	// Not described: kept all the same, with no text.
+	if st, _, err := admin.Keep(ctx, pngOf(t, color.White), "", "panel:bob"); err != nil || st.ID != 2 || st.Text != "" || st.Kind != "" {
+		t.Fatalf("undescribed: %+v, %v", st, err)
+	}
+
+	all, packs, err := admin.All(ctx)
+	if err != nil || len(all) != 2 || all[1].ID != 2 || all[1].Text != "" || all[1].AddedBy != "panel:bob" || len(packs) != 0 {
+		t.Fatalf("All = %+v, %+v, %v", all, packs, err)
+	}
+
+	if st, err := admin.SetNote(ctx, 2, "摸头", "panel:alice"); err != nil || st.Text != "摸头" || st.Note != "摸头" || st.AddedBy != "panel:bob" {
+		t.Fatalf("SetNote = %+v, %v", st, err)
+	}
+	if r := h.host.lastRecord("media.sticker"); r.Payload.(map[string]any)["action"] != "note" || r.Payload.(map[string]any)["by"] != "panel:alice" || r.Event != "" {
+		t.Fatalf("note record %+v", r)
+	}
+	if _, err := admin.SetNote(ctx, 7, "x", "panel:alice"); !errors.Is(err, contract.ErrNoSticker) {
+		t.Fatalf("SetNote of no sticker = %v", err)
+	}
+	if err := admin.Remove(ctx, 1, "panel:alice"); err != nil {
+		t.Fatal(err)
+	}
+	if err := admin.Remove(ctx, 1, "panel:alice"); !errors.Is(err, contract.ErrNoSticker) {
+		t.Fatalf("Remove again = %v", err)
+	}
+	if all, _, _ := admin.All(ctx); len(all) != 1 || all[0].ID != 2 {
+		t.Fatalf("after Remove: %+v", all)
+	}
+	if h.steps[0].calls() != 2 {
+		t.Fatalf("model calls = %d, want 2: refused pictures are not described", h.steps[0].calls())
 	}
 }

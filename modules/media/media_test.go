@@ -895,7 +895,7 @@ func TestPrune(t *testing.T) {
 	if err := h.m.store.putRecent(ctx, from, "new-message", pic, later.Add(-time.Hour)); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := h.m.store.addSticker(ctx, sticker{SHA256: []byte{9}, MediaType: "image/png", Bytes: []byte("png")}, "qq:"+operator, day); err != nil {
+	if _, _, _, err := h.m.store.addSticker(ctx, sticker{SHA256: []byte{9}, MediaType: "image/png", Bytes: []byte("png")}, "", "qq:"+operator, day); err != nil {
 		t.Fatal(err)
 	}
 	n, err := h.m.store.prune(ctx, later, later.Add(-recentMedia))
@@ -925,7 +925,7 @@ func TestPrune(t *testing.T) {
 func TestDescriptor(t *testing.T) {
 	h := newHarness(t, 1)
 	d := h.m.Descriptor()
-	if d.Ordering != otogi.OrderNone || !slices.Equal(d.Provides, []string{contract.Service, contract.StickersService}) || d.Allowlists[0].Name != describeList {
+	if d.Ordering != otogi.OrderNone || !slices.Equal(d.Provides, []string{contract.Service, contract.StickersService, contract.StickerAdminService}) || d.Allowlists[0].Name != describeList {
 		t.Fatalf("descriptor = %+v", d)
 	}
 	if len(d.Commands) != 1 || d.Commands[0].Name != "sticker" {

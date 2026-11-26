@@ -169,7 +169,7 @@ func TestExamineGivenBytes(t *testing.T) {
 	}
 	st := pngOf(t, color.Black)
 	sum := md5.Sum(st)
-	if _, _, err := h.m.store.addSticker(ctx, sticker{SHA256: []byte("not this"), MediaType: "image/png", Bytes: st}, "qq:"+operator, time.Now()); err != nil {
+	if _, _, _, err := h.m.store.addSticker(ctx, sticker{SHA256: []byte("not this"), MediaType: "image/png", Bytes: st}, "", "qq:"+operator, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	stMedia := otogi.Media{Role: otogi.MediaImage, MediaType: "image/png", Hashes: []otogi.MediaHash{{Algorithm: "md5", Value: sum[:]}}, Source: otogi.MediaSource{Kind: otogi.MediaSourceInline, Inline: st}}
