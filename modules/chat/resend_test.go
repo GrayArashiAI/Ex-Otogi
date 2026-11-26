@@ -156,22 +156,122 @@ func TestResendFailures(t *testing.T) {
 	}
 }
 
-// A picture the platform refuses makes the reply an error, recorded with
-// the picture and no ref; the words went out already.
+// A picture the platform refuses: the agent is asked again, its call's
+// result now saying the picture did not go and why, and what it writes
+// then goes out after its reply, as a message of its own. The reply is
+// ok, the failure recorded with the picture; the thread keeps the failed
+// result and what the agent added.
 func TestResendRefused(t *testing.T) {
 	h, media := newExamineHarness(t, resenderProfile("otogi"))
 	media.originals = map[string]bool{"tank": true}
-	h.sendErr = errors.New("upload refused")
-	h.llm["otogi"].responses = []llm.Response{resends("Here.", "#00a0a6")}
+	h.sendErr, h.failSlot = errors.New("upload refused"), pictureSlot
+	p := h.llm["otogi"]
+	p.responses = []llm.Response{resends("Here.", "#00a0a6"), answer("It won't go through, sorry.")}
 	h.mustHandle(h.message("Alice", "", withParts("", photo("tank"))))
-	if err := h.handle(h.message("Bob", "otogi again")); err == nil || !strings.Contains(err.Error(), "upload refused") {
-		t.Fatalf("err %v", err)
+	h.mustHandle(h.message("Bob", "otogi again"))
+	if len(p.requests) != 2 {
+		t.Fatalf("the model was asked %d times", len(p.requests))
+	}
+	turns := p.requests[1].Turns
+	last := turns[len(turns)-1]
+	if last.Role != llm.RoleTool || len(last.Results) != 1 || last.Results[0].Output != nil ||
+		!strings.HasPrefix(last.Results[0].Error, "not sent: send the picture again: upload refused.") {
+		t.Fatalf("asked again after %+v", last)
+	}
+	if h.streams[0].final.PlainText() != "Here." || len(h.sends) != 1 || h.sends[0].slot != afterSlot ||
+		h.sends[0].msg.PlainText() != "It won't go through, sorry." || len(h.sends[0].msg.Relations) != 1 {
+		t.Fatalf("reply %q, sends %+v", h.streams[0].final.PlainText(), h.sends)
 	}
 	r, payload := lastReplyRecord(t, h)
-	if resent, ok := payload["resent"].(*sentPicture); r.Outcome != "error" || !ok || resent.ID != "00a0a6" || resent.Ref != "" {
+	resent, _ := payload["resent"].(*sentPicture)
+	after, _ := payload["after_failure"].(*afterFailed)
+	if r.Outcome != "ok" || resent == nil || resent.Ref != "" || !strings.Contains(resent.Error, "upload refused") ||
+		after == nil || after.Ref != "agent-2" || after.Error != "" {
 		t.Fatalf("record %v %+v", r.Outcome, payload)
 	}
-	if h.streams[0].final.PlainText() != "Here." {
-		t.Fatalf("reply %q", h.streams[0].final.PlainText())
+	// The next reply in the thread reads the failed result and what the
+	// agent added.
+	p.responses = []llm.Response{answer("ok")}
+	h.mustHandle(h.message("Bob", "otogi why?", replyingTo("agent-2")))
+	var failed, added bool
+	for _, turn := range p.requests[2].Turns {
+		for _, res := range turn.Results {
+			failed = failed || strings.HasPrefix(res.Error, "not sent: ")
+		}
+		added = added || turn.Role == llm.RoleModel && turn.Content.PlainText() == "It won't go through, sorry."
+	}
+	if !failed || !added {
+		t.Fatalf("thread continued with %+v", p.requests[2].Turns)
+	}
+}
+
+// The agent's words keep their order when its picture fails in a later
+// round: what it said with a first call, what it wrote with the picture,
+// then what it adds once the picture did not go.
+func TestFailedPictureKeepsOrder(t *testing.T) {
+	prof := resenderProfile("otogi")
+	prof.Media.Examine = &ExamineConfig{}
+	h, media := newExamineHarness(t, prof)
+	media.originals = map[string]bool{"tank": true}
+	h.sendErr, h.failSlot = errors.New("upload refused"), pictureSlot
+	look := examining("#00a0a6", "what is it?")
+	look.Turn.Content = otogi.TextMessage("Let me look.")
+	p := h.llm["otogi"]
+	p.responses = []llm.Response{look, resends("It's a tank.", "#00a0a6"), answer("The picture won't go, though.")}
+	h.mustHandle(h.message("Alice", "", withParts("", photo("tank"))))
+	h.mustHandle(h.message("Bob", "otogi what is that? send it again"))
+	if len(h.streams) != 2 || h.streams[0].final.PlainText() != "Let me look." || h.streams[0].ref.SourceEvent != "agent-1" ||
+		h.streams[1].final.PlainText() != "It's a tank." || h.streams[1].ref.SourceEvent != "agent-2" {
+		t.Fatalf("streams %+v", h.streams)
+	}
+	if _, payload := lastReplyRecord(t, h); len(h.sends) != 1 || payload["after_failure"].(*afterFailed).Ref != "agent-3" {
+		t.Fatalf("sends %+v, record %+v", h.sends, payload)
+	}
+}
+
+// Asked again, the agent may call no function: a call is answered by
+// asking it to answer with what it has, and only its words go out; when
+// it writes nothing, nothing more goes out.
+func TestAfterFailureOnlyWords(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		after []llm.Response
+		want  string
+	}{
+		{"calls again", []llm.Response{resends("", "#00a0a6"), answer("Sorry, it won't go.")}, "Sorry, it won't go."},
+		{"writes nothing", []llm.Response{answer("")}, ""},
+	} {
+		h, media := newExamineHarness(t, resenderProfile("otogi"))
+		media.originals = map[string]bool{"tank": true}
+		h.sendErr, h.failSlot = errors.New("upload refused"), pictureSlot
+		p := h.llm["otogi"]
+		p.responses = append([]llm.Response{resends("", "#00a0a6")}, c.after...)
+		h.mustHandle(h.message("Alice", "", withParts("", photo("tank"))))
+		h.mustHandle(h.message("Bob", "otogi again"))
+		if c.want == "" {
+			if len(h.sends) != 0 {
+				t.Fatalf("%s: sends %+v", c.name, h.sends)
+			}
+			continue
+		}
+		if len(h.sends) != 1 || h.sends[0].msg.PlainText() != c.want {
+			t.Fatalf("%s: sends %+v", c.name, h.sends)
+		}
+		turns := p.requests[2].Turns
+		if last := turns[len(turns)-1]; len(toolRecords(h)) != 1 || len(last.Results) != 1 || last.Results[0].Error != "too many function calls in this reply; answer with what you have" {
+			t.Fatalf("%s: the second call ran, or was answered %+v", c.name, last)
+		}
+	}
+}
+
+// A picture that goes asks the model nothing more.
+func TestSentPictureAsksNothingMore(t *testing.T) {
+	h, media := newExamineHarness(t, resenderProfile("otogi"))
+	media.originals = map[string]bool{"tank": true}
+	h.llm["otogi"].responses = []llm.Response{resends("", "#00a0a6")}
+	h.mustHandle(h.message("Alice", "", withParts("", photo("tank"))))
+	h.mustHandle(h.message("Bob", "otogi again"))
+	if _, payload := lastReplyRecord(t, h); len(h.llm["otogi"].requests) != 1 || payload["after_failure"] != nil {
+		t.Fatalf("requests %d, record %+v", len(h.llm["otogi"].requests), payload)
 	}
 }

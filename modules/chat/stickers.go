@@ -142,6 +142,7 @@ type sentSticker struct {
 	Text   string `json:"text"`
 	Listed bool   `json:"listed"`
 	Ref    string `json:"ref,omitempty"`
+	Error  string `json:"error,omitempty"` // why it did not go
 }
 
 // sendSticker sends st as a message of its own, without the agent's label,

@@ -187,21 +187,23 @@ func TestStickerFailures(t *testing.T) {
 	h := newStickerHarness(t, box)
 	p := h.llm["otogi"]
 
-	box.gone = map[int]bool{3: true} // removed since the list was read
-	p.responses = []llm.Response{picks("Here.", 3)}
-	if err := h.handle(h.message("Alice", "otogi")); !errors.Is(err, mediasvc.ErrNoSticker) {
-		t.Fatalf("err %v", err)
-	}
-	if r, payload := lastReplyRecord(t, h); r.Outcome != "error" || *payload["sticker"].(*sentSticker) != (sentSticker{ID: 3, Text: "a dog", Listed: true}) || h.streams[0].final.PlainText() != "Otogi\nHere." {
-		t.Fatalf("record %v %+v", r.Outcome, payload)
+	// A sticker that does not go, removed since the list was read or
+	// refused by the platform: the agent is asked again and may say so,
+	// and the reply is ok, the failure recorded with the sticker.
+	box.gone = map[int]bool{3: true}
+	p.responses = []llm.Response{picks("Here.", 3), answer("Oh, that one's gone.")}
+	h.mustHandle(h.message("Alice", "otogi"))
+	r, payload := lastReplyRecord(t, h)
+	if st := payload["sticker"].(*sentSticker); r.Outcome != "ok" || st.Ref != "" || !strings.Contains(st.Error, mediasvc.ErrNoSticker.Error()) ||
+		h.streams[0].final.PlainText() != "Otogi\nHere." || len(h.sends) != 1 || h.sends[0].msg.PlainText() != "Otogi\nOh, that one's gone." {
+		t.Fatalf("record %v %+v, sends %+v", r.Outcome, payload, h.sends)
 	}
 
-	h.sendErr, h.streams = errors.New("upload refused"), nil
-	p.responses = []llm.Response{picks("", 1)}
-	if err := h.handle(h.message("Alice", "otogi")); err == nil || !strings.Contains(err.Error(), "upload refused") {
-		t.Fatalf("err %v", err)
-	}
-	if r, payload := lastReplyRecord(t, h); r.Outcome != "error" || payload["sticker"].(*sentSticker).Ref != "" {
+	h.sendErr, h.failSlot, h.streams, h.sends = errors.New("upload refused"), stickerSlot, nil, nil
+	p.responses = append(p.responses[:2:2], picks("", 1), answer("")) // by request: two so far
+	h.mustHandle(h.message("Alice", "otogi"))
+	if r, payload := lastReplyRecord(t, h); r.Outcome != "ok" || payload["sticker"].(*sentSticker).Ref != "" ||
+		!strings.Contains(payload["sticker"].(*sentSticker).Error, "upload refused") || len(h.sends) != 0 {
 		t.Fatalf("record %v %+v", r.Outcome, payload)
 	}
 }

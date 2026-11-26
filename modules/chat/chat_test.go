@@ -94,7 +94,7 @@ func (i invocation) Send(_ context.Context, slot string, msg otogi.Message) (oto
 	i.h.mu.Lock()
 	defer i.h.mu.Unlock()
 	i.h.replies = append(i.h.replies, msg.PlainText())
-	if i.h.sendErr != nil {
+	if i.h.sendErr != nil && (i.h.failSlot == "" || i.h.failSlot == slot) {
 		return otogi.EventRef{}, i.h.sendErr
 	}
 	i.h.sent++
@@ -167,8 +167,9 @@ type harness struct {
 	streams  []*stream
 	replies  []string // sent with Send: command replies
 	sends    []sentEffect
-	sendErr  error // when set, Send fails with it
-	fetchErr error // when set, FetchMedia fails with it
+	sendErr  error  // when set, Send fails with it
+	failSlot string // when set, only Send to this slot fails with sendErr
+	fetchErr error  // when set, FetchMedia fails with it
 	sent     int
 	now      time.Time
 	seq      int
