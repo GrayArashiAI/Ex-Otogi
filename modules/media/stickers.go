@@ -42,24 +42,9 @@ const (
 // does, knows it when someone posts it again. Both drivers send them as
 // pictures: Telegram's GIFs are MP4 files, and a WebP sent on Telegram goes
 // as a photo, its transparency made solid, which is untried. An animated
-// WebP is not kept (animatedWebP).
+// WebP is not kept: QQ takes a still one, but refuses an animated one's
+// upload (40034002, the format unsupported), though its users post them.
 var stickerTypes = []string{"image/png", "image/jpeg", "image/gif", "image/webp"}
-
-// animatedWebP reports whether data, which http.DetectContentType took for a
-// WebP, is an animated one, or a WebP too short to tell: by the WebP
-// container's extended header, "RIFF", its size, "WEBP", the "VP8X" chunk
-// and its size, then its flags, whose bit 0x02 is the animation flag
-// (https://developers.google.com/speed/webp/docs/riff_container). Content
-// sniffing takes 14 bytes for a WebP; the flags are the 21st.
-func animatedWebP(data []byte) (animated, short bool) {
-	if len(data) >= 16 && string(data[12:16]) != "VP8X" {
-		return false, false // a simple file, lossy or lossless: one picture
-	}
-	if len(data) < 21 {
-		return false, true
-	}
-	return data[20]&0x02 != 0, false
-}
 
 const stickerUsage = "Usage: /sticker add [note] (replying to a picture, or with one) | list | note <n> [note] | remove <n>"
 
@@ -221,7 +206,7 @@ func (m *Module) keepSticker(ctx context.Context, md otogi.Media, data []byte, n
 			return refuse(&contract.StickerRefusal{Reason: "not png, jpeg, gif, or webp", Message: "Only PNG, JPEG, GIF, and WebP pictures can be kept."})
 		case animated:
 			payload["media_type"] = mediaType
-			return refuse(&contract.StickerRefusal{Reason: "animated webp", Message: "Animated WebP pictures cannot be kept yet."})
+			return refuse(&contract.StickerRefusal{Reason: "animated webp", Message: "Animated WebP pictures cannot be kept: QQ refuses to send them."})
 		}
 	}
 	sum := sha256.Sum256(data)

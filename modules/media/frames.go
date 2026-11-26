@@ -20,7 +20,8 @@ import (
 // so 80 MiB takes them all, and three at once stay under 250 MB.
 const maxDecoded = 80 << 20
 
-// errTooLarge reports a GIF that decodes to more than maxDecoded.
+// errTooLarge reports an animation too large to decode: a GIF or an
+// animated WebP past maxDecoded, or a WebP past maxWebPPixels.
 var errTooLarge = errors.New("decodes to more than the limit")
 
 // gifDecoded is how much memory decoding data takes, in bytes, read from
@@ -113,7 +114,8 @@ func gifDecoded(data []byte) (int64, error) {
 // wrong, the GIF as an mp4 4 of 25, six frames in order 1 of 20.
 const animationFrames = 6
 
-// minAnimationFrames is the fewest frames that make a GIF an animation;
+// minAnimationFrames is the fewest frames that make a GIF or an animated
+// WebP an animation;
 // one with fewer is described as a still image.
 const minAnimationFrames = 3
 
@@ -145,17 +147,7 @@ func gifFrames(data []byte, n int) (frames [][]byte, count int, total time.Durat
 		}
 		total += time.Duration(d) * 10 * time.Millisecond
 	}
-	if n > count {
-		n = count
-	}
-	want := map[int]bool{}
-	for i := range n {
-		at := 0
-		if n > 1 {
-			at = (i*(count-1) + (n-1)/2) / (n - 1)
-		}
-		want[at] = true
-	}
+	want := spread(count, n)
 
 	bounds := image.Rect(0, 0, g.Config.Width, g.Config.Height)
 	if bounds.Empty() {
@@ -188,4 +180,19 @@ func gifFrames(data []byte, n int) (frames [][]byte, count int, total time.Durat
 		}
 	}
 	return frames, count, total, nil
+}
+
+// spread picks n of count frames, spread evenly from the first to the last,
+// or all of them when there are no more than n.
+func spread(count, n int) map[int]bool {
+	n = min(n, count)
+	want := map[int]bool{}
+	for i := range n {
+		at := 0
+		if n > 1 {
+			at = (i*(count-1) + (n-1)/2) / (n - 1)
+		}
+		want[at] = true
+	}
+	return want
 }
