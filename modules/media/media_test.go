@@ -344,7 +344,7 @@ func TestOnlyChatsOnTheList(t *testing.T) {
 func TestNotDescribed(t *testing.T) {
 	h := newHarness(t, 1)
 	big := h.image("https://qq/big", nil)
-	big.ByteSize = maxBytes + 1
+	big.ByteSize = 25<<20 + 1
 	file := h.image("https://qq/doc", []byte("%PDF-1.7"))
 	file.Role, file.MediaType = otogi.MediaDocument, "application/pdf"
 	if err := h.handle(big, file); err != nil {
@@ -365,6 +365,39 @@ func TestNotDescribed(t *testing.T) {
 		if _, err := h.m.Describe(ctx, from, md); !errors.Is(err, contract.ErrNotDescribed) {
 			t.Fatalf("Describe = %v, want ErrNotDescribed", err)
 		}
+	}
+}
+
+// max_media_mb sets the largest media described, by the size the platform
+// gives and by the bytes fetched: over it, media is skipped as too large;
+// under it, past the default 25 MiB, it is described.
+func TestMaxMediaMB(t *testing.T) {
+	small := newHarnessWith(t, 1, func(c *Config) { c.MaxMediaMB = 1 })
+	said := small.image("https://qq/said", nil)
+	said.ByteSize = 1<<20 + 1
+	fetched := small.image("https://qq/fetched", make([]byte, 1<<20+1))
+	fetched.ByteSize = 0 // the platform gave no size
+	if err := small.handle(said, fetched); err != nil {
+		t.Fatal(err)
+	}
+	if small.inv.fetches() != 1 || small.steps[0].calls() != 0 {
+		t.Fatalf("fetches = %d, calls = %d; want the unsized one fetched, none described", small.inv.fetches(), small.steps[0].calls())
+	}
+	if got := strings.Join(small.host.kinds(), ","); got != "media.skipped,media.skipped" {
+		t.Fatalf("records = %s", got)
+	}
+	if rec := small.host.last("media.skipped"); rec["reason"] != "too large" {
+		t.Fatalf("media.skipped = %v", rec)
+	}
+
+	large := newHarnessWith(t, 1, func(c *Config) { c.MaxMediaMB = 30 })
+	img := large.image("https://qq/a", pngOf(t, color.White))
+	img.ByteSize = 26 << 20
+	if err := large.handle(img); err != nil {
+		t.Fatal(err)
+	}
+	if large.steps[0].calls() != 1 {
+		t.Fatalf("calls = %d; want the 26 MiB picture described under 30", large.steps[0].calls())
 	}
 }
 

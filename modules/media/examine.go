@@ -29,7 +29,7 @@ func (m *Module) Examine(ctx context.Context, from otogi.Destination, md otogi.M
 	if !m.host.Allowed(describeList, chat) {
 		return "", contract.ErrNotAllowed
 	}
-	if !describable(md) || md.ByteSize > maxBytes {
+	if !describable(md) || md.ByteSize > m.largest {
 		return "", contract.ErrNotDescribed
 	}
 	k, src := mediaKey(md)
@@ -54,7 +54,7 @@ func (m *Module) Examine(ctx context.Context, from otogi.Destination, md otogi.M
 		}
 		data, origin, md.MediaType = kept, "kept", mediaType
 	}
-	if len(data) > maxBytes {
+	if int64(len(data)) > m.largest {
 		return "", contract.ErrNotDescribed
 	}
 	p, err := m.prepare(md, data)

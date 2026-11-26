@@ -11,9 +11,19 @@ import (
 
 // Config is the module's settings.
 type Config struct {
-	Steps    []Step          `json:"steps" minItems:"1" ordered:"true" doc:"The models that describe media, tried in order: when one fails, is blocked, answers out of format, or did not get the media, the next is tried. Configure at least two: Gemini's free tier often answers 503 when it is busy."`
-	Language string          `json:"language,omitempty" default:"English" minLength:"1" doc:"The language descriptions are written in, for example Chinese. Text on images is copied as it is."`
-	Pictures *PicturesConfig `json:"pictures,omitempty" doc:"Keep the pictures and animations described, in the module's database and so in its backups, for agents to look at one again (chat's media.examine) after the platform's link to it expired, as QQ's do in about an hour. Unset keeps none: agents fetch a picture again, as they do videos, which are never kept."`
+	Steps      []Step          `json:"steps" minItems:"1" ordered:"true" doc:"The models that describe media, tried in order: when one fails, is blocked, answers out of format, or did not get the media, the next is tried. Configure at least two: Gemini's free tier often answers 503 when it is busy."`
+	Language   string          `json:"language,omitempty" default:"English" minLength:"1" doc:"The language descriptions are written in, for example Chinese. Text on images is copied as it is."`
+	Pictures   *PicturesConfig `json:"pictures,omitempty" doc:"Keep the pictures and animations described, in the module's database and so in its backups, for agents to look at one again (chat's media.examine) after the platform's link to it expired, as QQ's do in about an hour. Unset keeps none: agents fetch a picture again, as they do videos, which are never kept."`
+	MaxMediaMB int             `json:"max_media_mb,omitempty" minimum:"1" default:"25" unit:"MB" doc:"The largest picture, animation, or video described or examined, in MiB; a larger one is left undescribed, as media.skipped records. It bounds memory, not any API: describing holds a piece about 2.3 times over, and several messages' media are described at once. QQ video takes about 1.7 MB per 21 seconds, so 25 MiB is some four minutes of it; Eku described videos of up to 50 MB."`
+}
+
+// defaultMaxMediaMB is the largest media described when max_media_mb is
+// unset.
+const defaultMaxMediaMB = 25
+
+// largestBytes is the largest media described or examined, in bytes.
+func (c Config) largestBytes() int64 {
+	return int64(cmp.Or(c.MaxMediaMB, defaultMaxMediaMB)) << 20
 }
 
 // PicturesConfig has the module keep the pictures it describes.
