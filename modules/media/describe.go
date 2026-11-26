@@ -97,9 +97,14 @@ func (m *Module) prepare(md otogi.Media, data []byte) (prepared, error) {
 			Media: &otogi.Media{Role: otogi.MediaImage, MediaType: mime, Source: otogi.MediaSource{Kind: otogi.MediaSourceInline, Inline: b}}}
 	}
 	text := func(s string) otogi.Part { return otogi.Part{ID: "t", Kind: otogi.PartText, Text: s} }
+	animated, _ := animatedWebP(data)
 	switch {
-	case detected == "image/gif":
-		frames, count, total, err := gifFrames(data, animationFrames)
+	case detected == "image/gif" || detected == "image/webp" && animated:
+		decode := gifFrames
+		if detected == "image/webp" {
+			decode = webpFrames
+		}
+		frames, count, total, err := decode(data, animationFrames)
 		if err != nil {
 			return prepared{}, fmt.Errorf("%w: %w", contract.ErrNotDescribed, err)
 		}

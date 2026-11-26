@@ -54,6 +54,7 @@ test-fuzz-smoke:
 	$(GO) test -run '^$$' -fuzz '^FuzzConvertEntitiesUTF16$$' -fuzztime=$(FUZZTIME) ./internal/adapter/telegram/mapper
 	$(GO) test -run '^$$' -fuzz '^FuzzFormat$$' -fuzztime=$(FUZZTIME) ./pkg/markdown
 	$(GO) test -run '^$$' -fuzz '^FuzzGIFDecoded$$' -fuzztime=$(FUZZTIME) ./modules/media
+	$(GO) test -run '^$$' -fuzz '^FuzzWebPFrames$$' -fuzztime=$(FUZZTIME) ./modules/media
 
 smoke:
 	@output="$$($(GO) run ./cmd/otogi smoke)" && [ "$$output" = "echo: hello" ] || { printf 'smoke: got %s\n' "$$output"; exit 1; }
