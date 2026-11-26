@@ -222,3 +222,18 @@ func TestMapFaces(t *testing.T) {
 		t.Fatalf("parts = %+v", e.Message.Parts)
 	}
 }
+
+// A group message carries its sender's standing: owner and admin as roles,
+// an ordinary member or an unknown value as none; a private message none.
+func TestMapMemberRole(t *testing.T) {
+	m := testMapper(t)
+	for role, want := range map[string]otogi.ActorRole{"owner": otogi.RoleOwner, "admin": otogi.RoleAdmin, "member": "", "": "", "moderator": ""} {
+		e := mapOne(t, m, "GROUP_MESSAGE_CREATE", `{"id":"r`+role+`","content":"hi","group_openid":"G1","author":{"member_openid":"M1","member_role":"`+role+`"}}`)
+		if e.Actor.Role != want {
+			t.Errorf("member_role %q: role %q, want %q", role, e.Actor.Role, want)
+		}
+	}
+	if e := mapOne(t, m, "C2C_MESSAGE_CREATE", `{"id":"c9","content":"hi","author":{"user_openid":"U1","member_role":"owner"}}`); e.Actor.Role != "" {
+		t.Errorf("a private message has role %q", e.Actor.Role)
+	}
+}

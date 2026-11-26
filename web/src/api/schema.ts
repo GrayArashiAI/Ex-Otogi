@@ -599,6 +599,7 @@ export interface components {
             bot?: boolean;
             id: string;
             name?: string;
+            role?: string;
         };
         AllowedChat: {
             /** Format: date-time */

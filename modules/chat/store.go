@@ -45,6 +45,9 @@ type line struct {
 	At        time.Time
 	ActorID   string
 	ActorName string
+	// ActorRole is the sender's standing in the conversation when they sent
+	// it, as the platform gave it: owner, admin, or empty.
+	ActorRole string
 	Outgoing  bool
 	Text      string
 	Media     []otogi.Media
@@ -60,10 +63,10 @@ func (s *store) record(ctx context.Context, to otogi.Destination, l line) error 
 	if err != nil {
 		return fmt.Errorf("chat store: encode media: %w", err)
 	}
-	_, err = s.db.ExecContext(ctx, `INSERT INTO transcript (platform, account, conversation, source_id, at, actor_id, actor_name, outgoing, text, media, reply_to)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	_, err = s.db.ExecContext(ctx, `INSERT INTO transcript (platform, account, conversation, source_id, at, actor_id, actor_name, actor_role, outgoing, text, media, reply_to)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (platform, account, conversation, source_id) DO UPDATE SET text = excluded.text, media = excluded.media`,
-		to.Platform, to.Account, to.Conversation, l.SourceID, l.At.UnixMilli(), l.ActorID, l.ActorName, l.Outgoing, l.Text, string(media), l.ReplyTo)
+		to.Platform, to.Account, to.Conversation, l.SourceID, l.At.UnixMilli(), l.ActorID, l.ActorName, l.ActorRole, l.Outgoing, l.Text, string(media), l.ReplyTo)
 	if err != nil {
 		return fmt.Errorf("chat store: record message: %w", err)
 	}
@@ -80,7 +83,7 @@ func (s *store) forget(ctx context.Context, platform otogi.PlatformID, account o
 
 // lineColumns selects a transcript message, t, with what a sticker an agent
 // sent shows, from sent s.
-const lineColumns = `SELECT t.source_id, t.at, t.actor_id, t.actor_name, t.outgoing, t.text, t.media, t.reply_to, coalesce(s.sticker, '')
+const lineColumns = `SELECT t.source_id, t.at, t.actor_id, t.actor_name, t.actor_role, t.outgoing, t.text, t.media, t.reply_to, coalesce(s.sticker, '')
 	FROM transcript t LEFT JOIN sent s
 	ON s.platform = t.platform AND s.account = t.account AND s.conversation = t.conversation AND s.source_id = t.source_id`
 
@@ -115,7 +118,7 @@ func (s *store) lines(ctx context.Context, query string, args ...any) ([]line, e
 		var l line
 		var at int64
 		var media string
-		if err := rows.Scan(&l.SourceID, &at, &l.ActorID, &l.ActorName, &l.Outgoing, &l.Text, &media, &l.ReplyTo, &l.Sticker); err != nil {
+		if err := rows.Scan(&l.SourceID, &at, &l.ActorID, &l.ActorName, &l.ActorRole, &l.Outgoing, &l.Text, &media, &l.ReplyTo, &l.Sticker); err != nil {
 			return nil, fmt.Errorf("chat store: read transcript: %w", err)
 		}
 		l.At = time.UnixMilli(at)

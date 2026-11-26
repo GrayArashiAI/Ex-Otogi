@@ -362,7 +362,7 @@ func replyTarget(msg otogi.Message) (otogi.EventRef, bool) {
 // transcriptLine is how the transcript keeps a message: its text as
 // Markdown and its media described, not downloaded.
 func transcriptLine(e otogi.Event) line {
-	l := line{SourceID: string(e.SourceID), At: e.OccurredAt, ActorID: string(e.Actor.ID), ActorName: speaker(e.Actor), Outgoing: e.Direction == otogi.DirectionOutgoing}
+	l := line{SourceID: string(e.SourceID), At: e.OccurredAt, ActorID: string(e.Actor.ID), ActorName: speaker(e.Actor), ActorRole: string(e.Actor.Role), Outgoing: e.Direction == otogi.DirectionOutgoing}
 	if l.At.IsZero() {
 		l.At = e.ReceivedAt
 	}

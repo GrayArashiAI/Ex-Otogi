@@ -32,7 +32,10 @@ type message struct {
 		// MemberNickname is the member's group card: the name this group
 		// shows, where Username is their QQ nickname.
 		MemberNickname string `json:"member_nickname"`
-		Bot            bool   `json:"bot"`
+		// MemberRole is the member's standing in the group: owner, admin,
+		// or member.
+		MemberRole string `json:"member_role"`
+		Bot        bool   `json:"bot"`
 	} `json:"author"`
 	Mentions []struct {
 		ID             string `json:"id"`
@@ -140,6 +143,9 @@ func (m *mapper) mapFrame(ctx context.Context, f frame, received time.Time) (oto
 		}
 	}
 	e.Actor = otogi.Actor{ID: otogi.ActorID("user:" + actor), Name: firstOf(msg.Author.MemberNickname, msg.Author.Username), Bot: msg.Author.Bot}
+	if e.Conversation.Kind == otogi.ConversationGroup {
+		e.Actor.Role = memberRole(msg.Author.MemberRole)
+	}
 	if err := m.learnNames(ctx, msg, actor); err != nil {
 		return otogi.Event{}, err
 	}
@@ -429,6 +435,18 @@ func (m *mapper) service(f frame, received time.Time) (otogi.Event, error) {
 		e.Actor = otogi.Actor{ID: otogi.ActorID("user:" + user)}
 	}
 	return e, nil
+}
+
+// memberRole is a group member's standing as QQ gives it: owner or admin,
+// and nothing for an ordinary member or a value it did not give before.
+func memberRole(role string) otogi.ActorRole {
+	switch role {
+	case "owner":
+		return otogi.RoleOwner
+	case "admin":
+		return otogi.RoleAdmin
+	}
+	return ""
 }
 
 func firstOf(values ...string) string {

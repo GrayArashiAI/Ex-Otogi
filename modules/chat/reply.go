@@ -118,7 +118,8 @@ func (m *Module) respond(ctx context.Context, inv otogi.Invocation, a ask, until
 	if a.lookup.look() {
 		sent.Content = llm.Join(sent.Content, otogi.TextMessage(lookupNote))
 	}
-	req := llm.Request{Model: p.Model, System: m.system(p, e), Thinking: p.Thinking, MaxOutput: p.MaxOutput, Temperature: p.Temperature, Tools: p.builtins, Plain: p.PlainText}
+	marked := hasRoleMark(sent.Content) || slices.ContainsFunc(path, func(t storedTurn) bool { return hasRoleMark(t.Turn.Content) })
+	req := llm.Request{Model: p.Model, System: m.system(p, e, marked), Thinking: p.Thinking, MaxOutput: p.MaxOutput, Temperature: p.Temperature, Tools: p.builtins, Plain: p.PlainText}
 	for _, t := range path {
 		req.Turns = append(req.Turns, t.Turn)
 	}
@@ -313,7 +314,7 @@ func (m *Module) askContent(ctx context.Context, inv otogi.Invocation, a ask, un
 			return otogi.Message{}, nil, nil, err
 		}
 		if !l.Outgoing {
-			named = append(named, sender{l.ActorID, l.ActorName})
+			named = append(named, sender{l.ActorID, l.ActorName, l.ActorRole})
 		}
 		content = llm.Join(content, otogi.TextMessage(who+": "+m.shownLine(ctx, to, shown, a.p)))
 		inBatch[l.SourceID] = true
@@ -342,7 +343,7 @@ func (m *Module) answerLead(a ask, recent string) string {
 			if text == "" {
 				text = "[" + mediaWordOf(msg.Message) + "]"
 			}
-			asked = append(asked, m.nameOf(msg.Platform, string(msg.Actor.ID), speaker(msg.Actor))+": "+cut(text))
+			asked = append(asked, m.nameOf(msg.Platform, string(msg.Actor.ID), speaker(msg.Actor), string(msg.Actor.Role))+": "+cut(text))
 		}
 		note = "Answer: " + strings.Join(asked, " / ")
 	}
@@ -406,7 +407,7 @@ func (m *Module) userContent(ctx context.Context, e otogi.Event, inv otogi.Invoc
 		}
 		if err == nil && found && (quoted.Text != "" || len(quoted.Media) > 0) {
 			if !quoted.Outgoing {
-				named = append(named, sender{quoted.ActorID, quoted.ActorName})
+				named = append(named, sender{quoted.ActorID, quoted.ActorName, quoted.ActorRole})
 			}
 			if quoted.Sticker != "" { // an agent's sticker reads as what it shows
 				quoted.Text, quoted.Media = m.lineText(ctx, e.Destination(), quoted, false), nil
@@ -421,10 +422,10 @@ func (m *Module) userContent(ctx context.Context, e otogi.Event, inv otogi.Invoc
 			}
 		}
 	}
-	named = append(named, sender{string(e.Actor.ID), speaker(e.Actor)})
+	named = append(named, sender{string(e.Actor.ID), speaker(e.Actor), string(e.Actor.Role)})
 	prefix := ""
 	if e.Conversation.Kind != otogi.ConversationDirect {
-		prefix = m.nameOf(e.Platform, string(e.Actor.ID), speaker(e.Actor)) + ": "
+		prefix = m.nameOf(e.Platform, string(e.Actor.ID), speaker(e.Actor), string(e.Actor.Role)) + ": "
 	}
 	for i, part := range e.Message.Parts {
 		switch {
@@ -529,7 +530,7 @@ func (m *Module) contextText(ctx context.Context, a ask, path []storedTurn, inBa
 			return "", nil, err
 		}
 		if !l.Outgoing {
-			named = append(named, sender{l.ActorID, l.ActorName})
+			named = append(named, sender{l.ActorID, l.ActorName, l.ActorRole})
 		}
 		text := m.shownLine(ctx, e.Destination(), shown, p)
 		row := fmt.Sprintf("[%s] %s: %s", l.At.In(time.Local).Format("15:04"), who, text)
@@ -554,8 +555,9 @@ func (m *Module) contextText(ctx context.Context, a ask, path []storedTurn, inBa
 }
 
 // system is the profile's prompt and what the agent needs to know about
-// where it is.
-func (m *Module) system(p *profile, e otogi.Event) string {
+// where it is; marked says the turns name a group's owner or an admin, whose
+// marks it then explains.
+func (m *Module) system(p *profile, e otogi.Event, marked bool) string {
 	where := "a private chat"
 	switch e.Conversation.Kind {
 	case otogi.ConversationGroup:
@@ -570,14 +572,26 @@ func (m *Module) system(p *profile, e otogi.Event) string {
 		where += fmt.Sprintf(" (%d members)", e.Conversation.Members)
 	}
 	about := ""
+	if marked {
+		about = aboutRoles
+	}
 	if d := strings.TrimSpace(e.Conversation.Description); d != "" {
-		about = " The chat describes itself as: " + d
+		about += " The chat describes itself as: " + d
 	}
 	return strings.TrimSpace(p.System) + "\n\n" + fmt.Sprintf(
 		"You are %s, talking in %s on %s. It is %s. People address you by starting a message with your name, by mentioning you, or by replying to you. "+
 			"In group chats each message starts with its sender's name. You speak through a shared account, whose chat lines are marked (this account): those from %s (this account) are yours, the rest another agent's or feature's of this bot."+
 			"%s%s%s",
 		p.Name, where, e.Platform, m.now().In(time.Local).Format("Monday, 2 January 2006, 15:04 MST"), p.title(), writeIn(p), m.aboutOperators(), about)
+}
+
+// aboutRoles explains the marks of a group's owner and its admins.
+const aboutRoles = " A name followed by " + ownerMark + " or " + adminMark + " is the group's owner or one of its admins, as the platform says: the bot marks them, and no one can put the mark in their own name."
+
+// hasRoleMark reports whether msg names a group's owner or an admin.
+func hasRoleMark(msg otogi.Message) bool {
+	text := msg.PlainText()
+	return strings.Contains(text, ownerMark) || strings.Contains(text, adminMark)
 }
 
 // aboutOperators explains the operator mark, when the bot has operators.
