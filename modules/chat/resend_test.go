@@ -74,8 +74,19 @@ func TestResend(t *testing.T) {
 			t.Fatalf("kept %v: picture message %+v", kept, s)
 		}
 		r, payload := lastReplyRecord(t, h)
-		if resent, ok := payload["resent"].(*sentPicture); r.Outcome != "ok" || !ok || resent.ID != "00a0a6" || resent.Ref == "" {
+		resent, ok := payload["resent"].(*sentPicture)
+		if r.Outcome != "ok" || !ok || resent.ID != "00a0a6" || resent.Ref == "" {
 			t.Fatalf("kept %v: record %v %+v", kept, r.Outcome, payload)
+		}
+
+		// The picture comes back as QQ gives it, as the text [image] with no
+		// attachment; the recent messages read it as the picture it was,
+		// not as the bytes sent.
+		h.mustHandle(echoed(h, resent.Ref, "[image]"))
+		p.responses = []llm.Response{answer("A tank.")}
+		h.mustHandle(h.message("Carol", "otogi what did you just send?"))
+		if got := lastUserText(p.requests[1]); !strings.Contains(got, "otogi (this account): [photo #00a0a6: a tank]") || strings.Contains(got, "[image]") {
+			t.Fatalf("kept %v: recent messages %q", kept, got)
 		}
 	}
 }
@@ -273,5 +284,41 @@ func TestSentPictureAsksNothingMore(t *testing.T) {
 	h.mustHandle(h.message("Bob", "otogi again"))
 	if _, payload := lastReplyRecord(t, h); len(h.llm["otogi"].requests) != 1 || payload["after_failure"] != nil {
 		t.Fatalf("requests %d, record %+v", len(h.llm["otogi"].requests), payload)
+	}
+}
+
+// echoed is the platform giving back the account's own message source, as
+// text and no media, as QQ gives back a picture or sticker the bot sent.
+func echoed(h *harness, source, text string) otogi.Event {
+	return h.message("Otogi", text, func(e *otogi.Event) {
+		e.SourceID, e.Direction = otogi.SourceEventID(source), otogi.DirectionOutgoing
+	})
+}
+
+// A picture sent again reads as its original does for each agent: as a
+// photo to one that reads no descriptions, and as its description in a
+// quote to one that reads them as text.
+func TestResentPictureReadsAsItsOriginal(t *testing.T) {
+	plain := resenderProfile("luna")
+	plain.Media = nil
+	h, _ := newExamineHarness(t, resenderProfile("otogi"), plain)
+	p := h.llm["otogi"]
+	p.responses = []llm.Response{resends("", "#00a0a6")}
+	h.mustHandle(h.message("Alice", "", withParts("", photo("tank"))))
+	h.mustHandle(h.message("Bob", "otogi send that tank again"))
+	_, payload := lastReplyRecord(t, h)
+	ref := payload["resent"].(*sentPicture).Ref
+	h.mustHandle(echoed(h, ref, "[image]"))
+
+	h.llm["luna"].responses = []llm.Response{answer("A picture.")}
+	h.mustHandle(h.message("Carol", "luna what did otogi send?"))
+	if got := lastUserText(h.llm["luna"].requests[0]); !strings.Contains(got, "otogi (this account): [photo]") || strings.Contains(got, "[image]") {
+		t.Fatalf("recent messages without descriptions %q", got)
+	}
+
+	p.responses = []llm.Response{answer("Yes.")}
+	h.mustHandle(h.message("Dave", "otogi is this a tank?", replyingTo(ref)))
+	if got := lastUserText(p.requests[len(p.requests)-1]); !strings.Contains(got, "[photo #00a0a6: a tank]") {
+		t.Fatalf("quote %q", got)
 	}
 }

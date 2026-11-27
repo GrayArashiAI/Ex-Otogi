@@ -57,6 +57,11 @@ type line struct {
 	Sticker string
 }
 
+// An agent's sticker, or picture sent again, is a message of that picture
+// alone: the text the platform gives back with it is a stand-in, as QQ's
+// [image], and a picture sent again reads as its original message has it,
+// which sent keeps, since the platform may give back no attachment.
+
 // record keeps a created or edited message.
 func (s *store) record(ctx context.Context, to otogi.Destination, l line) error {
 	media, err := json.Marshal(l.Media)
@@ -82,8 +87,8 @@ func (s *store) forget(ctx context.Context, platform otogi.PlatformID, account o
 }
 
 // lineColumns selects a transcript message, t, with what a sticker an agent
-// sent shows, from sent s.
-const lineColumns = `SELECT t.source_id, t.at, t.actor_id, t.actor_name, t.actor_role, t.outgoing, t.text, t.media, t.reply_to, coalesce(s.sticker, '')
+// sent shows, and the media of a picture it sent again, from sent s.
+const lineColumns = `SELECT t.source_id, t.at, t.actor_id, t.actor_name, t.actor_role, t.outgoing, t.text, t.media, t.reply_to, coalesce(s.sticker, ''), coalesce(s.media, '')
 	FROM transcript t LEFT JOIN sent s
 	ON s.platform = t.platform AND s.account = t.account AND s.conversation = t.conversation AND s.source_id = t.source_id`
 
@@ -117,13 +122,23 @@ func (s *store) lines(ctx context.Context, query string, args ...any) ([]line, e
 	for rows.Next() {
 		var l line
 		var at int64
-		var media string
-		if err := rows.Scan(&l.SourceID, &at, &l.ActorID, &l.ActorName, &l.ActorRole, &l.Outgoing, &l.Text, &media, &l.ReplyTo, &l.Sticker); err != nil {
+		var media, resent string
+		if err := rows.Scan(&l.SourceID, &at, &l.ActorID, &l.ActorName, &l.ActorRole, &l.Outgoing, &l.Text, &media, &l.ReplyTo, &l.Sticker, &resent); err != nil {
 			return nil, fmt.Errorf("chat store: read transcript: %w", err)
 		}
 		l.At = time.UnixMilli(at)
 		if err := json.Unmarshal([]byte(media), &l.Media); err != nil {
 			return nil, fmt.Errorf("chat store: decode media: %w", err)
+		}
+		if resent != "" {
+			var md otogi.Media
+			if err := json.Unmarshal([]byte(resent), &md); err != nil {
+				return nil, fmt.Errorf("chat store: decode media sent again: %w", err)
+			}
+			l.Media = []otogi.Media{md}
+		}
+		if l.Sticker != "" || resent != "" {
+			l.Text = ""
 		}
 		out = append(out, l)
 	}
@@ -195,10 +210,11 @@ func (s *store) path(ctx context.Context, id int64) ([]storedTurn, error) {
 }
 
 // sentMessage is a message an agent sent, and what it shows when it is a
-// sticker.
+// sticker, or the original's media when it is a picture sent again.
 type sentMessage struct {
 	Ref     otogi.EventRef
 	Sticker string
+	Media   *otogi.Media
 }
 
 // thread adds turns after parent (0 starts a thread) and maps the agent's
@@ -235,8 +251,14 @@ func (s *store) thread(ctx context.Context, profile, cause string, to otogi.Dest
 		if ref.SourceEvent == "" {
 			continue // a send the platform confirmed without naming the message
 		}
-		if _, err := tx.ExecContext(ctx, "INSERT OR REPLACE INTO sent (platform, account, conversation, source_id, turn, sticker) VALUES (?, ?, ?, ?, ?, ?)",
-			ref.Platform, ref.Account, ref.Conversation, ref.SourceEvent, parent, m.Sticker); err != nil {
+		var media []byte
+		if m.Media != nil {
+			if media, err = json.Marshal(m.Media); err != nil {
+				return nil, fmt.Errorf("chat store: encode media sent again: %w", err)
+			}
+		}
+		if _, err := tx.ExecContext(ctx, "INSERT OR REPLACE INTO sent (platform, account, conversation, source_id, turn, sticker, media) VALUES (?, ?, ?, ?, ?, ?, ?)",
+			ref.Platform, ref.Account, ref.Conversation, ref.SourceEvent, parent, m.Sticker, string(media)); err != nil {
 			return nil, fmt.Errorf("chat store: map sent message: %w", err)
 		}
 	}

@@ -120,14 +120,13 @@ func TestStickerFollowsTheReply(t *testing.T) {
 		t.Fatalf("record %v %+v", r.Outcome, payload)
 	}
 
-	// The sticker comes back from the platform; the recent messages read it
-	// as what it shows.
-	h.mustHandle(h.message("Otogi", "", withParts("", photo("sticker")), func(e *otogi.Event) {
-		e.SourceID, e.Direction = "agent-2", otogi.DirectionOutgoing
-	}))
+	// The sticker comes back from the platform, as QQ gives it: the text
+	// [image] and no attachment. The recent messages read it as what it
+	// shows, without the platform's stand-in.
+	h.mustHandle(echoed(h, "agent-2", "[image]"))
 	p.responses = []llm.Response{answer("A dog.")}
 	h.mustHandle(h.message("Bob", "otogi what was that?"))
-	if got := lastUserText(p.requests[1]); !strings.Contains(got, "Otogi (this account): [sticker: a dog]") {
+	if got := lastUserText(p.requests[1]); !strings.Contains(got, "Otogi (this account): [sticker: a dog]") || strings.Contains(got, "[image]") {
 		t.Fatalf("recent messages %q", got)
 	}
 

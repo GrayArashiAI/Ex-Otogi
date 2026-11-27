@@ -280,7 +280,7 @@ func (m *Module) respond(ctx context.Context, inv otogi.Invocation, a ask, until
 		if sendErr == nil {
 			a.resent.Ref = string(ref.SourceEvent)
 			refs = append(refs, ref)
-			messages = append(messages, sentMessage{Ref: ref})
+			messages = append(messages, sentMessage{Ref: ref, Media: &resend.shown})
 		} else {
 			a.resent.Error = sendErr.Error()
 		}

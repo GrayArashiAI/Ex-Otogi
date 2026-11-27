@@ -26,13 +26,15 @@ const pictureSlot = "picture"
 var onePerReply = map[string]any{"sent": false, "reason": "one picture or sticker a reply"}
 
 // resender is resend_media in one reply: the picture picked, with its
-// bytes, and its ID. taken is shared with the reply's sticker pick: whether
-// the reply sends a picture or sticker already.
+// bytes, its ID, and its media as its original message has it, which the
+// agent's line reads as. taken is shared with the reply's sticker pick:
+// whether the reply sends a picture or sticker already.
 type resender struct {
 	look   *looker
 	taken  *bool
 	picked *otogi.Media
 	id     string
+	shown  otogi.Media
 }
 
 func (r *resender) tool() llm.Tool {
@@ -52,59 +54,61 @@ func (r *resender) tool() llm.Tool {
 		if *r.taken {
 			return onePerReply, nil
 		}
-		md, id, err := r.original(ctx, in.ID)
+		md, shown, id, err := r.original(ctx, in.ID)
 		if err != nil {
 			return nil, err
 		}
-		r.picked, r.id, *r.taken = &md, id, true
+		r.picked, r.shown, r.id, *r.taken = &md, shown, id, true
 		return map[string]bool{"sent": true}, nil
 	})
 }
 
 // original finds the picture id names among what the reply was shown and
-// gets its bytes: the media module's copy, else fetched again. It tells
-// the model, when it cannot, what to do instead.
-func (r *resender) original(ctx context.Context, id string) (otogi.Media, string, error) {
+// gets its bytes: the media module's copy, else fetched again. shown is the
+// picture as the chat has it, before its source became bytes. It tells the
+// model, when it cannot, what to do instead.
+func (r *resender) original(ctx context.Context, id string) (sent, shown otogi.Media, key string, err error) {
 	if stickerNumber.MatchString(id) {
-		return otogi.Media{}, "", errors.New("that is a kept sticker: send it with " + stickerTool)
+		return sent, shown, "", errors.New("that is a kept sticker: send it with " + stickerTool)
 	}
 	h := mediaID.FindStringSubmatch(id)
 	if h == nil {
-		return otogi.Media{}, "", fmt.Errorf(`%q: want the ID as the chat shows it, as "#2ce7ad"`, id)
+		return sent, shown, "", fmt.Errorf(`%q: want the ID as the chat shows it, as "#2ce7ad"`, id)
 	}
-	md, ok, err := r.look.find(ctx, h[1])
+	shown, ok, err := r.look.find(ctx, h[1])
 	if err != nil {
-		return otogi.Media{}, "", err
+		return sent, shown, "", err
 	}
 	if !ok {
-		return otogi.Media{}, "", fmt.Errorf("no picture %s in this chat's recent messages", id)
+		return sent, shown, "", fmt.Errorf("no picture %s in this chat's recent messages", id)
 	}
-	switch md.Role {
+	switch shown.Role {
 	case otogi.MediaImage, otogi.MediaAnimation, otogi.MediaSticker:
 	case otogi.MediaVideo:
-		return otogi.Media{}, "", errors.New("videos cannot be sent again")
+		return sent, shown, "", errors.New("videos cannot be sent again")
 	default:
-		return otogi.Media{}, "", errors.New("only pictures and animations can be sent again")
+		return sent, shown, "", errors.New("only pictures and animations can be sent again")
 	}
 	to := r.look.a.msgs[0].Destination()
-	kept, err := r.look.m.describer.Original(ctx, to, md)
+	sent, err = r.look.m.describer.Original(ctx, to, shown)
 	switch {
 	case err == nil:
-		return kept, h[1], nil
+		return sent, shown, h[1], nil
 	case errors.Is(err, mediasvc.ErrNotKept):
 		// Not kept by the media module: fetched again, while the platform's
 		// link to it lasts.
-		data, ferr := r.look.inv.FetchMedia(ctx, to, md.Source)
+		data, ferr := r.look.inv.FetchMedia(ctx, to, shown.Source)
 		if ferr != nil {
 			r.look.m.host.Logger().WarnContext(ctx, "chat: fetching media to send again", "id", id, "error", ferr)
-			return otogi.Media{}, "", errors.New("its original can no longer be fetched; say so in words")
+			return sent, shown, "", errors.New("its original can no longer be fetched; say so in words")
 		}
-		md.Source, md.ByteSize = otogi.MediaSource{Kind: otogi.MediaSourceInline, Inline: data}, int64(len(data))
-		return md, h[1], nil
+		sent = shown
+		sent.Source, sent.ByteSize = otogi.MediaSource{Kind: otogi.MediaSourceInline, Inline: data}, int64(len(data))
+		return sent, shown, h[1], nil
 	case errors.Is(err, mediasvc.ErrNotAllowed):
-		return otogi.Media{}, "", errors.New("this chat's pictures cannot be sent again")
+		return sent, shown, "", errors.New("this chat's pictures cannot be sent again")
 	}
-	return otogi.Media{}, "", err
+	return sent, shown, "", err
 }
 
 // sentPicture is how chat.reply records a picture sent again: its ID, and
