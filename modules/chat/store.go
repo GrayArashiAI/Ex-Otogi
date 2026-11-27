@@ -57,11 +57,6 @@ type line struct {
 	Sticker string
 }
 
-// An agent's sticker, or picture sent again, is a message of that picture
-// alone: the text the platform gives back with it is a stand-in, as QQ's
-// [image], and a picture sent again reads as its original message has it,
-// which sent keeps, since the platform may give back no attachment.
-
 // record keeps a created or edited message.
 func (s *store) record(ctx context.Context, to otogi.Destination, l line) error {
 	media, err := json.Marshal(l.Media)
@@ -130,6 +125,8 @@ func (s *store) lines(ctx context.Context, query string, args ...any) ([]line, e
 		if err := json.Unmarshal([]byte(media), &l.Media); err != nil {
 			return nil, fmt.Errorf("chat store: decode media: %w", err)
 		}
+		// A picture sent again reads as its original message has it, which
+		// sent keeps: the platform may give it back with no attachment.
 		if resent != "" {
 			var md otogi.Media
 			if err := json.Unmarshal([]byte(resent), &md); err != nil {
@@ -137,6 +134,9 @@ func (s *store) lines(ctx context.Context, query string, args ...any) ([]line, e
 			}
 			l.Media = []otogi.Media{md}
 		}
+		// An agent's sticker or picture sent again is that picture alone:
+		// the text the platform gives back with it is a stand-in, as QQ's
+		// [image].
 		if l.Sticker != "" || resent != "" {
 			l.Text = ""
 		}
