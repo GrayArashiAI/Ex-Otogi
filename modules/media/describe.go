@@ -23,7 +23,7 @@ const (
 kind: one of screenshot, photo, sticker, meme, other
 description: what it shows and, for a sticker or meme, the feeling it conveys; one or two sentences on one line, written in %[1]s
 text: the text on it, copied exactly as it is, not translated, which may run over several lines; leave it empty when there is none`
-	animationNote = "This is an animated sticker or GIF: its %d frames in time order, %.1f seconds in all. Describe what happens and the feeling it conveys as one whole, not frame by frame."
+	animationNote = "This is an animated sticker or GIF, given as a video of %d of its frames slowed down so each shows for a second; the animation itself plays %.1f seconds, in a loop. Describe what happens and the feeling it conveys as one whole, not frame by frame."
 	videoPrompt   = `You describe a video sent in a group chat for someone who cannot watch it. Reply in exactly these two sections and nothing else:
 description: what happens in it; one or two sentences on one line, written in %[1]s
 text: what is said in it and its captions, copied exactly as they are, not translated, which may run over several lines; leave it empty when there is none`
@@ -105,19 +105,26 @@ func (m *Module) prepare(md otogi.Media, data []byte) (prepared, error) {
 		if detected == "image/webp" {
 			decode = webpFrames
 		}
-		frames, count, total, err := decode(data, animationFrames)
+		frames, count, total, err := decode(data, animationFrames, jpegFrame)
 		if err != nil {
 			return prepared{}, fmt.Errorf("%w: %w", contract.ErrNotDescribed, err)
 		}
 		p := prepared{system: fmt.Sprintf(imagePrompt, m.language)}
-		if count < minAnimationFrames {
-			p.parts = []otogi.Part{text("Describe this picture."), part(0, "image/png", frames[0])}
+		if count < minAnimationFrames { // a still picture, as PNG: its transparency kept
+			first, _, _, err := decode(data, 1, pngFrame)
+			if err != nil {
+				return prepared{}, fmt.Errorf("%w: %w", contract.ErrNotDescribed, err)
+			}
+			p.parts = []otogi.Part{text("Describe this picture."), part(0, "image/png", first[0])}
 			return p, nil
 		}
-		p.parts, p.frames = []otogi.Part{text(fmt.Sprintf(animationNote, len(frames), total.Seconds()))}, count
-		for i, f := range frames {
-			p.parts = append(p.parts, part(i, "image/png", f))
+		avi, err := aviOf(frames)
+		if err != nil {
+			return prepared{}, fmt.Errorf("%w: %w", contract.ErrNotDescribed, err)
 		}
+		video := part(0, "video/avi", avi)
+		video.Media.Role = otogi.MediaVideo
+		p.parts, p.frames = []otogi.Part{text(fmt.Sprintf(animationNote, len(frames), total.Seconds())), video}, count
 		return p, nil
 	case detected == "image/png" || detected == "image/jpeg" || detected == "image/webp":
 		return prepared{system: fmt.Sprintf(imagePrompt, m.language), parts: []otogi.Part{text("Describe this picture."), part(0, detected, data)}}, nil

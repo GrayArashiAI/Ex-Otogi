@@ -9,9 +9,11 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"image"
 	"image/color"
 	"image/gif"
+	"image/jpeg"
 	"image/png"
 	"log/slog"
 	"slices"
@@ -729,7 +731,7 @@ func TestGIFFramesHonorDisposal(t *testing.T) {
 		{at: image.Pt(1, 1), c: green, delay: 10, disposal: gif.DisposalPrevious},
 		{at: image.Pt(2, 2), c: yellow, delay: 1, disposal: gif.DisposalNone},
 	})
-	frames, count, total, err := gifFrames(data, 6)
+	frames, count, total, err := gifFrames(data, 6, pngFrame)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -770,7 +772,7 @@ func TestGIFFramesSpread(t *testing.T) {
 	for i := range 10 {
 		frames = append(frames, gifFrame{full: true, c: color.Gray{Y: uint8(i * 20)}, delay: 10})
 	}
-	got, count, _, err := gifFrames(gifOf(t, frames), 6)
+	got, count, _, err := gifFrames(gifOf(t, frames), 6, pngFrame)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -787,6 +789,25 @@ func TestGIFFramesSpread(t *testing.T) {
 	}
 }
 
+// wantVideo checks that an animation went to the model as its note, then
+// a video of frames frames, the note saying how many and how long it plays.
+func wantVideo(t *testing.T, parts []otogi.Part, frames int, length string) {
+	t.Helper()
+	if len(parts) != 2 || !strings.Contains(parts[0].Text, fmt.Sprintf("a video of %d of its frames", frames)) || !strings.Contains(parts[0].Text, length) {
+		t.Fatalf("animation sent as %d parts, first %q", len(parts), parts[0].Text)
+	}
+	v := parts[1].Media
+	if v == nil || v.Role != otogi.MediaVideo || v.MediaType != "video/avi" {
+		t.Fatalf("animation sent as %+v", v)
+	}
+	if a := readAVI(t, v.Source.Inline); len(a.chunks) != frames || a.microSecPerFrame != 1_000_000 {
+		t.Fatalf("a video of %d frames, %d us each", len(a.chunks), a.microSecPerFrame)
+	}
+}
+
+// An animation goes to the model as a video showing a frame a second, of
+// animationFrames frames at most, spread from the first to the last; one
+// of fewer than minAnimationFrames frames as its first frame, a PNG.
 func TestAnimationsAreSentAsFrames(t *testing.T) {
 	h := newHarness(t, 1)
 	h.steps[0].answers = []answer{says(picture), says(picture)}
@@ -801,16 +822,39 @@ func TestAnimationsAreSentAsFrames(t *testing.T) {
 		t.Fatal(err)
 	}
 	parts := h.steps[0].requests[0].Turns[0].Content.Parts
-	if len(parts) != 5 || !strings.Contains(parts[0].Text, "4 frames") || parts[1].Media.MediaType != "image/png" {
-		t.Fatalf("animation sent as %d parts, first %q", len(parts), parts[0].Text)
-	}
-	if parts := h.steps[0].requests[1].Turns[0].Content.Parts; len(parts) != 2 || parts[0].Text != "Describe this picture." {
+	wantVideo(t, parts, 4, "0.4 seconds")
+	if parts := h.steps[0].requests[1].Turns[0].Content.Parts; len(parts) != 2 || parts[0].Text != "Describe this picture." || parts[1].Media.MediaType != "image/png" {
 		t.Fatalf("a GIF of two frames sent as %d parts, first %q", len(parts), parts[0].Text)
+	} else if _, err := png.Decode(bytes.NewReader(parts[1].Media.Source.Inline)); err != nil {
+		t.Fatalf("a GIF of two frames sent as other than PNG: %v", err)
 	}
 	h.host.mu.Lock()
-	defer h.host.mu.Unlock()
 	if p, _ := h.host.records[0].Payload.(map[string]any); p["frames"] != 4 {
 		t.Fatalf("frames recorded = %v, want 4", p["frames"])
+	}
+	h.host.mu.Unlock()
+
+	// Twenty frames: twelve go, the first and the last among them.
+	var long []gifFrame
+	for i := range 20 {
+		long = append(long, gifFrame{full: true, c: color.Gray{Y: uint8(i * 10)}, delay: 5})
+	}
+	h.steps[0].answers = []answer{says(picture)}
+	l := h.image("https://qq/long", gifOf(t, long))
+	if err := h.handle(l); err != nil {
+		t.Fatal(err)
+	}
+	parts = h.steps[0].requests[2].Turns[0].Content.Parts
+	wantVideo(t, parts, 12, "1.0 seconds")
+	chunks := readAVI(t, parts[1].Media.Source.Inline).chunks
+	for i, want := range map[int]uint8{0: 0, len(chunks) - 1: 190} {
+		img, err := jpeg.Decode(bytes.NewReader(chunks[i]))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if y := color.GrayModel.Convert(img.At(0, 0)).(color.Gray).Y; max(y, want)-min(y, want) > 6 {
+			t.Errorf("frame %d gray %d, want about %d", i, y, want)
+		}
 	}
 }
 

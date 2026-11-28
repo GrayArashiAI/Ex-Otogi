@@ -7,7 +7,6 @@ import (
 	"image"
 	"image/color"
 	"image/png"
-	"strings"
 	"testing"
 	"time"
 
@@ -42,7 +41,7 @@ func TestWebPFramesSpread(t *testing.T) {
 	for i := range 10 {
 		colors = append(colors, color.NRGBA{uint8(20 * i), 0, 0, 255})
 	}
-	got, count, total, err := webpFrames(animatedWebP(t, 20, colors...), 6)
+	got, count, total, err := webpFrames(animatedWebP(t, 20, colors...), 6, pngFrame)
 	if err != nil || count != 10 || total != 200*time.Millisecond || len(got) != 6 {
 		t.Fatalf("webpFrames = %d frames of %d, %v, %v", len(got), count, total, err)
 	}
@@ -84,13 +83,14 @@ func TestWebPFramesTooLarge(t *testing.T) {
 		many = append(many, anmf(1024, 1024))
 	}
 	for name, data := range map[string][]byte{"canvas": file(6000, 6000, anmf(1, 1)), "pixels": file(1024, 1024, many...)} {
-		if _, _, _, err := webpFrames(data, 6); !errors.Is(err, errTooLarge) {
+		if _, _, _, err := webpFrames(data, 6, pngFrame); !errors.Is(err, errTooLarge) {
 			t.Errorf("%s: %v, want errTooLarge", name, err)
 		}
 	}
 }
 
-// An animated WebP goes to the model as frames, as a GIF does.
+// An animated WebP goes to the model as a video of its frames, as a GIF
+// does.
 func TestAnimatedWebPIsSentAsFrames(t *testing.T) {
 	h := newHarness(t, 1)
 	h.steps[0].answers = []answer{says(picture)}
@@ -99,10 +99,7 @@ func TestAnimatedWebPIsSentAsFrames(t *testing.T) {
 	if err := h.handle(a); err != nil {
 		t.Fatal(err)
 	}
-	parts := h.steps[0].requests[0].Turns[0].Content.Parts
-	if len(parts) != 5 || !strings.Contains(parts[0].Text, "4 frames") || !strings.Contains(parts[0].Text, "0.4 seconds") || parts[1].Media.MediaType != "image/png" {
-		t.Fatalf("animation sent as %d parts, first %q", len(parts), parts[0].Text)
-	}
+	wantVideo(t, h.steps[0].requests[0].Turns[0].Content.Parts, 4, "0.4 seconds")
 	h.host.mu.Lock()
 	defer h.host.mu.Unlock()
 	if p, _ := h.host.records[0].Payload.(map[string]any); p["frames"] != 4 {
@@ -135,7 +132,7 @@ func BenchmarkWebPFrames(b *testing.B) {
 	pixels := a.Pixels()
 	runs := 0
 	for b.Loop() {
-		if _, _, _, err := webpFrames(data.Bytes(), animationFrames); err != nil {
+		if _, _, _, err := webpFrames(data.Bytes(), animationFrames, jpegFrame); err != nil {
 			b.Fatal(err)
 		}
 		runs++
