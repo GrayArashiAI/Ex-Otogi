@@ -3,8 +3,9 @@ package chat
 // An agent with a memory block reads its memory of a chat only through
 // recall_memory: it says what it wants to recall, and the memory model,
 // reading the whole book with the recent chat, picks the entries that help,
-// or none. Nothing of the memory is in a reply's prompt otherwise, so what
-// has nothing to do with the chat does not come up.
+// or none. Of the memory, a reply's prompt has only a note ending the turn
+// that names whom it has notes about, so what has nothing to do with the
+// chat does not come up.
 
 import (
 	"context"
@@ -74,15 +75,27 @@ func (m *Module) recallerFor(ctx context.Context, p *profile, to otogi.Destinati
 	return &recaller{m: m, p: p, to: to, names: names}, nil
 }
 
-func (r *recaller) tool() llm.Tool {
-	about := ""
+// note ends the agent's turn, saying whom its memory has notes about. In
+// the turn, like lookupNote, it gets the memory looked up when a line only
+// hints at something remembered. With the names in the tool's description
+// instead, DeepSeek (low) recalled on 2 of 45 such lines and on 1 of 18 real
+// ones that needed its memory; with this note, on 33 of 45 and 9 of 18, and
+// on 32 of 639 real lines that needed nothing (Eku's chats on dsh). Asked
+// outright ("do you remember why I don't drink coffee?"), it recalled 24 of
+// 27 times either way.
+func (r *recaller) note() string {
+	about := "the chat's running jokes and agreements"
 	if len(r.names) > 0 {
-		about = " You have notes about " + strings.Join(r.names, ", ") + "."
+		about = strings.Join(r.names, ", ") + ", and " + about
 	}
+	return "(Your memory of this chat is not in front of you: you have notes about " + about + ". Look up what you need with " + recallTool + ".)"
+}
+
+func (r *recaller) tool() llm.Tool {
 	return llm.NewTool(llm.Function{
 		Name: recallTool,
 		Description: "Recall what you remember of this chat from before the recent messages: something about a person, the chat's running jokes and agreements, or what someone asked of you. " +
-			"Say in a sentence what you want to recall. For general knowledge and news, search instead." + about,
+			"Say in a sentence what you want to recall. For general knowledge and news, search instead.",
 		Parameters: json.RawMessage(`{"type":"object","properties":{` +
 			`"what":{"type":"string","description":"what you want to recall, in a sentence"}},"required":["what"]}`),
 	}, func(ctx context.Context, _ otogi.Event, args json.RawMessage) (any, error) {

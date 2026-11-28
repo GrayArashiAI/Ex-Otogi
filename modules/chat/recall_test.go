@@ -66,8 +66,10 @@ func description(req llm.Request, name string) string {
 }
 
 // An agent that remembers something of a chat is offered recall_memory
-// there, told whom it has notes about, and nothing of the memory is in its
-// prompt; where it remembers nothing, or keeps no memory, it is not offered.
+// there, and a note ending its turn says whom it has notes about; nothing
+// of the memory is in its prompt, and the thread keeps the turn without the
+// note. Where it remembers nothing, or keeps no memory, it is offered
+// neither.
 func TestRecallOffered(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, rememberer(), ProfileConfig{Name: "sol", Keywords: []string{"sol"}, Provider: "sol", Model: "m"})
@@ -77,18 +79,26 @@ func TestRecallOffered(t *testing.T) {
 	h.noted(chat1, "The group meets on Fridays", map[string]string{}, noteDay)
 	h.mustHandle(h.message("Alice", "otogi hi"))
 	req := h.llm["otogi"].requests[0]
-	if d := description(req, recallTool); !strings.HasSuffix(d, " You have notes about Alice, Bob.") {
+	note := "(Your memory of this chat is not in front of you: you have notes about Alice, Bob, and the chat's running jokes and agreements. Look up what you need with recall_memory.)"
+	if got := lastUserText(req); !strings.HasSuffix(got, note) {
+		t.Fatalf("turn %q, want it to end with the memory note", got)
+	}
+	if d := description(req, recallTool); d == "" || strings.Contains(d, "Alice") {
 		t.Fatalf("recall_memory %q", d)
 	}
-	if strings.Contains(req.System, "Alice drinks tea") || !strings.HasPrefix(req.System, "Be kind.\n\nYou are otogi,") {
+	if strings.Contains(req.System, "Alice drinks tea") || strings.Contains(req.System, note) || !strings.HasPrefix(req.System, "Be kind.\n\nYou are otogi,") {
 		t.Fatalf("system %q", req.System)
 	}
+	h.mustHandle(h.message("Bob", "and you?", replyingTo("agent-1")))
+	if next := h.llm["otogi"].requests[1]; len(next.Turns) < 2 || strings.Contains(next.Turns[0].Content.PlainText(), note) {
+		t.Fatalf("the thread kept the note: %+v", next.Turns)
+	}
 	h.mustHandle(h.message("Alice", "otogi hi", inChat("chat:2")))
-	if offers(h.llm["otogi"].requests[1], recallTool) {
+	if req := h.llm["otogi"].requests[2]; offers(req, recallTool) || strings.Contains(lastUserText(req), "Your memory") {
 		t.Fatal("offered where nothing is remembered")
 	}
 	h.mustHandle(h.message("Alice", "sol hi"))
-	if offers(h.llm["sol"].requests[0], recallTool) {
+	if req := h.llm["sol"].requests[0]; offers(req, recallTool) || strings.Contains(lastUserText(req), "Your memory") {
 		t.Fatal("offered to an agent that keeps no memory")
 	}
 }
@@ -267,8 +277,8 @@ func TestRecallListedNameWithoutMessages(t *testing.T) {
 	h.llm["otogi"].responses = []llm.Response{recalling("who sails"), answer("Bob.")}
 	h.llm["mem"].responses = []llm.Response{answer("1\n2")}
 	h.mustHandle(h.message("Alice", "otogi who sails?"))
-	if d := description(h.llm["otogi"].requests[0], recallTool); !strings.HasSuffix(d, " You have notes about Admiral, Captain.") {
-		t.Fatalf("recall_memory %q", d)
+	if got := lastUserText(h.llm["otogi"].requests[0]); !strings.Contains(got, "you have notes about Admiral, Captain, and") {
+		t.Fatalf("turn %q", got)
 	}
 	if got, _ := recalled(t, h); !strings.HasSuffix(got, "\nNames noted then that differ now: Eve is now Admiral.") {
 		t.Fatalf("recalled %q", got)
