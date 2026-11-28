@@ -148,6 +148,15 @@ func (m *Module) respond(ctx context.Context, inv otogi.Invocation, a ask, until
 		resend = &resender{look: look, taken: &taken}
 		tools[resendTool] = resend.tool()
 	}
+	if p.memory != nil {
+		recall, err := m.recallerFor(ctx, p, e.Destination())
+		if err != nil {
+			return "", err
+		}
+		if recall != nil {
+			tools[recallTool] = recall.tool()
+		}
+	}
 
 	// The reply is at most two messages, each a stream of its own: "reply",
 	// and "reply-2" for what follows words said before tools. The second is
