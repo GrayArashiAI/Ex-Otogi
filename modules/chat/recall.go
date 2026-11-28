@@ -151,14 +151,15 @@ func (r *recaller) recall(ctx context.Context, what string) (string, error) {
 		m.recordMemory(ctx, to, "error", started, payload)
 		return "", errNotRecalled
 	}
-	changes := make([]memoryChange, 0, len(picked))
+	pickedIDs := make([]int64, 0, len(picked))
 	gave := make([]map[string]any, 0, len(picked))
-	for i := range picked {
-		review(&picked[i], started, memoryRecallBoost)
-		changes = append(changes, memoryChange{entry: picked[i]})
-		gave = append(gave, map[string]any{"id": picked[i].ID, "text": picked[i].Text})
+	for _, e := range picked {
+		pickedIDs = append(pickedIDs, e.ID)
+		gave = append(gave, map[string]any{"id": e.ID, "text": e.Text})
 	}
-	if err := m.store.keepMemory(ctx, p.Name, to, changes, nil); err != nil {
+	// Only the review is written: a batch running meanwhile may have
+	// rewritten or merged what was read before the request.
+	if err := m.store.reviewMemory(ctx, pickedIDs, started, memoryRecallBoost); err != nil {
 		return "", err
 	}
 	payload["picked"] = gave

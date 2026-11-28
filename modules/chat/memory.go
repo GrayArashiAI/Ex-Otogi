@@ -386,6 +386,10 @@ func (m *Module) consolidate(ctx context.Context, b memoryBatch) (memoryOutcome,
 	}
 	changes, report, now := applyMemory(book, ops, t, m.now())
 	next := markOf(last)
+	// The book was read before the request. If a recall reviews an entry
+	// in the meantime and this batch rewrites or merges it, that review is
+	// lost: one light review missed. Recall writes only the review, so it
+	// can't undo a batch.
 	if err := m.store.keepMemory(ctx, b.p.Name, b.to, changes, &next); err != nil {
 		return memoryDone, err
 	}

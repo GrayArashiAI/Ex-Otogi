@@ -241,6 +241,38 @@ func (s *store) keepMemory(ctx context.Context, profile string, to otogi.Destina
 	return nil
 }
 
+// reviewMemory reviews the entries ids at t with boost, in one transaction.
+// It goes by their half-life and review as they are now, since a batch may
+// have rewritten or merged them after they were read, and changes only
+// those two columns. An entry forgotten or merged away since is skipped.
+func (s *store) reviewMemory(ctx context.Context, ids []int64, t time.Time, boost float64) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("chat store: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	for _, id := range ids {
+		var e memoryEntry
+		var reviewed int64
+		err := tx.QueryRowContext(ctx, "SELECT half_life, reviewed_at FROM memories WHERE id = ?", id).Scan(&e.HalfLife, &reviewed)
+		if errors.Is(err, sql.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("chat store: review memory: %w", err)
+		}
+		e.Reviewed = time.UnixMilli(reviewed)
+		review(&e, t, boost)
+		if _, err := tx.ExecContext(ctx, "UPDATE memories SET half_life = ?, reviewed_at = ? WHERE id = ?", e.HalfLife, e.Reviewed.UnixMilli(), id); err != nil {
+			return fmt.Errorf("chat store: review memory: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("chat store: %w", err)
+	}
+	return nil
+}
+
 // setUnusable keeps how many times in a row the batch after the mark was
 // answered with nothing usable.
 func (s *store) setUnusable(ctx context.Context, profile string, to otogi.Destination, k memoryMark) error {

@@ -138,6 +138,39 @@ func TestRecallPicks(t *testing.T) {
 	}
 }
 
+// A batch that rewrites an entry, and merges another away, while a recall
+// of both waits on the memory model keeps what it wrote: the recall only
+// reviews the entry as it is then, and skips the one gone.
+func TestRecallKeepsABatchsWrites(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, rememberer())
+	h.noted(chat1, "Alice drinks tea", map[string]string{"user:Alice": "Alice"}, noteDay)
+	h.noted(chat1, "Alice likes green tea", map[string]string{"user:Alice": "Alice"}, noteDay)
+	h.llm["otogi"].responses = []llm.Response{recalling("what Alice drinks"), answer("Tea!")}
+	h.llm["mem"].responses = []llm.Response{answer("1\n2")}
+	h.llm["mem"].before = func(int) {
+		b := h.book(chat1)
+		merged := b[0]
+		merged.Text, merged.Class = "Alice drinks coffee now", "event"
+		merged.People = map[string]string{"user:Alice": "Alice", "user:Carol": "Carol"}
+		changes := []memoryChange{{entry: merged}, {entry: memoryEntry{ID: b[1].ID}, delete: true}}
+		if err := h.m.store.keepMemory(context.Background(), "otogi", chat1, changes, nil); err != nil {
+			t.Error(err)
+		}
+	}
+	h.mustHandle(h.message("Alice", "otogi what do I drink?"))
+	if _, failed := recalled(t, h); failed != "" {
+		t.Fatalf("recall failed: %s", failed)
+	}
+	b := h.book(chat1)
+	if len(b) != 1 {
+		t.Fatalf("book %+v, want the merged entry alone", b)
+	}
+	if e := b[0]; e.Text != "Alice drinks coffee now" || e.Class != "event" || len(e.People) != 2 || e.HalfLife <= 90 || !e.Reviewed.After(noteDay) {
+		t.Fatalf("after the recall %+v, want the batch's entry, reviewed", e)
+	}
+}
+
 // With nothing that helps, the agent is told so.
 func TestRecallNothingFits(t *testing.T) {
 	t.Parallel()
