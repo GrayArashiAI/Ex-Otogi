@@ -1,10 +1,8 @@
 package media
 
 import (
-	"bytes"
 	"fmt"
 	"image"
-	"image/png"
 	"time"
 
 	"github.com/TundraWork/Ex-Otogi/pkg/webpanim"
@@ -16,18 +14,18 @@ import (
 // and a description takes about 5.5 seconds at the median on eku's chats,
 // so decoding gets 2 of the 15 and leaves the model its time. On the NAS
 // the test deployment runs on, lossy 512x512 frames decode and composite,
-// six of them encoded as PNG, at about 37 million pixels a second
-// (BenchmarkWebPFrames), so 2 seconds is about 74 million: a 512x512
-// animation may have 280 frames.
-const maxWebPPixels = 70 << 20
+// twelve of them encoded as JPEG for a video, at about 30 million pixels a
+// second (BenchmarkWebPFrames), so 2 seconds is about 60 million: a
+// 512x512 animation may have 240 frames.
+const maxWebPPixels = 60 << 20
 
 // webpFrames decodes an animated WebP and composites its frames (see
 // webpanim), and returns n of them spread evenly from the first to the last
-// as PNG, how many frames it has, and how long it plays. An animation whose
+// each encoded by encode, how many frames it has, and how long it plays. An animation whose
 // canvas and largest frame would take more than maxDecoded, or whose frames
 // have more than maxWebPPixels in all, is not decoded: the error wraps
 // errTooLarge.
-func webpFrames(data []byte, n int) (frames [][]byte, count int, total time.Duration, err error) {
+func webpFrames(data []byte, n int, encode frameEncoder) (frames [][]byte, count int, total time.Duration, err error) {
 	a, err := webpanim.Read(data)
 	if err != nil {
 		return nil, 0, 0, fmt.Errorf("decode %w", err)
@@ -43,11 +41,11 @@ func webpFrames(data []byte, n int) (frames [][]byte, count int, total time.Dura
 		if !want[i] {
 			return nil
 		}
-		var b bytes.Buffer
-		if err := png.Encode(&b, canvas); err != nil {
+		f, err := encode(canvas)
+		if err != nil {
 			return fmt.Errorf("encode frame %d: %w", i, err)
 		}
-		frames = append(frames, b.Bytes())
+		frames = append(frames, f)
 		return nil
 	})
 	if err != nil {

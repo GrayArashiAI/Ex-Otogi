@@ -8,8 +8,11 @@ import (
 	"image"
 	"image/draw"
 	"image/gif"
+	"image/jpeg"
 	"image/png"
 	"time"
+
+	xdraw "golang.org/x/image/draw"
 )
 
 // maxDecoded is the most memory decoding one GIF may take, in bytes, as
@@ -108,24 +111,75 @@ func gifDecoded(data []byte) (int64, error) {
 	return 0, truncated // image/gif fails without a trailer
 }
 
-// animationFrames is how many frames of an animation the model sees. On
-// eku's chats, 28 stickers with known meanings, as Gemini 3.5 Flash-Lite
-// saw them: the GIF itself (only its first frame is read) got 9 of 26
-// wrong, the GIF as an mp4 4 of 25, six frames in order 1 of 20.
-const animationFrames = 6
+// animationFrames is how many frames of an animation the model sees, as a
+// video showing each for a second (aviOf). As a video, Gemini 3.5
+// Flash-Lite takes 64 tokens a frame at its default resolution, so 12 cost
+// 768; six PNG pictures cost 6534 (2026-11-28, a 500x500 sticker). Eku's
+// bot on dsh showed 8 to 12 frames of a loop.
+//
+// On 30 of eku's animations, judged blind (2026-11-28), the meaning was
+// right in 17 as such a video and in 10 as six PNG frames; of the 8 with
+// captions, the text was right in 6 and 7 (the misses: a small word in
+// smoke, and a character for one of like shape). Adding the middle frame
+// as a picture, at 2019 tokens, got the text right in 6 too.
+//
+// Earlier, on eku's chats, 28 stickers with known meanings: the GIF itself
+// (only its first frame is read) got 9 of 26 wrong, the GIF as an mp4 4 of
+// 25, six PNG frames in order 1 of 20. How that mp4 was given is not
+// recorded: through the Interactions API, which takes no frame rate, it
+// was seen at a frame a second, one or two frames of a short animation,
+// and so says nothing of a video slowed to show each frame.
+const animationFrames = 12
 
 // minAnimationFrames is the fewest frames that make a GIF or an animated
 // WebP an animation;
 // one with fewer is described as a still image.
 const minAnimationFrames = 3
 
+// frameEncoder encodes a composited frame of an animation; it must not keep
+// the canvas, which the next frame is drawn on.
+type frameEncoder func(canvas *image.RGBA) ([]byte, error)
+
+// pngFrame encodes a frame as PNG, transparency kept.
+func pngFrame(canvas *image.RGBA) ([]byte, error) {
+	var b bytes.Buffer
+	err := png.Encode(&b, canvas)
+	return b.Bytes(), err
+}
+
+// maxFrameSide is the longest side of a frame given to a model as part of a
+// video: at 64 tokens a frame, a model sees a frame small, and a larger one
+// only makes the request larger.
+const maxFrameSide = 1024
+
+// jpegFrame encodes a frame as JPEG, quality 85, for a video: on white, as
+// JPEG has no transparency and image/jpeg would read it as black, and
+// scaled down to maxFrameSide when larger.
+func jpegFrame(canvas *image.RGBA) ([]byte, error) {
+	b := canvas.Bounds()
+	size := b.Size()
+	if longest := max(size.X, size.Y); longest > maxFrameSide {
+		size = image.Pt(max(1, size.X*maxFrameSide/longest), max(1, size.Y*maxFrameSide/longest))
+	}
+	flat := image.NewRGBA(image.Rectangle{Max: size})
+	draw.Draw(flat, flat.Bounds(), image.White, image.Point{}, draw.Src)
+	if size == b.Size() {
+		draw.Draw(flat, flat.Bounds(), canvas, b.Min, draw.Over)
+	} else {
+		xdraw.CatmullRom.Scale(flat, flat.Bounds(), canvas, b, draw.Over, nil)
+	}
+	var out bytes.Buffer
+	err := jpeg.Encode(&out, flat, &jpeg.Options{Quality: 85})
+	return out.Bytes(), err
+}
+
 // gifFrames decodes a GIF and composites its frames as a browser would,
 // honoring each frame's disposal, and returns n of them spread evenly from
-// the first to the last as PNG, how many frames it has, and how long it
-// plays. A delay of 0 or 1 (hundredths of a second) plays as 100 ms, as in
+// the first to the last, each encoded by encode, how many frames it has,
+// and how long it plays. A delay of 0 or 1 (hundredths of a second) plays as 100 ms, as in
 // Chrome and Firefox. A GIF that would take more than maxDecoded is not
 // decoded: the error wraps errTooLarge.
-func gifFrames(data []byte, n int) (frames [][]byte, count int, total time.Duration, err error) {
+func gifFrames(data []byte, n int, encode frameEncoder) (frames [][]byte, count int, total time.Duration, err error) {
 	size, err := gifDecoded(data)
 	if err != nil {
 		return nil, 0, 0, fmt.Errorf("decode gif: %w", err)
@@ -166,11 +220,11 @@ func gifFrames(data []byte, n int) (frames [][]byte, count int, total time.Durat
 		}
 		draw.Draw(canvas, frame.Bounds(), frame, frame.Bounds().Min, draw.Over)
 		if want[i] {
-			var b bytes.Buffer
-			if err := png.Encode(&b, canvas); err != nil {
+			f, err := encode(canvas)
+			if err != nil {
 				return nil, 0, 0, fmt.Errorf("encode frame %d: %w", i, err)
 			}
-			frames = append(frames, b.Bytes())
+			frames = append(frames, f)
 		}
 		switch disposal {
 		case gif.DisposalBackground:

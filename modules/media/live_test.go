@@ -51,9 +51,10 @@ func TestLiveDescribe(t *testing.T) {
 	}
 
 	still := h.image("https://live/still", pngOf(t, color.RGBA{255, 0, 0, 255}))
+	// A dot moving down the diagonal, a frame for each of animationFrames.
 	var frames []gifFrame
-	for x := range 4 {
-		frames = append(frames, gifFrame{at: image.Pt(x, x), c: color.RGBA{0, 0, 255, 255}, delay: 20})
+	for x := range animationFrames {
+		frames = append(frames, gifFrame{at: image.Pt(x%4, x%4), c: color.RGBA{0, 0, 255, 255}, delay: 20})
 	}
 	frames[0] = gifFrame{full: true, c: color.White, delay: 20}
 	animated := h.image("https://live/anim", gifOf(t, frames))
@@ -68,5 +69,19 @@ func TestLiveDescribe(t *testing.T) {
 			t.Fatalf("%s: Lookup = %+v, %v, %v; records %v", md.Source.URL, d, ok, err, h.host.kinds())
 		}
 		t.Logf("%s: %s %q, text %q", md.Source.URL, d.Kind, d.Summary, d.Text)
+	}
+	// The animation went as a video the model saw every frame of: at 64
+	// tokens a frame, seen at a frame a second, past them in all, while a
+	// video at its own speed would be one or two frames.
+	h.host.mu.Lock()
+	defer h.host.mu.Unlock()
+	for _, r := range h.host.records {
+		if p, _ := r.Payload.(map[string]any); r.Kind == "media.described" && p["frames"] != nil {
+			in, _ := p["input_tokens"].(int)
+			if in < animationFrames*64 || in > animationFrames*64+600 {
+				t.Fatalf("the animation took %d input tokens, want %d for its frames and some for the text", in, animationFrames*64)
+			}
+			t.Logf("the animation took %d input tokens", in)
+		}
 	}
 }
